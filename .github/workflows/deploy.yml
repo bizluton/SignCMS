@@ -4,116 +4,25 @@ on:
   push:
     branches: [master]
     tags:     ['v*.*.*']
-  pull_request:
-    branches: [master]
   workflow_dispatch:
     inputs:
       target:
-        description: '重新部署哪個環境'
+        description: '部署目標'
         required: true
         type: choice
         options: [staging, production]
         default: staging
-      image_tag:
-        description: 'Image tag（留空用最新）'
-        required: false
-
-env:
-  IMAGE:    ghcr.io/${{ github.repository_owner }}/signcms-bff
-  NODE_VER: '20'
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
-
-  test:
-    name: Test
-    if: False
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VER }}
-          cache: npm
-          cache-dependency-path: signcms-bff/package-lock.json
-      - run: npm ci
-        working-directory: signcms-bff
-      - run: npm run typecheck
-        working-directory: signcms-bff
-      - run: npm test -- --reporter=verbose
-        working-directory: signcms-bff
-        env:
-          SUPABASE_URL:              https://test.supabase.co
-          SUPABASE_ANON_KEY:         test-anon-key
-          SUPABASE_SERVICE_ROLE_KEY: test-service-key
-          SUPABASE_JWT_SECRET:       test-jwt-secret-32-chars!!
-
-  build:
-    name: Build & Push
-    if: false
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name != 'pull_request' && github.event_name != 'workflow_dispatch'
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      tag: ${{ steps.tag.outputs.tag }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: 決定 image tag
-        id: tag
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            TAG="${GITHUB_REF#refs/tags/v}"
-          else
-            TAG="sha-${GITHUB_SHA::7}"
-          fi
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v5
-        with:
-          context:   signcms-bff
-          platforms: linux/amd64,linux/arm64
-          push:      true
-          tags: |
-            ${{ env.IMAGE }}:${{ steps.tag.outputs.tag }}
-            ${{ env.IMAGE }}:${{ startsWith(github.ref,'refs/tags/') && 'latest' || 'edge' }}
-          cache-from: type=gha
-          cache-to:   type=gha,mode=max
 
   deploy-staging:
     name: "Deploy → Staging"
     runs-on: ubuntu-latest
-    needs: []
-    if: |
-      always() && needs.test.result == 'success' &&
-      github.event_name != 'pull_request' &&
-      (
-        github.event_name == 'push' ||
-        (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
-      )
+    if: >
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'staging')
     environment: staging
-      
     steps:
-      - name: 決定 tag
-        id: t
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            TAG="${{ inputs.image_tag || 'edge' }}"
-          else
-            TAG="${{ needs.build.outputs.tag }}"
-          fi
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
       - name: 更新 Staging .env
         uses: appleboy/ssh-action@v1
         with:
@@ -136,8 +45,10 @@ jobs:
             update_env SUPABASE_SERVICE_ROLE_KEY "${{ secrets.STAGING_SUPABASE_SERVICE_KEY }}"
             update_env SUPABASE_JWT_SECRET       "${{ secrets.STAGING_SUPABASE_JWT_SECRET }}"
             update_env ANTHROPIC_API_KEY         "${{ secrets.ANTHROPIC_API_KEY }}"
-            update_env BFF_PUBLIC_URL            "https://${{ secrets.STAGING_DOMAIN }}"
-            update_env FRONTEND_ORIGIN           "https://${{ secrets.STAGING_DOMAIN }}"
+            update_env BFF_PUBLIC_URL            "https://staging.signcms.net"
+            update_env FRONTEND_ORIGIN           "https://staging.signcms.net"
+            echo "env updated"
+
       - name: 部署 Staging
         uses: appleboy/ssh-action@v1
         with:
@@ -146,43 +57,16 @@ jobs:
           key:      ${{ secrets.SERVER_SSH_KEY }}
           port:     ${{ secrets.SERVER_PORT || 22 }}
           script: |
-            bash /opt/signcms/staging/scripts/deploy.sh "${{ steps.t.outputs.tag }}"
-      - name: Health check
-        run: |
-          sleep 10
-          for i in $(seq 1 15); do
-            CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
-              https://${{ secrets.STAGING_DOMAIN }}/health 2>/dev/null || echo 0)
-            [[ "$CODE" == "200" ]] && { echo "✅ Staging OK"; exit 0; }
-            echo "  ${i}/15 status=${CODE}..."
-            sleep 5
-          done
-          echo "❌ Staging health check 失敗"; exit 1
+            bash /opt/signcms/staging/scripts/deploy.sh "edge"
 
   deploy-production:
     name: "Deploy → Production"
     runs-on: ubuntu-latest
-    needs: [test, build, deploy-staging]
-    if: |
-      always() &&
-      needs.test.result == 'success' &&
-      needs.deploy-staging.result == 'success' &&
-      (
-        startsWith(github.ref, 'refs/tags/v') ||
-        (github.event_name == 'workflow_dispatch' && inputs.target == 'production')
-      )
+    if: >
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.target == 'production')
     environment: production
-
     steps:
-      - name: 決定 tag
-        id: t
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            TAG="${{ inputs.image_tag || 'latest' }}"
-          else
-            TAG="${{ needs.build.outputs.tag }}"
-          fi
-          echo "tag=${TAG}" >> $GITHUB_OUTPUT
       - name: 更新 Production .env
         uses: appleboy/ssh-action@v1
         with:
@@ -205,8 +89,10 @@ jobs:
             update_env SUPABASE_SERVICE_ROLE_KEY "${{ secrets.PRODUCTION_SUPABASE_SERVICE_KEY }}"
             update_env SUPABASE_JWT_SECRET       "${{ secrets.PRODUCTION_SUPABASE_JWT_SECRET }}"
             update_env ANTHROPIC_API_KEY         "${{ secrets.ANTHROPIC_API_KEY }}"
-            update_env BFF_PUBLIC_URL            "https://${{ secrets.PRODUCTION_DOMAIN }}"
-            update_env FRONTEND_ORIGIN           "https://${{ secrets.PRODUCTION_DOMAIN }}"
+            update_env BFF_PUBLIC_URL            "https://cms.signcms.net"
+            update_env FRONTEND_ORIGIN           "https://cms.signcms.net"
+            echo "env updated"
+
       - name: 部署 Production
         uses: appleboy/ssh-action@v1
         with:
@@ -215,21 +101,4 @@ jobs:
           key:      ${{ secrets.SERVER_SSH_KEY }}
           port:     ${{ secrets.SERVER_PORT || 22 }}
           script: |
-            bash /opt/signcms/production/scripts/deploy.sh "${{ steps.t.outputs.tag }}"
-      - name: Health check
-        run: |
-          sleep 15
-          for i in $(seq 1 15); do
-            CODE=$(curl -sf -o /dev/null -w "%{http_code}" \
-              https://${{ secrets.PRODUCTION_DOMAIN }}/health 2>/dev/null || echo 0)
-            [[ "$CODE" == "200" ]] && { echo "✅ Production OK"; exit 0; }
-            echo "  ${i}/15 status=${CODE}..."
-            sleep 5
-          done
-          echo "❌ Production health check 失敗"; exit 1
-      - name: 建立 GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v1
-        with:
-          name: "SignCMS v${{ steps.t.outputs.tag }}"
-          generate_release_notes: true
+            bash /opt/signcms/production/scripts/deploy.sh "latest"
