@@ -1,0 +1,208 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 98%;
+    --foreground: 220 20% 14%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 220 20% 14%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 20% 14%;
+
+    --primary: 168 60% 40%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 96%;
+    --secondary-foreground: 220 20% 14%;
+
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 10% 50%;
+
+    --accent: 220 14% 93%;
+    --accent-foreground: 220 20% 14%;
+
+    --destructive: 0 72% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 14% 92%;
+    --input: 220 14% 92%;
+    --ring: 168 60% 40%;
+
+    --radius: 0.75rem;
+
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 220 10% 40%;
+    --sidebar-primary: 168 60% 40%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 168 50% 96%;
+    --sidebar-accent-foreground: 168 60% 30%;
+    --sidebar-border: 220 14% 94%;
+    --sidebar-ring: 168 60% 40%;
+
+    --success: 152 60% 42%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 100%;
+  }
+
+  .dark {
+    --background: 222 22% 6%;
+    --foreground: 210 20% 90%;
+    --card: 222 20% 9%;
+    --card-foreground: 210 20% 90%;
+    --popover: 222 20% 9%;
+    --popover-foreground: 210 20% 90%;
+    --primary: 168 55% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 222 16% 14%;
+    --secondary-foreground: 210 15% 85%;
+    --muted: 222 16% 14%;
+    --muted-foreground: 215 12% 50%;
+    --accent: 222 14% 16%;
+    --accent-foreground: 210 15% 85%;
+    --destructive: 0 60% 45%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 222 14% 14%;
+    --input: 222 14% 16%;
+    --ring: 168 55% 42%;
+    --sidebar-background: 222 22% 7%;
+    --sidebar-foreground: 215 12% 60%;
+    --sidebar-primary: 168 55% 42%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 222 16% 12%;
+    --sidebar-accent-foreground: 210 15% 85%;
+    --sidebar-border: 222 14% 12%;
+    --sidebar-ring: 168 55% 42%;
+    --success: 152 50% 38%;
+    --success-foreground: 0 0% 100%;
+    --warning: 38 80% 50%;
+    --warning-foreground: 0 0% 100%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  .hover-lift {
+    @apply transition-all duration-200 ease-out;
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px -8px hsl(var(--foreground) / 0.1);
+  }
+  .stagger-1 { animation-delay: 0.05s; }
+  .stagger-2 { animation-delay: 0.1s; }
+  .stagger-3 { animation-delay: 0.15s; }
+  .stagger-4 { animation-delay: 0.2s; }
+  .stagger-5 { animation-delay: 0.25s; }
+  .stagger-6 { animation-delay: 0.3s; }
+  .stagger-7 { animation-delay: 0.35s; }
+  .stagger-8 { animation-delay: 0.4s; }
+}
+
+@keyframes marquee {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+.animate-marquee {
+  animation: marquee 15s linear infinite;
+}
+
+@keyframes widgetFadeIn {
+  0% { opacity: 0; }
+  100% { opacity: 1; }
+}
+@keyframes widgetSlideUp {
+  0% { opacity: 0; transform: translateY(40px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+@keyframes widgetBounce {
+  0% { opacity: 0; transform: scale(0.3); }
+  50% { opacity: 1; transform: scale(1.08); }
+  70% { transform: scale(0.95); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes widgetZoomIn {
+  0% { opacity: 0; transform: scale(0.5); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes widgetFlipIn {
+  0% { opacity: 0; transform: perspective(400px) rotateY(90deg); }
+  40% { opacity: 1; transform: perspective(400px) rotateY(-10deg); }
+  70% { transform: perspective(400px) rotateY(5deg); }
+  100% { opacity: 1; transform: perspective(400px) rotateY(0deg); }
+}
+
+/* ──────────────────────────────────────────────────────────────────
+ * Reduced-motion support
+ *
+ * Honours the user's OS-level "Reduce motion" preference. Movement
+ * (translate / scale / rotate) is removed; opacity transitions are
+ * kept short so state changes still feel intentional rather than
+ * snapping abruptly.
+ * ────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    /* Collapse long / looping animations and transforms; keep a short
+       opacity transition for soft state changes. */
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 120ms !important;
+    transition-property: opacity, color, background-color, border-color,
+      fill, stroke, box-shadow !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Replace transform-heavy keyframes with a plain fade so elements
+     appear without sliding, scaling, or rotating. */
+  .animate-fade-in,
+  .animate-fade-out,
+  .animate-scale-in,
+  .animate-slide-in-right,
+  .animate-slide-up,
+  .animate-count-up,
+  .animate-enter,
+  .animate-studio-tab-pop,
+  .animate-studio-indicator-grow {
+    animation: rm-soft-fade 200ms ease-out forwards !important;
+    transform: none !important;
+  }
+
+  /* The looping glow on the active studio zone becomes a static ring +
+     soft halo — still clearly highlighted, no pulsing. */
+  .animate-studio-active-pulse {
+    animation: none !important;
+    box-shadow:
+      0 0 0 2px hsl(var(--background)),
+      0 0 0 3px hsl(var(--primary)),
+      0 0 10px 1px hsl(var(--primary) / 0.4) !important;
+  }
+
+  /* Marquees and widget intros shouldn't move under reduced motion. */
+  .animate-marquee {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+
+@keyframes rm-soft-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
