@@ -1,0 +1,37 @@
+# <type>(<scope>): <subject>
+#
+# ── 範例 ───────────────────────────────────────────────────────────
+#   feat(auth): add google oauth login
+#   fix(media): correct video thumbnail aspect ratio
+#   docs(readme): add commit convention section
+#   chore(deps): bump vite to 5.4.10
+# ────────────────────────────────────────────────────────────────────
+#
+# type（必填，擇一）:
+#   feat     ✨ 新功能（SemVer minor）
+#   fix      🐛 修 bug（SemVer patch）
+#   docs     📝 只改文件
+#   style    💄 格式調整（不影響邏輯）
+#   refactor ♻️  重構
+#   perf     ⚡ 效能優化
+#   test     ✅ 測試
+#   build    📦 建置 / 相依套件
+#   ci       👷 CI 設定
+#   chore    🔧 雜項
+#   revert   ⏪ 還原
+#
+# scope（選填，僅能用以下值，定義於 .commit-scopes.cjs）:
+#   auth, media, screens, schedules, publishing, content-studio,
+#   knowledge, cs, admin, iot, i18n, ui, db, edge-fn, ci, deps, docs
+#
+# subject（必填）：
+#   - 8–72 字、祈使句、英文小寫開頭、結尾不加句號
+#
+# ── body（選填，與主旨間空一行；每行 ≤ 100 字）─────────────────────
+
+
+# ── footer（選填，BREAKING CHANGE / issue 關聯，每行 ≤ 100 字）──────
+# BREAKING CHANGE: <說明>
+# Refs: #123, #456
+#
+# 💡 不熟規範？直接跑：npm run commit （中文化互動式選單）

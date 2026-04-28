@@ -1,0 +1,57 @@
+name: PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  pull-requests: read
+  contents: read
+
+jobs:
+  semantic-pr-title:
+    name: Validate PR title (Conventional Commits)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 從 .commit-scopes.cjs 動態載入 scope 清單，確保與 commitlint / cz-customizable 同步
+      - name: Load scope list from .commit-scopes.cjs
+        id: scopes
+        run: |
+          SCOPES=$(node -e "console.log(require('./.commit-scopes.cjs').scopeNames.join('\n'))")
+          {
+            echo 'list<<EOF'
+            echo "$SCOPES"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check PR title
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # 與 commitlint.config.cjs (config-conventional) + .cz-config.cjs 對齊
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+          # scope 來源：.commit-scopes.cjs（單一來源）
+          scopes: ${{ steps.scopes.outputs.list }}
+          requireScope: false
+          # 主旨開頭小寫（與 commitlint 預設 subject-case 一致）
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            PR 標題的主旨 "{subject}" 不符合規範：開頭請用小寫英文。
+            正確範例：feat(auth): add google login
+          # WIP / Draft PR 跳過檢查
+          wip: true
+          validateSingleCommit: false

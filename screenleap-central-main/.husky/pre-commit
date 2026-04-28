@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# Husky pre-commit hook — managed by `npm install` via the `prepare` script.
+#
+# Runs:
+#   1. lint-staged   — eslint --fix + vitest related (only on staged *.ts/tsx)
+#   2. lint:activity-log / lint:screen-log — full-project structured-log scans
+#
+# Skip in an emergency:  git commit --no-verify
+
+set -e
+
+npx lint-staged
+npm run lint:activity-log
+npm run lint:screen-log
