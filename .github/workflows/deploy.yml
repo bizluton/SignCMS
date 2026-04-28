@@ -24,9 +24,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
 
       - name: Install dependencies
         run: npm install --legacy-peer-deps
@@ -89,7 +86,7 @@ jobs:
             mkdir -p /var/www/signcms-staging
             echo "env updated"
 
-      - name: 部署前端到 Staging
+      - name: 部署前端
         uses: appleboy/scp-action@v0.1.7
         with:
           host:     ${{ secrets.SERVER_HOST }}
@@ -153,7 +150,7 @@ jobs:
             mkdir -p /var/www/signcms-production
             echo "env updated"
 
-      - name: 部署前端到 Production
+      - name: 部署前端
         uses: appleboy/scp-action@v0.1.7
         with:
           host:     ${{ secrets.SERVER_HOST }}
