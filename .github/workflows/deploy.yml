@@ -62,10 +62,10 @@ jobs:
       - name: 更新 Staging .env
         uses: appleboy/ssh-action@v1
         with:
-          host:     ${{ secrets.SERVER_HOST }}
+          host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
-          key:      ${{ secrets.SERVER_SSH_KEY }}
-          port:     ${{ secrets.SERVER_PORT || 22 }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
             ENV_FILE="/opt/signcms/staging/config/.env"
             update_env() {
@@ -89,59 +89,29 @@ jobs:
       - name: 部署前端
         uses: appleboy/scp-action@v0.1.7
         with:
-          host:     ${{ secrets.SERVER_HOST }}
+          host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
-          key:      ${{ secrets.SERVER_SSH_KEY }}
-          port:     ${{ secrets.SERVER_PORT || 22 }}
-          source:   "dist/*"
-          target:   "/var/www/signcms-staging"
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          source: "dist/*"
+          target: "/var/www/signcms-staging"
           strip_components: 1
 
-      - name: 部署 BFF
+      - name: 部署 BFF 與設定 Nginx
         uses: appleboy/ssh-action@v1
         with:
-          host:     ${{ secrets.SERVER_HOST }}
+          host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
-          key:      ${{ secrets.SERVER_SSH_KEY }}
-          port:     ${{ secrets.SERVER_PORT || 22 }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
             bash /opt/signcms/staging/scripts/deploy.sh "edge"
-            echo "✅ 完成"
-- name: 設定 Nginx SPA 路由
-        uses: appleboy/ssh-action@v1
-        with:
-          host:     ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key:      ${{ secrets.SERVER_SSH_KEY }}
-          port:     ${{ secrets.SERVER_PORT || 22 }}
-          script: |
-            cat > /etc/nginx/sites-available/signcms-staging << 'NGINX'
-server {
-    listen 80;
-    server_name staging.signcms.net;
-    root /var/www/signcms-staging;
-    index index.html;
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-    location /api/ {
-        proxy_pass http://127.0.0.1:3001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_buffering off;
-    }
-    location /health {
-        proxy_pass http://127.0.0.1:3001/health;
-        access_log off;
-    }
-}
-NGINX
-            ln -sf /etc/nginx/sites-available/signcms-staging \
-                   /etc/nginx/sites-enabled/signcms-staging
+            printf 'server {\n    listen 80;\n    server_name staging.signcms.net;\n    root /var/www/signcms-staging;\n    index index.html;\n    location / {\n        try_files $uri $uri/ /index.html;\n    }\n    location /api/ {\n        proxy_pass http://127.0.0.1:3001;\n        proxy_set_header Host $host;\n        proxy_buffering off;\n    }\n    location /health {\n        proxy_pass http://127.0.0.1:3001/health;\n    }\n}\n' > /etc/nginx/sites-available/signcms-staging
+            ln -sf /etc/nginx/sites-available/signcms-staging /etc/nginx/sites-enabled/signcms-staging
             rm -f /etc/nginx/sites-enabled/default
             nginx -t && systemctl reload nginx
-            echo "✅ Nginx 設定完成"
-            
+            echo "✅ 完成"
+
   deploy-production:
     name: "Deploy → Production"
     runs-on: ubuntu-latest
@@ -160,10 +130,10 @@ NGINX
       - name: 更新 Production .env
         uses: appleboy/ssh-action@v1
         with:
-          host:     ${{ secrets.SERVER_HOST }}
+          host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
-          key:      ${{ secrets.SERVER_SSH_KEY }}
-          port:     ${{ secrets.SERVER_PORT || 22 }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
             ENV_FILE="/opt/signcms/production/config/.env"
             update_env() {
@@ -187,21 +157,21 @@ NGINX
       - name: 部署前端
         uses: appleboy/scp-action@v0.1.7
         with:
-          host:     ${{ secrets.SERVER_HOST }}
+          host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
-          key:      ${{ secrets.SERVER_SSH_KEY }}
-          port:     ${{ secrets.SERVER_PORT || 22 }}
-          source:   "dist/*"
-          target:   "/var/www/signcms-production"
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
+          source: "dist/*"
+          target: "/var/www/signcms-production"
           strip_components: 1
 
       - name: 部署 BFF
         uses: appleboy/ssh-action@v1
         with:
-          host:     ${{ secrets.SERVER_HOST }}
+          host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
-          key:      ${{ secrets.SERVER_SSH_KEY }}
-          port:     ${{ secrets.SERVER_PORT || 22 }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
             bash /opt/signcms/production/scripts/deploy.sh "latest"
             echo "✅ 完成"
