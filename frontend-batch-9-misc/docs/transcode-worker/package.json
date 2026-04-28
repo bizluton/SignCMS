@@ -1,0 +1,22 @@
+{
+  "name": "signcms-transcode-worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SignCMS 自架 ffmpeg 轉檔 worker (Node.js + Express)",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "p-queue": "^8.0.1",
+    "pino": "^9.3.2",
+    "pino-http": "^10.2.0",
+    "prom-client": "^15.1.3"
+  }
+}
