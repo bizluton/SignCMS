@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS media_items_org_created_idx ON public.media_items (org_id, created_at DESC);

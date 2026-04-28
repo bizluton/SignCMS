@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS team_members_user_id_idx ON public.team_members (user_id);

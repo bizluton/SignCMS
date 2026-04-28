@@ -1,0 +1,2 @@
+DELETE FROM public.screens WHERE org_id = '1e7ec00c-500a-4761-ae68-ee68576a8593' AND name = 'TEST_LIMIT_3';
+UPDATE public.organizations SET plan_tier = 'evaluation' WHERE id = '1e7ec00c-500a-4761-ae68-ee68576a8593';

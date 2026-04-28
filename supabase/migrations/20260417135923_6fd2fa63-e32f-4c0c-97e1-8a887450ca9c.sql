@@ -1,0 +1,1 @@
+UPDATE public.organizations SET plan_tier = 'starter' WHERE id = '1e7ec00c-500a-4761-ae68-ee68576a8593';

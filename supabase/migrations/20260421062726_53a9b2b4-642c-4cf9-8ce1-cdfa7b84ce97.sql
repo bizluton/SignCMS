@@ -1,0 +1,2 @@
+ALTER TABLE public.design_projects ADD COLUMN IF NOT EXISTS team_id uuid REFERENCES public.teams(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_design_projects_team_id ON public.design_projects(team_id);
