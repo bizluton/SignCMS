@@ -1,0 +1,446 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
+
+/**
+ * DesignStage — faithful renderer for a `design_project` saved by Content Studio.
+ *
+ * Reads the project's `zones` JSONB (which mixes `_meta`, regular zone entries,
+ * and `_overlay` entries) and reproduces the multi-zone layout used in the
+ * editor. All assets are resolved via a `resolveMediaUrl` callback so the
+ * Local Player can swap real DB URLs for offline blob URLs out of the bundle.
+ *
+ * Zones are absolutely positioned in % of the canvas; overlays are positioned
+ * in px relative to the canvas resolution. The whole canvas scales to fit
+ * its container while preserving aspect ratio.
+ */
+
+interface MediaItem {
+  id: string;
+  type: "image" | "video" | "widget";
+  url?: string;
+  name?: string;
+  duration?: number;
+  widgetConfig?: any;
+  muted?: boolean;
+  volume?: number;
+}
+
+interface ZoneContent {
+  type: "text" | "media" | "color" | "widget";
+  value?: string;
+  bgColor?: string;
+  fontSize?: number;
+  textColor?: string;
+  textAlign?: "left" | "center" | "right";
+  mediaItems?: MediaItem[];
+  carouselInterval?: number;
+  carouselTransition?: "fade" | "slide" | "zoom" | "none";
+  widgetId?: string;
+  widgetName?: string;
+  widgetConfig?: any;
+  fitMode?: "cover-x" | "cover-y" | "contain" | "stretch";
+}
+
+interface Zone {
+  id: string;
+  x: number; y: number; w: number; h: number;
+  label?: string;
+  content?: ZoneContent;
+}
+
+interface OverlayBlock {
+  id: string;
+  x: number; y: number; w: number; h: number;
+  opacity?: number;
+  zIndex?: number;
+  content?: ZoneContent;
+}
+
+export interface DesignProjectShape {
+  id: string;
+  name?: string;
+  aspect?: string;
+  zones?: any[]; // raw mixed array straight from DB
+}
+
+export interface DesignStageProps {
+  project: DesignProjectShape;
+  /** Resolve a media UUID → playable URL (blob URL from bundle, or fallback). */
+  resolveMediaUrl: (mediaId: string) => string | null;
+  /** Whether videos should be muted (kiosk autoplay). */
+  muted: boolean;
+  /** Whether to play. When false, all videos pause. */
+  playing: boolean;
+}
+
+/** Pull canvas resolution out of the embedded `_meta` zone (set on save). */
+function readMeta(zonesRaw: any[] | undefined): { w: number; h: number } {
+  const fallback = { w: 1920, h: 1080 };
+  if (!Array.isArray(zonesRaw)) return fallback;
+  const meta = zonesRaw.find((z: any) => z && z._meta && z.resolution);
+  const r = meta?.resolution;
+  if (r?.width && r?.height) return { w: Number(r.width), h: Number(r.height) };
+  return fallback;
+}
+
+function splitZones(zonesRaw: any[] | undefined): { zones: Zone[]; overlays: OverlayBlock[] } {
+  if (!Array.isArray(zonesRaw)) return { zones: [], overlays: [] };
+  const zones: Zone[] = [];
+  const overlays: OverlayBlock[] = [];
+  for (const z of zonesRaw) {
+    if (!z || z._meta) continue;
+    if (z._overlay) {
+      const { _overlay, ...rest } = z;
+      overlays.push(rest as OverlayBlock);
+    } else {
+      zones.push(z as Zone);
+    }
+  }
+  return { zones, overlays };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Render one widget (clock, date, marquee, qrcode, countdown, webpage, weather). */
+export function WidgetRender({ config }: { config: any }) {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    if (!config) return;
+    const wt = config.widgetType;
+    if (wt === "clock" || wt === "date" || wt === "countdown") {
+      const id = window.setInterval(() => setNow(new Date()), 1000);
+      return () => window.clearInterval(id);
+    }
+  }, [config?.widgetType]);
+
+  if (!config) return null;
+  const bg = config.bgColor || "transparent";
+  const fg = config.textColor || "#ffffff";
+
+  if (config.widgetType === "clock") {
+    const tz = config.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const opts: Intl.DateTimeFormatOptions = {
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+      hour12: config.format === "12", timeZone: tz,
+    };
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center" style={{ background: bg, color: fg }}>
+        <span className="font-mono font-bold tracking-wider text-[8vmin]">
+          {now.toLocaleTimeString("en-US", opts)}
+        </span>
+        {config.showDate && (
+          <span className="opacity-70 text-[3vmin] mt-1">
+            {now.toLocaleDateString("zh-TW", { month: "long", day: "numeric", weekday: "long", timeZone: tz })}
+          </span>
+        )}
+      </div>
+    );
+  }
+
+  if (config.widgetType === "date") {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center" style={{ background: bg, color: fg }}>
+        <span className="opacity-70 text-[3vmin]">{now.toLocaleDateString("zh-TW", { weekday: "long" })}</span>
+        <span className="font-bold text-[5vmin]">
+          {now.toLocaleDateString("zh-TW", { year: "numeric", month: "long", day: "numeric" })}
+        </span>
+      </div>
+    );
+  }
+
+  if (config.widgetType === "marquee" && config.text) {
+    return (
+      <div className="w-full h-full flex items-center overflow-hidden" style={{ background: bg, color: fg }}>
+        <div className="animate-marquee whitespace-nowrap font-medium text-[4vmin]">{config.text}</div>
+      </div>
+    );
+  }
+
+  if (config.widgetType === "qrcode") {
+    return (
+      <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
+        <QRCodeSVG
+          value={config.qrcodeContent || "https://example.com"}
+          size={Math.min(config.qrcodeSize || 256, 512)}
+          bgColor={bg === "transparent" ? "#ffffff" : bg}
+          fgColor={fg}
+          level="M"
+        />
+      </div>
+    );
+  }
+
+  if (config.widgetType === "countdown") {
+    const target = config.targetDate ? new Date(config.targetDate).getTime() : Date.now() + 86400000;
+    const diff = Math.max(0, target - now.getTime());
+    const d = Math.floor(diff / 86400000);
+    const h = Math.floor((diff % 86400000) / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center" style={{ background: bg, color: fg }}>
+        {config.countdownTitle && (
+          <span className="font-bold opacity-80 text-[3vmin] mb-2">{config.countdownTitle}</span>
+        )}
+        <div className="flex gap-3 font-mono font-bold text-[6vmin]">
+          {[d, h, m, s].map((v, i) => (
+            <span key={i}>{String(v).padStart(2, "0")}</span>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (config.widgetType === "webpage" && config.url) {
+    return (
+      <iframe
+        title="webpage-widget"
+        src={config.url}
+        className="w-full h-full border-0"
+        sandbox="allow-scripts allow-same-origin allow-popups"
+      />
+    );
+  }
+
+  if (config.widgetType === "youtube" && config.youtubeId) {
+    const src = `https://www.youtube-nocookie.com/embed/${config.youtubeId}?autoplay=1&mute=1&loop=1&playlist=${config.youtubeId}&controls=0`;
+    return <iframe title="youtube-widget" src={src} className="w-full h-full border-0" allow="autoplay; encrypted-media" />;
+  }
+
+  // Unknown widget — render label.
+  return (
+    <div className="w-full h-full flex items-center justify-center text-[3vmin] opacity-60" style={{ background: bg, color: fg }}>
+      {config.widgetType || "widget"}
+    </div>
+  );
+}
+
+/** Per-zone playlist renderer. Cycles through mediaItems by their `duration`. */
+function MediaCarousel({
+  items,
+  resolveMediaUrl,
+  muted,
+  playing,
+  fitMode = "contain",
+}: {
+  items: MediaItem[];
+  resolveMediaUrl: (id: string) => string | null;
+  muted: boolean;
+  playing: boolean;
+  fitMode?: "cover-x" | "cover-y" | "contain" | "stretch";
+}) {
+  const [idx, setIdx] = useState(0);
+  const timerRef = useRef<number | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const safeItems = useMemo(() => items.filter(Boolean), [items]);
+  const cur = safeItems[idx % Math.max(safeItems.length, 1)];
+
+  // Resolve URL for current media item.
+  const url = useMemo<string | null>(() => {
+    if (!cur) return null;
+    if (cur.type === "widget") return null;
+    // Prefer bundle blob URL by id; fall back to embedded url (data:/http for online preview).
+    if (cur.id && UUID_RE.test(String(cur.id))) {
+      const resolved = resolveMediaUrl(String(cur.id));
+      if (resolved) return resolved;
+    }
+    return cur.url || null;
+  }, [cur, resolveMediaUrl]);
+
+  // Schedule the next slide based on item duration (default 10s for images).
+  useEffect(() => {
+    if (!playing || !cur || safeItems.length <= 1) return;
+    if (cur.type === "video") return; // video advances on `ended`
+    const ms = Math.max(1, cur.duration || 10) * 1000;
+    if (timerRef.current) window.clearTimeout(timerRef.current);
+    timerRef.current = window.setTimeout(() => {
+      setIdx((i) => (i + 1) % safeItems.length);
+    }, ms);
+    return () => {
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+    };
+  }, [playing, cur, safeItems.length, idx]);
+
+  // Pause/resume video on `playing` toggle.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (playing) v.play().catch(() => { /* gesture required */ });
+    else { try { v.pause(); } catch { /* noop */ } }
+  }, [playing, url]);
+
+  if (safeItems.length === 0) return null;
+  if (!cur) return null;
+
+  // Tailwind object-fit class from saved fitMode.
+  const fitClass =
+    fitMode === "cover-x" || fitMode === "cover-y" ? "object-cover"
+    : fitMode === "stretch" ? "object-fill"
+    : "object-contain";
+
+  if (cur.type === "widget") {
+    return <WidgetRender config={cur.widgetConfig} />;
+  }
+  if (!url) {
+    return (
+      <div className="w-full h-full flex items-center justify-center text-white/60 text-xs bg-black/40">
+        ✗ missing asset — {cur.name || cur.id}
+      </div>
+    );
+  }
+  if (cur.type === "video") {
+    return (
+      <video
+        ref={videoRef}
+        key={url}
+        src={url}
+        autoPlay={playing}
+        muted={muted || cur.muted}
+        playsInline
+        className={`w-full h-full ${fitClass}`}
+        onEnded={() => setIdx((i) => (i + 1) % safeItems.length)}
+      />
+    );
+  }
+  // image
+  return <img src={url} alt={cur.name || ""} className={`w-full h-full ${fitClass}`} />;
+}
+
+/** Render a single zone or overlay's content (color/text/media/widget). */
+function ZoneContentRender({
+  content,
+  resolveMediaUrl,
+  muted,
+  playing,
+}: {
+  content?: ZoneContent;
+  resolveMediaUrl: (id: string) => string | null;
+  muted: boolean;
+  playing: boolean;
+}) {
+  if (!content) return <div className="w-full h-full" style={{ background: "transparent" }} />;
+
+  if (content.type === "color") {
+    return <div className="w-full h-full" style={{ background: content.bgColor || content.value || "#000" }} />;
+  }
+  if (content.type === "text") {
+    return (
+      <div
+        className="w-full h-full flex items-center"
+        style={{
+          background: content.bgColor || "transparent",
+          color: content.textColor || "#fff",
+          fontSize: content.fontSize ? `${content.fontSize}px` : undefined,
+          justifyContent: content.textAlign === "right" ? "flex-end"
+            : content.textAlign === "center" ? "center" : "flex-start",
+          padding: "0.5em 1em",
+        }}
+      >
+        <div className="whitespace-pre-wrap">{content.value || ""}</div>
+      </div>
+    );
+  }
+  if (content.type === "widget") {
+    // Legacy single-widget zone.
+    return <WidgetRender config={content.widgetConfig} />;
+  }
+  if (content.type === "media") {
+    const items = content.mediaItems || [];
+    return (
+      <div className="w-full h-full" style={{ background: content.bgColor || "#000" }}>
+        <MediaCarousel
+          items={items}
+          resolveMediaUrl={resolveMediaUrl}
+          muted={muted}
+          playing={playing}
+          fitMode={content.fitMode}
+        />
+      </div>
+    );
+  }
+  return null;
+}
+
+export function DesignStage({ project, resolveMediaUrl, muted, playing }: DesignStageProps) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const [scale, setScale] = useState(1);
+
+  const { w: canvasW, h: canvasH } = useMemo(() => readMeta(project.zones), [project]);
+  const { zones, overlays } = useMemo(() => splitZones(project.zones), [project]);
+
+  // Fit canvas to wrapper while preserving aspect ratio.
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const compute = () => {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return;
+      const sx = r.width / canvasW;
+      const sy = r.height / canvasH;
+      setScale(Math.max(0.01, Math.min(sx, sy)));
+    };
+    compute();
+    const ro = new ResizeObserver(compute);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [canvasW, canvasH]);
+
+  return (
+    <div ref={wrapRef} className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden">
+      <div
+        className="relative shrink-0"
+        style={{
+          width: canvasW,
+          height: canvasH,
+          transform: `scale(${scale})`,
+          transformOrigin: "center center",
+          background: "#000",
+        }}
+      >
+        {/* Zones (% positioning) */}
+        {zones.map((z) => (
+          <div
+            key={`z-${z.id}`}
+            className="absolute overflow-hidden"
+            style={{
+              left: `${z.x}%`,
+              top: `${z.y}%`,
+              width: `${z.w}%`,
+              height: `${z.h}%`,
+            }}
+          >
+            <ZoneContentRender
+              content={z.content}
+              resolveMediaUrl={resolveMediaUrl}
+              muted={muted}
+              playing={playing}
+            />
+          </div>
+        ))}
+        {/* Overlays (px positioning relative to canvas) */}
+        {overlays.map((o) => (
+          <div
+            key={`o-${o.id}`}
+            className="absolute overflow-hidden"
+            style={{
+              left: o.x,
+              top: o.y,
+              width: o.w,
+              height: o.h,
+              opacity: typeof o.opacity === "number" ? o.opacity / 100 : 1,
+              zIndex: typeof o.zIndex === "number" ? o.zIndex : 10,
+            }}
+          >
+            <ZoneContentRender
+              content={o.content}
+              resolveMediaUrl={resolveMediaUrl}
+              muted={muted}
+              playing={playing}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
