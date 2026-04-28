@@ -107,7 +107,41 @@ jobs:
           script: |
             bash /opt/signcms/staging/scripts/deploy.sh "edge"
             echo "✅ 完成"
-
+- name: 設定 Nginx SPA 路由
+        uses: appleboy/ssh-action@v1
+        with:
+          host:     ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key:      ${{ secrets.SERVER_SSH_KEY }}
+          port:     ${{ secrets.SERVER_PORT || 22 }}
+          script: |
+            cat > /etc/nginx/sites-available/signcms-staging << 'NGINX'
+server {
+    listen 80;
+    server_name staging.signcms.net;
+    root /var/www/signcms-staging;
+    index index.html;
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+    location /api/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_buffering off;
+    }
+    location /health {
+        proxy_pass http://127.0.0.1:3001/health;
+        access_log off;
+    }
+}
+NGINX
+            ln -sf /etc/nginx/sites-available/signcms-staging \
+                   /etc/nginx/sites-enabled/signcms-staging
+            rm -f /etc/nginx/sites-enabled/default
+            nginx -t && systemctl reload nginx
+            echo "✅ Nginx 設定完成"
+            
   deploy-production:
     name: "Deploy → Production"
     runs-on: ubuntu-latest
