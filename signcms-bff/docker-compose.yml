@@ -1,0 +1,105 @@
+# docker-compose.yml
+# 本地開發 + 整合測試環境
+#
+# 服務：
+#   redis           — BullMQ job queue
+#   bff             — SignCMS BFF API Server
+#   transcode-worker — ffmpeg Worker（取消 comment 啟用）
+#
+# 啟動全部：
+#   docker compose up
+#
+# 只啟動 redis（BFF 本地 npm run dev 模式）：
+#   docker compose up redis -d
+
+version: '3.9'
+
+services:
+
+  # ── Redis ─────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── BFF API Server ────────────────────────────────────────────
+  bff:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '3001:3001'
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: development
+      REDIS_URL: redis://redis:6379
+      # worker 在 docker network 內的位址
+      TRANSCODE_WORKER_URL: http://transcode-worker:8080
+      BFF_PUBLIC_URL: http://bff:3001
+    depends_on:
+      redis:
+        condition: service_healthy
+    # hot reload（開發用）
+    volumes:
+      - ./src:/app/src
+    command: npm run dev
+
+  # ── ffmpeg Transcode Worker ───────────────────────────────────
+  # 從專案內 docs/transcode-worker/ 目錄建立
+  # 啟用前先確認 S3 / R2 設定正確（見 .env）
+  transcode-worker:
+    build:
+      context: ./transcode-worker   # 見下方說明：需要把 docs/transcode-worker 複製到此處
+      dockerfile: Dockerfile
+    ports:
+      - '8080:8080'
+    environment:
+      PORT: 8080
+      HMAC_SECRET: ${TRANSCODE_HMAC_SECRET}
+      # S3 / R2 / MinIO 設定（從 .env 繼承）
+      S3_ENDPOINT: ${S3_ENDPOINT}
+      S3_REGION: ${S3_REGION:-auto}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      S3_KEY_PREFIX: ${S3_KEY_PREFIX:-transcoded/}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL}
+      MAX_CONCURRENT_JOBS: 2
+      CALLBACK_RETRIES: 3
+    depends_on:
+      - redis
+    profiles:
+      - with-transcode   # 預設不啟動，加 --profile with-transcode 才啟用
+
+volumes:
+  redis_data:
+
+  knowledge-manager:
+    build:
+      context: ../../knowledge-manager
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4000:4000"
+    environment:
+      PORT: 4000
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-haiku-4-5-20251001}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+    volumes:
+      - /opt/signcms/docs:/docs:ro
+    depends_on:
+      - bff
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
