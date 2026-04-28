@@ -1,0 +1,1 @@
+ALTER TABLE public.media_items ADD COLUMN design_project_id UUID REFERENCES public.design_projects(id) ON DELETE SET NULL DEFAULT NULL;

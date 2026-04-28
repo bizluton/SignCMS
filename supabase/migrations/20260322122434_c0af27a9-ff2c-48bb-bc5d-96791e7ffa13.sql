@@ -1,0 +1,1 @@
+ALTER TABLE public.media_items ADD COLUMN is_system boolean NOT NULL DEFAULT false;

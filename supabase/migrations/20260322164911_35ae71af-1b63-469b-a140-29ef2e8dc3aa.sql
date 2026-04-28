@@ -1,0 +1,1 @@
+ALTER TABLE public.screens ADD COLUMN firmware_version text NOT NULL DEFAULT '';
