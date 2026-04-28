@@ -1,0 +1,52 @@
+version: '3.9'
+# Production — Port 3000 / 4000
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: signcms-production-redis
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    restart: unless-stopped
+    volumes:
+      - /opt/signcms/production/data/redis:/data
+    healthcheck:
+      test: ["CMD","redis-cli","-a","${REDIS_PASSWORD}","ping"]
+      interval: 10s; timeout: 5s; retries: 5
+    networks: [production]
+
+  bff:
+    image: ghcr.io/bizlution/signcms-bff:${IMAGE_TAG:-latest}
+    container_name: signcms-production-bff
+    restart: unless-stopped
+    env_file: /opt/signcms/production/config/.env
+    ports: ["127.0.0.1:3000:3001"]
+    volumes: ["/opt/signcms/production/data/media:/app/media"]
+    depends_on:
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD","wget","-qO-","http://localhost:3001/health"]
+      interval: 30s; timeout: 10s; retries: 3; start_period: 30s
+    networks: [production]
+    labels: [env=production]
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+
+  knowledge-manager:
+    image: ghcr.io/bizlution/signcms-knowledge-manager:${IMAGE_TAG:-latest}
+    container_name: signcms-production-knowledge
+    restart: unless-stopped
+    environment:
+      PORT: 4000
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      CLAUDE_MODEL: ${CLAUDE_MODEL:-claude-haiku-4-5-20251001}
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+    ports: ["127.0.0.1:4000:4001"]
+    volumes: ["/opt/signcms/production/docs:/docs:ro"]
+    networks: [production]
+    depends_on: [bff]
+
+networks:
+  production:
+    name: signcms-production
