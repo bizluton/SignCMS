@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
+import { HashRouter, Route, Routes, useLocation } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -145,7 +145,7 @@ const App = () => (
         <TooltipProvider>
           <Toaster />
           <Sonner />
-          <BrowserRouter>
+          <HashRouter>
             <ThemeSync />
             <ProfilesProvider>
             <AuthProvider>
@@ -156,7 +156,7 @@ const App = () => (
               </ActiveOrgProvider>
             </AuthProvider>
             </ProfilesProvider>
-          </BrowserRouter>
+          </HashRouter>
         </TooltipProvider>
       </LanguageProvider>
     </ThemeProvider>

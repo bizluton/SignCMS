@@ -33,9 +33,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const rememberMe = localStorage.getItem("signcms_remember_me");
     const sessionActive = sessionStorage.getItem("signcms_session_active");
-    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    // With HashRouter, the path is in the hash (e.g. "#/reset-password?type=recovery&...").
+    // Strip the route prefix to recover the recovery token params, and detect reset-password by the hash path.
+    const rawHash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+    const [hashPath, hashQuery = ""] = rawHash.split("?");
+    const hashParams = new URLSearchParams(hashQuery || rawHash);
     const searchParams = new URLSearchParams(window.location.search);
-    const isResetPasswordRoute = window.location.pathname === "/reset-password";
+    const isResetPasswordRoute = hashPath === "/reset-password" || window.location.pathname === "/reset-password";
     const hasRecoveryParams = hashParams.get("type") === "recovery" || searchParams.has("code");
 
     const syncSession = (_session: Session | null) => {
