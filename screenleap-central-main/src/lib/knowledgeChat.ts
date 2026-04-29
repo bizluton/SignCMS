@@ -17,7 +17,11 @@ export async function streamKnowledgeChat({
 }) {
   try {
     const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    if (!session?.access_token) {
+      onError("請重新登入後再使用 AI 助手");
+      return;
+    }
+    const token = session.access_token;
 
     const resp = await fetch(CHAT_URL, {
       method: "POST",

@@ -28,9 +28,12 @@ export function useKnowledgeItems() {
   const [loading, setLoading] = useState(true);
 
   const fetchItems = useCallback(async () => {
+    const orgId = activeOrgId || defaultOrgId;
+    if (!orgId) { setLoading(false); return; }
     const { data, error } = await supabase
       .from("knowledge_items")
       .select("*, knowledge_item_tags(tag_id, knowledge_tags(id, name, color))")
+      .eq("org_id", orgId)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -46,7 +49,7 @@ export function useKnowledgeItems() {
       setItems(mapped);
     }
     setLoading(false);
-  }, []);
+  }, [activeOrgId, defaultOrgId]);
 
   useEffect(() => {
     if (user) fetchItems();

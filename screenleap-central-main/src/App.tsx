@@ -122,14 +122,15 @@ const AppRoutes = () => {
   );
 };
 
-// Aggressive caching: keep data fresh in memory for 5 min, GC after 10 min.
-// Refetch only on explicit invalidation, not on every focus/mount — pages feel instant on switch.
+// Caching: data stays fresh in memory for 5 min, GC after 10 min.
+// refetchOnWindowFocus ensures multi-tab users see current state.
+// refetchOnMount: false keeps instant navigation; explicit invalidation handles mutations.
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5 * 60 * 1000,
       gcTime: 10 * 60 * 1000,
-      refetchOnWindowFocus: false,
+      refetchOnWindowFocus: true,
       refetchOnMount: false,
       retry: 1,
     },

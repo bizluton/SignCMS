@@ -5,8 +5,6 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const SYSTEM_ADMIN_ID = "3fbb2f97-7268-4cac-a511-7cff6654a8f7";
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -45,18 +43,22 @@ Deno.serve(async (req) => {
 
     const adminClient = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Permission: caller must be admin OR org_admin
-    const { data: callerRoles } = await adminClient
-      .from("user_roles").select("role").eq("user_id", callingUser.id);
+    // Permission: caller must be admin OR org_admin OR system_admin
+    const [{ data: callerRoles }, { data: callerSysAdmin }] = await Promise.all([
+      adminClient.from("user_roles").select("role").eq("user_id", callingUser.id),
+      adminClient.from("system_admins").select("id").eq("user_id", callingUser.id).maybeSingle(),
+    ]);
     const roles = new Set((callerRoles || []).map((r: any) => r.role));
-    const isSystemAdmin = callingUser.id === SYSTEM_ADMIN_ID;
-    const isAdmin = roles.has("admin") || isSystemAdmin;
+    const callerIsSystemAdmin = !!callerSysAdmin;
+    const isAdmin = roles.has("admin") || callerIsSystemAdmin;
     const isOrgAdmin = roles.has("org_admin");
 
     if (!isAdmin && !isOrgAdmin) return json({ error: "Forbidden" }, 403);
 
-    // Cannot reset system admin
-    if (target_user_id === SYSTEM_ADMIN_ID && callingUser.id !== SYSTEM_ADMIN_ID) {
+    // Cannot reset a system admin unless the caller is also a system admin
+    const { data: targetSysAdmin } = await adminClient
+      .from("system_admins").select("id").eq("user_id", target_user_id).maybeSingle();
+    if (targetSysAdmin && !callerIsSystemAdmin) {
       return json({ error: "Cannot reset system administrator" }, 403);
     }
 

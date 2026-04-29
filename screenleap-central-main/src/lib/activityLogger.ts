@@ -32,7 +32,10 @@ let cachedIp: string | null = null;
 async function getClientIp(): Promise<string> {
   if (cachedIp) return cachedIp;
   try {
-    const res = await fetch("https://api.ipify.org?format=json");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch("https://api.ipify.org?format=json", { signal: controller.signal });
+    clearTimeout(timer);
     const data = await res.json();
     cachedIp = data.ip || "";
     return cachedIp;

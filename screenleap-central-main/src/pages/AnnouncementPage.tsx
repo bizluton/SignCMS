@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useEffect, useCallback } from "react";
+import DOMPurify from "dompurify";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useActiveOrg } from "@/contexts/ActiveOrgContext";
 import { Button } from "@/components/ui/button";
@@ -548,7 +549,7 @@ const AnnouncementPage = () => {
                             "text-white/80 leading-relaxed line-clamp-4 prose prose-sm prose-invert",
                             previewMode === "landscape" ? "text-sm" : "text-xs"
                           )}
-                          dangerouslySetInnerHTML={{ __html: content || "<p>…</p>" }}
+                          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content || "<p>…</p>") }}
                         />
                         {startDate && endDate && (
                           <p className="text-white/50 text-[10px] mt-3">

@@ -7,7 +7,6 @@ const corsHeaders = {
 }
 
 const TARGET_EMAIL = 'rainer@bizlution.com'
-const SYSTEM_ADMIN_ID = '3fbb2f97-7268-4cac-a511-7cff6654a8f7'
 const SITE_NAME = 'SignCMS'
 const SENDER_DOMAIN = 'notify.fms.bizlution.ai'
 const FROM_DOMAIN = 'notify.fms.bizlution.ai'
@@ -42,7 +41,9 @@ Deno.serve(async (req) => {
     const existingUser = usersPage.users.find((user) => (user.email ?? '').toLowerCase() === email)
 
     if (existingUser) {
-      if (existingUser.id === SYSTEM_ADMIN_ID) {
+      const { data: targetSysAdmin } = await supabase
+        .from('system_admins').select('id').eq('user_id', existingUser.id).maybeSingle()
+      if (targetSysAdmin) {
         return new Response(JSON.stringify({ error: 'Cannot reset system administrator' }), {
           status: 403,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -68,7 +69,7 @@ Deno.serve(async (req) => {
       .from('cs_agents')
       .insert({
         email,
-        invited_by: SYSTEM_ADMIN_ID,
+        invited_by: null,
         status: 'invited',
       })
       .select('id')

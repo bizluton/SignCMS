@@ -82,8 +82,13 @@ Deno.serve(async (req) => {
     }
 
     // Only system admin or active CS agents can send CS invitations
-    const SYSTEM_ADMIN_ID = '3fbb2f97-7268-4cac-a511-7cff6654a8f7'
-    let allowed = user.id === SYSTEM_ADMIN_ID
+    const supabaseService = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    )
+    const { data: sysAdminRow } = await supabaseService
+      .from('system_admins').select('id').eq('user_id', user.id).maybeSingle()
+    let allowed = !!sysAdminRow
     if (!allowed) {
       const { data: csAgents } = await supabase
         .from('cs_agents')

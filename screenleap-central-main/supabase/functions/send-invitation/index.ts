@@ -108,7 +108,13 @@ Deno.serve(async (req) => {
     }
 
     // Verify caller belongs to this org (or is system admin)
-    const isSystemAdmin = user.id === '3fbb2f97-7268-4cac-a511-7cff6654a8f7'
+    const supabaseService = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
+    )
+    const { data: sysAdminRow } = await supabaseService
+      .from('system_admins').select('id').eq('user_id', user.id).maybeSingle()
+    const isSystemAdmin = !!sysAdminRow
     if (!isSystemAdmin) {
       const { data: inOrg } = await supabase.rpc('user_in_org', {
         _user_id: user.id, _org_id: org_id,
