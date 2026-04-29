@@ -13,7 +13,7 @@ import { toast } from "sonner";
 interface VerifyResult {
   ok: boolean;
   status: number;
-  body: any;
+  body: Record<string, unknown>;
   ms: number;
 }
 
@@ -31,7 +31,7 @@ export default function DeviceLicenseVerifyTester() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await (supabase as any).from("device_models").select("id, name").order("sort_order").order("name");
+      const { data } = await supabase.from("device_models").select("id, name").order("sort_order").order("name");
       setModels(data || []);
     })();
   }, []);
@@ -51,22 +51,22 @@ export default function DeviceLicenseVerifyTester() {
       const ms = Math.round(performance.now() - start);
       if (error) {
         // FunctionsHttpError exposes the response on context
-        let body: any = { error: error.message };
-        const ctxRes = (error as any)?.context as Response | undefined;
-        let status = (error as any)?.context?.status ?? 0;
+        let body: Record<string, unknown> = { error: error.message };
+        const ctxRes = (error as { context?: Response })?.context;
+        let status = (error as { context?: { status?: number } })?.context?.status ?? 0;
         if (ctxRes && typeof ctxRes.text === "function") {
           try {
             const txt = await ctxRes.text();
-            body = txt ? JSON.parse(txt) : body;
+            body = txt ? JSON.parse(txt) as Record<string, unknown> : body;
             status = ctxRes.status;
           } catch { /* ignore */ }
         }
         setResult({ ok: false, status, body, ms });
       } else {
-        setResult({ ok: !!data?.valid, status: 200, body: data, ms });
+        setResult({ ok: !!(data as Record<string, unknown>)?.valid, status: 200, body: (data as Record<string, unknown>) ?? {}, ms });
       }
-    } catch (e: any) {
-      setResult({ ok: false, status: 0, body: { error: e?.message || "network_error" }, ms: Math.round(performance.now() - start) });
+    } catch (e: unknown) {
+      setResult({ ok: false, status: 0, body: { error: e instanceof Error ? e.message : "network_error" }, ms: Math.round(performance.now() - start) });
     } finally {
       setLoading(false);
     }

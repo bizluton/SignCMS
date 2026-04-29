@@ -82,7 +82,7 @@ export function NotificationBell() {
 
   const loadPendingReqs = useCallback(async () => {
     if (!user) return;
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("delegation_requests")
       .select("id, requester_id, customer_id, hours, status, created_at")
       .eq("customer_id", user.id)
@@ -112,10 +112,10 @@ export function NotificationBell() {
         },
         (payload) => {
           load();
-          const row = payload.new as any;
+          const row = payload.new as Record<string, unknown>;
           if (row?.type === "delegation_request") loadPendingReqs();
           if (row?.title) {
-            showBrowserNotification(row.title, row.body || "", row.link);
+            showBrowserNotification(String(row.title), String(row.body || ""), row.link ? String(row.link) : undefined);
           }
         }
       )
@@ -192,8 +192,9 @@ export function NotificationBell() {
       body: { request_id: requestId, action },
     });
     setActingId(null);
-    if (error || (data as any)?.error) {
-      toast.error(t("delegationRequestActionFailed") + (error?.message || (data as any)?.error));
+    const dataErr = (data as Record<string, unknown> | null)?.error;
+    if (error || dataErr) {
+      toast.error(t("delegationRequestActionFailed") + (error?.message || String(dataErr ?? "")));
       return;
     }
     toast.success(action === "accept" ? t("delegationRequestAcceptedToast") : t("delegationRequestDeclinedToast"));

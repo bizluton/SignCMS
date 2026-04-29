@@ -78,8 +78,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       setPwdOpen(false);
       setNewPassword("");
       setConfirmPassword("");
-    } catch (error: any) {
-      toast.error(error.message || t("passwordChangeFailed"));
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : t("passwordChangeFailed"));
     } finally {
       setLoading(false);
     }

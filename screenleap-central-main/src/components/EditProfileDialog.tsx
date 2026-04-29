@@ -126,8 +126,8 @@ export function EditProfileDialog({ open, onOpenChange }: Props) {
       const { data } = supabase.storage.from("media").getPublicUrl(path);
       setAvatarUrl(data.publicUrl);
       toast.success(t("avatarUploaded"));
-    } catch (err: any) {
-      toast.error(err.message || t("avatarUploadFailed"));
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t("avatarUploadFailed"));
     } finally {
       setUploading(false);
     }
@@ -148,7 +148,7 @@ export function EditProfileDialog({ open, onOpenChange }: Props) {
         display_name: trimmed,
         avatar_url: avatarUrl,
       });
-      if (profErr) throw profErr as any;
+      if (profErr) throw profErr;
 
       const { error: authErr } = await supabase.auth.updateUser({
         data: { full_name: trimmed, avatar_url: avatarUrl },
@@ -166,8 +166,8 @@ export function EditProfileDialog({ open, onOpenChange }: Props) {
 
       toast.success(t("profileUpdated"));
       onOpenChange(false);
-    } catch (err: any) {
-      toast.error(err.message || t("profileUpdateFailed"));
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t("profileUpdateFailed"));
     } finally {
       setSaving(false);
     }
@@ -189,8 +189,8 @@ export function EditProfileDialog({ open, onOpenChange }: Props) {
       toast.success(t("passwordChanged"));
       setNewPassword("");
       setConfirmPassword("");
-    } catch (err: any) {
-      toast.error(err.message || t("passwordChangeFailed"));
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t("passwordChangeFailed"));
     } finally {
       setChangingPwd(false);
     }

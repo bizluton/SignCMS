@@ -41,7 +41,7 @@ const DelegationRequestCard = ({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("delegation_requests")
         .select("status")
         .eq("id", requestId)
@@ -59,8 +59,8 @@ const DelegationRequestCard = ({
     const { data, error } = await supabase.functions.invoke("accept-delegation-request", {
       body: { request_id: requestId, action },
     });
-    if (error || (data as any)?.error) {
-      toast.error(t("delegationRequestActionFailed") + (error?.message || (data as any)?.error));
+    if (error || (data as Record<string, unknown>)?.error) {
+      toast.error(t("delegationRequestActionFailed") + (error?.message || (data as Record<string, unknown>)?.error));
       setStatus("pending");
       return;
     }
@@ -197,10 +197,10 @@ const ChatWidget = () => {
     return newSession.id;
   }, [sessionId, user]);
 
-  const mapDbMessages = useCallback((data: any[] = []): ChatMsg[] => data.map((m: any) => {
+  const mapDbMessages = useCallback((data: Record<string, unknown>[] = []): ChatMsg[] => data.map((m) => {
     const isSystem = m.sender_type === 'system';
     const role: ChatMsg["role"] = m.sender_type === 'customer' ? 'user' : (isSystem ? 'system' : 'assistant');
-    let content = m.content || '';
+    let content = (m.content as string) || '';
     let delegationRequestId: string | undefined;
     let delegationHours: number | undefined;
     if (isSystem) {
@@ -212,13 +212,13 @@ const ChatWidget = () => {
       }
     }
     return {
-      id: m.id,
+      id: m.id as string,
       role,
       content,
-      time: new Date(m.created_at).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" }),
-      attachment_url: m.attachment_url,
-      attachment_type: m.attachment_type,
-      is_read: m.is_read,
+      time: new Date(m.created_at as string).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" }),
+      attachment_url: m.attachment_url as string | null | undefined,
+      attachment_type: m.attachment_type as string | null | undefined,
+      is_read: m.is_read as boolean | undefined,
       delegationRequestId,
       delegationHours,
     };
@@ -299,7 +299,7 @@ const ChatWidget = () => {
       }
     }
 
-    const loaded = mapDbMessages(data || []);
+    const loaded = mapDbMessages((data || []) as Record<string, unknown>[]);
     if (notifyForNewAgentMessages && loaded.length > 0) {
       const currentIds = new Set(messages.map((msg) => msg.id));
       const newAgentMessages = loaded.filter((msg) => msg.role === 'assistant' && !currentIds.has(msg.id));
@@ -307,7 +307,7 @@ const ChatWidget = () => {
     }
 
     // Count unread agent messages
-    const unread = (data || []).filter((m: any) => m.sender_type === 'agent' && !m.is_read).length;
+    const unread = (data || []).filter((m) => m.sender_type === 'agent' && !m.is_read).length;
     setUnreadCount(unread);
 
     // If chat is open, auto-mark as read

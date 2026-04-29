@@ -125,12 +125,12 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
     // Load allowed projects for this channel; pre-select default
     (async () => {
       if (!channelId) { setAllowedIds([]); return; }
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("channel_allowed_projects")
         .select("design_project_id")
         .eq("channel_id", channelId)
         .order("sort_order", { ascending: true });
-      const ids = (data ?? []).map((r: any) => r.design_project_id) as string[];
+      const ids = (data ?? []).map((r) => r.design_project_id) as string[];
       setAllowedIds(ids);
       const initial =
         block?.design_project_id
@@ -189,9 +189,9 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
     }
     let error;
     if (block) {
-      ({ error } = await (supabase as any).from("channel_blocks").update(payload).eq("id", block.id));
+      ({ error } = await supabase.from("channel_blocks").update(payload as Parameters<ReturnType<typeof supabase.from<"channel_blocks">>["update"]>[0]).eq("id", block.id));
     } else {
-      ({ error } = await (supabase as any).from("channel_blocks").insert(payload));
+      ({ error } = await supabase.from("channel_blocks").insert(payload as Parameters<ReturnType<typeof supabase.from<"channel_blocks">>["insert"]>[0]));
     }
     setSaving(false);
     if (error) { toast.error(error.message); return; }

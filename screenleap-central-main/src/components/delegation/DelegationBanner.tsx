@@ -20,7 +20,7 @@ export function DelegationBanner() {
 
   const handleEnd = async (id: string, grantorName?: string) => {
     if (!confirm(t("delegationEndConfirm"))) return;
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("delegation_grants")
       .update({ status: "revoked", revoked_by: user.id, revoked_at: new Date().toISOString() })
       .eq("id", id);

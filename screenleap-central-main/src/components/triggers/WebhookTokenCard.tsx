@@ -63,7 +63,7 @@ export function WebhookTokenCard({ orgId, canManage }: Props) {
       if (error) {
         toast.error(error.message);
       } else {
-        setToken((data as any)?.webhook_token || "");
+        setToken((data as { webhook_token?: string } | null)?.webhook_token || "");
       }
       setLoading(false);
     })();

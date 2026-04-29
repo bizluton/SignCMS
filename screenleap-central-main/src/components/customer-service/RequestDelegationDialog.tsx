@@ -30,7 +30,7 @@ export default function RequestDelegationDialog({
   const handleSubmit = async () => {
     if (!user) return;
     setSubmitting(true);
-    const { error } = await (supabase as any).from("delegation_requests").insert({
+    const { error } = await supabase.from("delegation_requests").insert({
       session_id: sessionId,
       requester_id: user.id,
       customer_id: customerId,

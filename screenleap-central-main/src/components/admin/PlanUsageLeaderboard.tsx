@@ -91,25 +91,25 @@ export default function PlanUsageLeaderboard({ onUpgradeOrg }: PlanUsageLeaderbo
       const [orgsRes, screensRes, mediaRes] = await Promise.all([
         supabase.from("organizations").select("id, name, plan_tier"),
         supabase.from("screens").select("org_id"),
-        (supabase as any).from("media_items").select("org_id, size_bytes").is("deleted_at", null),
+        supabase.from("media_items").select("org_id, size_bytes").is("deleted_at", null),
       ]);
 
       if (cancelled) return;
 
       const orgs = orgsRes.data ?? [];
       const screensCount = new Map<string, number>();
-      (screensRes.data ?? []).forEach((s: any) => {
+      (screensRes.data ?? []).forEach((s) => {
         screensCount.set(s.org_id, (screensCount.get(s.org_id) ?? 0) + 1);
       });
       const mediaBytesByOrg = new Map<string, number>();
-      (mediaRes.data ?? []).forEach((m: any) => {
+      (mediaRes.data ?? []).forEach((m) => {
         mediaBytesByOrg.set(
           m.org_id,
           (mediaBytesByOrg.get(m.org_id) ?? 0) + (Number(m.size_bytes) || 0)
         );
       });
 
-      const computed: OrgUsageRow[] = orgs.map((o: any) => {
+      const computed: OrgUsageRow[] = orgs.map((o) => {
         const tier = (o.plan_tier as PlanTier) ?? "evaluation";
         const limits = PLAN_LIMITS[tier];
         const screens = screensCount.get(o.id) ?? 0;

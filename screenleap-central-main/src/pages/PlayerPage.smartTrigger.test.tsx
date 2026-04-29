@@ -25,10 +25,16 @@ const LOG_ID = "log-1";
 // 1 second: Math.max(1, 1) = 1 in the component, keeping the test fast.
 const DURATION_S = 1;
 
-function makeChannelObj(name: string): any {
+interface ChannelObj {
+  on(_evt: string, _opts: unknown, cb: RealtimeHandler): ChannelObj;
+  subscribe(): ChannelObj;
+  unsubscribe(): ChannelObj;
+}
+
+function makeChannelObj(name: string): ChannelObj {
   const handlers: RealtimeHandler[] = [];
   channelHandlers.set(name, handlers);
-  const obj: any = {
+  const obj: ChannelObj = {
     on(_evt: string, _opts: unknown, cb: RealtimeHandler) {
       handlers.push(cb);
       return obj;
@@ -50,12 +56,21 @@ function fireSmartTriggerHandler(payload: { new: Record<string, unknown> }) {
   throw new Error("No smart-trigger-logs channel handler found");
 }
 
-function makeQuery(table: string) {
+interface QueryChain {
+  select(): QueryChain;
+  eq(col: string, val: unknown): QueryChain;
+  order(): QueryChain;
+  insert(): Promise<{ data: null; error: null }>;
+  maybeSingle(): Promise<{ data: Record<string, unknown> | null; error: null }>;
+  then(resolve: (v: unknown) => void): void;
+}
+
+function makeQuery(table: string): QueryChain {
   const state: { table: string; filters: Record<string, unknown> } = {
     table,
     filters: {},
   };
-  const chain: any = {
+  const chain: QueryChain = {
     select() { return chain; },
     eq(col: string, val: unknown) { state.filters[col] = val; return chain; },
     order() { return chain; },
