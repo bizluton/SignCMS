@@ -83,6 +83,7 @@ export default function OnboardingPage() {
           invalid_name: t("onboardingNameRequired"),
           name_too_long: t("onboardingNameTooLong"),
           already_in_org: t("onboardingAlreadyInOrg"),
+          name_taken: t("onboardingNameTaken"),
         };
         toast.error(map[result?.error || ""] || t("onboardingFailed"));
         // Log failure (skip 'unauthenticated' — RLS requires authenticated user)

@@ -770,6 +770,7 @@ const translations = {
   onboardingNameRequired: { zh: "請輸入組織名稱。", en: "Please enter an organization name.", ja: "組織名を入力してください。" },
   onboardingNameTooLong: { zh: "組織名稱過長（上限 100 字元）。", en: "Organization name too long (max 100 chars).", ja: "組織名が長すぎます（最大100文字）。" },
   onboardingAlreadyInOrg: { zh: "您已屬於某個組織，無法重複建立。", en: "You already belong to an organization.", ja: "既に組織に所属しています。" },
+  onboardingNameTaken: { zh: "此組織名稱已被使用，請換一個名稱。", en: "This organization name is already taken.", ja: "この組織名は既に使用されています。" },
   onboardingTabCreate: { zh: "建立新組織", en: "Create new", ja: "新規作成" },
   onboardingTabJoin: { zh: "加入既有組織", en: "Join existing", ja: "既存に参加" },
   onboardingJoinTitle: { zh: "輸入邀請碼", en: "Enter invitation code", ja: "招待コードを入力" },
