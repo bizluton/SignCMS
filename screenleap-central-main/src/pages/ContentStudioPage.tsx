@@ -4096,13 +4096,13 @@ export default function ContentStudioPage() {
   }, [zones, overlays, selectedZone, selectedOverlay, addItemsToSpecificTarget]);
 
   // Drop handlers reading the studio picker payload (supports single OR array payloads)
-  const parsePickerDropPayload = useCallback((e: React.DragEvent): { kind: "media" | "widget"; raw: any }[] | null => {
+  const parsePickerDropPayload = useCallback((e: React.DragEvent): PickerPayload[] | null => {
     try {
       const raw = e.dataTransfer.getData("application/x-studio-picker-item");
       if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      const arr = Array.isArray(parsed) ? parsed : [parsed];
-      const valid = arr.filter((p: any) => p && (p.kind === "media" || p.kind === "widget"));
+      const parsed = JSON.parse(raw) as unknown;
+      const arr: PickerPayload[] = Array.isArray(parsed) ? parsed as PickerPayload[] : [parsed as PickerPayload];
+      const valid = arr.filter((p) => p && (p.kind === "media" || p.kind === "widget"));
       return valid.length ? valid : null;
     } catch { return null; }
   }, []);
@@ -4209,16 +4209,17 @@ export default function ContentStudioPage() {
     const saveOrgId = activeOrgId || defaultOrgId || null;
     const teamIdToSave = projectTeamId && projectTeamId !== "none" ? projectTeamId : null;
     const collabToSave = projectCollab === "team" && !teamIdToSave ? "creator" : projectCollab;
-    const projectData: any = { name: name || currentProject?.name || "Untitled", aspect, zones: zonesData, created_by: user?.id, org_id: saveOrgId, team_id: teamIdToSave, collab_scope: collabToSave, updated_at: new Date().toISOString() };
+    const projectName_ = name || currentProject?.name || "Untitled";
+    const updatedAt = new Date().toISOString();
     let ok = false;
     try {
       if (currentProject) {
-        await (supabase as any).from("design_projects").update({ name: projectData.name, aspect, zones: zonesData, team_id: teamIdToSave, collab_scope: collabToSave, updated_at: projectData.updated_at }).eq("id", currentProject.id);
-        setCurrentProject({ ...currentProject, ...projectData, zones: zones, overlays });
+        await supabase.from("design_projects").update({ name: projectName_, aspect, zones: zonesData, team_id: teamIdToSave, collab_scope: collabToSave, updated_at: updatedAt }).eq("id", currentProject.id);
+        setCurrentProject({ ...currentProject, name: projectName_, aspect, zones: zones, overlays, updated_at: updatedAt });
         toast.success(t("studioProjectSaved"));
         ok = true;
       } else {
-        const { data } = await (supabase as any).from("design_projects").insert(projectData).select().single();
+        const { data } = await supabase.from("design_projects").insert({ name: projectName_, aspect, zones: zonesData, created_by: user?.id ?? null, org_id: saveOrgId, team_id: teamIdToSave, collab_scope: collabToSave, updated_at: updatedAt }).select().single();
         if (data) { setCurrentProject({ ...data, zones, overlays }); toast.success(t("studioProjectSaved")); ok = true; }
       }
       loadProjects();
