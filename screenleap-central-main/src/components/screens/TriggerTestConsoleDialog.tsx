@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -517,14 +517,16 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
       setMatched(Array.isArray(matchedRules) ? matchedRules as Record<string, unknown>[] : []);
 
       // Fetch latest logs
-      const { data: logRows } = await (supabase as unknown as { from: (t: string) => unknown } & typeof supabase)
+      type SupabaseQuery = { select: (s: string) => SupabaseQuery; eq: (k: string, v: string) => SupabaseQuery; order: (k: string, o: { ascending: boolean }) => SupabaseQuery; limit: (n: number) => Promise<{ data: Record<string, unknown>[] | null }> };
+      type SupabaseDyn = { from: (t: string) => SupabaseQuery };
+      const { data: logRows } = await (supabase as unknown as SupabaseDyn)
         .from("smart_trigger_logs")
         .select("*")
         .eq("org_id", orgId.trim())
         .eq("trigger_key", triggerKey.trim())
         .order("created_at", { ascending: false })
         .limit(10);
-      setLogs((logRows as Record<string, unknown>[] | null) ?? []);
+      setLogs(logRows ?? []);
       toast.success("測試完成");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -553,10 +555,12 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
           },
         });
         if (fnError) throw fnError;
-        const matchedCount = (data as any)?.matched_rules?.length ?? (data as any)?.matched?.length ?? 0;
+        const d = data as Record<string, unknown> | null;
+        const matchedRulesArr = d?.matched_rules ?? d?.matched;
+        const matchedCount = Array.isArray(matchedRulesArr) ? matchedRulesArr.length : 0;
         results.push({ presetId: p.id, ok: true, matchedCount });
-      } catch (e: any) {
-        results.push({ presetId: p.id, ok: false, matchedCount: 0, error: e?.message ?? String(e) });
+      } catch (e: unknown) {
+        results.push({ presetId: p.id, ok: false, matchedCount: 0, error: e instanceof Error ? e.message : String(e) });
       }
     }
     setBatchResults(results);
@@ -590,7 +594,7 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
           <div className="flex items-center justify-between gap-2 flex-wrap">
             {(() => {
               const v = verification;
-              const map: Record<string, { cls: string; icon: any; label: string }> = {
+              const map: Record<string, { cls: string; icon: React.ElementType; label: string }> = {
                 none:     { cls: "border-border bg-muted text-muted-foreground", icon: ShieldAlert, label: "尚未檢查" },
                 missing:  { cls: "border-border bg-muted text-muted-foreground", icon: ShieldAlert, label: "無分享連結" },
                 unsigned: { cls: "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400", icon: ShieldAlert, label: "未簽署 (Unsigned)" },

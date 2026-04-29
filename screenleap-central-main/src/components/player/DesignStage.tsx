@@ -14,13 +14,30 @@ import { QRCodeSVG } from "qrcode.react";
  * its container while preserving aspect ratio.
  */
 
+interface WidgetConfig {
+  widgetType?: string;
+  bgColor?: string;
+  textColor?: string;
+  timezone?: string;
+  format?: string;
+  showDate?: boolean;
+  text?: string;
+  qrcodeContent?: string;
+  qrcodeSize?: number;
+  targetDate?: string;
+  countdownTitle?: string;
+  url?: string;
+  youtubeId?: string;
+  [key: string]: unknown;
+}
+
 interface MediaItem {
   id: string;
   type: "image" | "video" | "widget";
   url?: string;
   name?: string;
   duration?: number;
-  widgetConfig?: any;
+  widgetConfig?: WidgetConfig;
   muted?: boolean;
   volume?: number;
 }
@@ -37,7 +54,7 @@ interface ZoneContent {
   carouselTransition?: "fade" | "slide" | "zoom" | "none";
   widgetId?: string;
   widgetName?: string;
-  widgetConfig?: any;
+  widgetConfig?: WidgetConfig;
   fitMode?: "cover-x" | "cover-y" | "contain" | "stretch";
 }
 
@@ -60,7 +77,7 @@ export interface DesignProjectShape {
   id: string;
   name?: string;
   aspect?: string;
-  zones?: any[]; // raw mixed array straight from DB
+  zones?: unknown[]; // raw mixed array straight from DB
 }
 
 export interface DesignStageProps {
@@ -74,26 +91,29 @@ export interface DesignStageProps {
 }
 
 /** Pull canvas resolution out of the embedded `_meta` zone (set on save). */
-function readMeta(zonesRaw: any[] | undefined): { w: number; h: number } {
+function readMeta(zonesRaw: unknown[] | undefined): { w: number; h: number } {
   const fallback = { w: 1920, h: 1080 };
   if (!Array.isArray(zonesRaw)) return fallback;
-  const meta = zonesRaw.find((z: any) => z && z._meta && z.resolution);
-  const r = meta?.resolution;
+  const meta = zonesRaw.find((z) => z != null && typeof z === "object" && "_meta" in z && "resolution" in z) as Record<string, unknown> | undefined;
+  const r = meta?.resolution as Record<string, unknown> | undefined;
   if (r?.width && r?.height) return { w: Number(r.width), h: Number(r.height) };
   return fallback;
 }
 
-function splitZones(zonesRaw: any[] | undefined): { zones: Zone[]; overlays: OverlayBlock[] } {
+function splitZones(zonesRaw: unknown[] | undefined): { zones: Zone[]; overlays: OverlayBlock[] } {
   if (!Array.isArray(zonesRaw)) return { zones: [], overlays: [] };
   const zones: Zone[] = [];
   const overlays: OverlayBlock[] = [];
   for (const z of zonesRaw) {
-    if (!z || z._meta) continue;
-    if (z._overlay) {
-      const { _overlay, ...rest } = z;
-      overlays.push(rest as OverlayBlock);
+    if (!z || typeof z !== "object") continue;
+    const zObj = z as Record<string, unknown>;
+    if (zObj._meta) continue;
+    if (zObj._overlay) {
+      const { _overlay, ...rest } = zObj;
+      void _overlay;
+      overlays.push(rest as unknown as OverlayBlock);
     } else {
-      zones.push(z as Zone);
+      zones.push(zObj as unknown as Zone);
     }
   }
   return { zones, overlays };
@@ -102,7 +122,7 @@ function splitZones(zonesRaw: any[] | undefined): { zones: Zone[]; overlays: Ove
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Render one widget (clock, date, marquee, qrcode, countdown, webpage, weather). */
-export function WidgetRender({ config }: { config: any }) {
+export function WidgetRender({ config }: { config: WidgetConfig | null | undefined }) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     if (!config) return;

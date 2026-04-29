@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Monitor, WifiOff, Loader2, CalendarClock, AlertTriangle,
   ShieldAlert, Send, Plus, Upload, Clock, Zap, RefreshCw, ArrowRight, Mail, Users, Image as ImageIcon,
@@ -45,11 +45,11 @@ function HealthRing({ value, total, onClick, title }: { value: number; total: nu
   const r = 38;
   const c = 2 * Math.PI * r;
   const dash = (pct / 100) * c;
-  const Wrapper: any = onClick ? "button" : "div";
+  const Wrapper = onClick ? "button" : "div";
   return (
     <Wrapper
       type={onClick ? "button" : undefined}
-      onClick={onClick ? (e: any) => { e.stopPropagation(); onClick(); } : undefined}
+      onClick={onClick ? (e: React.MouseEvent) => { e.stopPropagation(); onClick(); } : undefined}
       title={title}
       className={`relative w-24 h-24 shrink-0 rounded-full ${onClick ? "cursor-pointer transition-transform hover:scale-105 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" : ""}`}
     >
@@ -77,11 +77,17 @@ export default function DashboardPage() {
   const { activeOrgId } = useActiveOrg();
   const { isCsAgent } = useUserRole();
 
-  const [screens, setScreens] = useState<any[]>([]);
-  const [schedules, setSchedules] = useState<any[]>([]);
-  const [mediaItems, setMediaItems] = useState<any[]>([]);
-  const [scheduleItems, setScheduleItems] = useState<any[]>([]);
-  const [publishRecords, setPublishRecords] = useState<any[]>([]);
+  type ScreenRow = { id: string; name: string; branch: string | null; online: boolean; updated_at: string; org_id: string };
+  type ScheduleRow = { id: string; name: string; screen_id: string; enabled: boolean; start_time: string | null; end_time: string | null };
+  type MediaRow = { id: string; name: string; type: string };
+  type ScheduleItemRow = { id: string; schedule_id: string; media_id: string | null; duration: number };
+  type PublishCountRow = { key: string; count: number };
+
+  const [screens, setScreens] = useState<ScreenRow[]>([]);
+  const [schedules, setSchedules] = useState<ScheduleRow[]>([]);
+  const [mediaItems, setMediaItems] = useState<MediaRow[]>([]);
+  const [scheduleItems, setScheduleItems] = useState<ScheduleItemRow[]>([]);
+  const [publishRecords, setPublishRecords] = useState<PublishCountRow[]>([]);
   const [emergencyCount, setEmergencyCount] = useState(0);
   const [pendingInvitations, setPendingInvitations] = useState(0);
   const [memberCount, setMemberCount] = useState(0);
