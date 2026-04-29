@@ -33,18 +33,20 @@ export default defineConfig(({ mode }) => ({
           // Avoid splitting libraries that pull in shared utils (clsx,
           // tailwind-merge, lodash) — Rollup may hoist those utils into the
           // vendor chunk and force eager preload of it from the entry.
+          // Bundle React + Radix together. Radix components reference
+          // React.forwardRef at module init; splitting them into separate
+          // chunks lets the radix chunk evaluate before react-vendor and
+          // throws "Cannot read properties of undefined (reading 'forwardRef')".
           if (
             id.includes("/node_modules/react/") ||
             id.includes("/node_modules/react-dom/") ||
-            id.includes("/node_modules/scheduler/")
+            id.includes("/node_modules/scheduler/") ||
+            id.includes("/node_modules/@radix-ui/")
           ) {
             return "react-vendor";
           }
           if (id.includes("/node_modules/@supabase/")) {
             return "supabase-vendor";
-          }
-          if (id.includes("/node_modules/@radix-ui/")) {
-            return "radix-vendor";
           }
           if (id.includes("/node_modules/@tiptap/") || id.includes("/node_modules/prosemirror-")) {
             return "tiptap-vendor";
