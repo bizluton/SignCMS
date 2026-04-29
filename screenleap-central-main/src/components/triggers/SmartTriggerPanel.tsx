@@ -440,7 +440,7 @@ export function SmartTriggerPanel() {
     if (!orgId) return;
     setExporting(true);
     const since = new Date(Date.now() - rangeMs).toISOString();
-    const { data, error } = await (supabase as any)
+    const { data, error } = await db
       .from("smart_trigger_logs")
       .select("created_at, rule_id, trigger_source, trigger_key, error_message, trigger_payload")
       .eq("org_id", orgId)
@@ -452,13 +452,13 @@ export function SmartTriggerPanel() {
     if (error) { toast.error(error.message); return; }
     if (!data || data.length === 0) { toast.info(T.exportEmpty); return; }
     const ruleNameById = new Map(rules.map((r) => [r.id, r.name]));
-    const esc = (v: any) => {
+    const esc = (v: unknown) => {
       const s = v === null || v === undefined ? "" : typeof v === "string" ? v : JSON.stringify(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const header = ["created_at", "rule_id", "rule_name", "trigger_source", "trigger_key", "error_message", "trigger_payload"];
-    const rows = data.map((l: any) => [
-      l.created_at, l.rule_id, ruleNameById.get(l.rule_id) || "",
+    const rows = data.map((l) => [
+      l.created_at, l.rule_id, ruleNameById.get(String(l.rule_id ?? "")) || "",
       l.trigger_source, l.trigger_key, l.error_message, l.trigger_payload,
     ].map(esc).join(","));
     const csv = "\uFEFF" + header.join(",") + "\n" + rows.join("\n");
@@ -474,7 +474,7 @@ export function SmartTriggerPanel() {
 
   const toggleEnabled = async (rule: RuleRow, enabled: boolean) => {
     setRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, enabled } : r));
-    const { error } = await (supabase as any).from("smart_trigger_rules").update({ enabled }).eq("id", rule.id);
+    const { error } = await db.from("smart_trigger_rules").update({ enabled }).eq("id", rule.id);
     if (error) {
       toast.error(error.message);
       setRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, enabled: !enabled } : r));
@@ -483,7 +483,7 @@ export function SmartTriggerPanel() {
 
   const handleDelete = async () => {
     if (!deleting) return;
-    const { error } = await (supabase as any).from("smart_trigger_rules").delete().eq("id", deleting.id);
+    const { error } = await db.from("smart_trigger_rules").delete().eq("id", deleting.id);
     if (error) { toast.error(error.message); return; }
     toast.success(T.deleted);
     setDeleting(null);
@@ -527,7 +527,7 @@ export function SmartTriggerPanel() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={T.search} className="pl-9 h-9" />
         </div>
-        <Select value={modeFilter} onValueChange={(v) => setModeFilter(v as any)}>
+        <Select value={modeFilter} onValueChange={(v) => setModeFilter(v as "all" | "shortcut" | "automation")}>
           <SelectTrigger className="w-[140px] h-9"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{T.all}</SelectItem>
@@ -535,7 +535,7 @@ export function SmartTriggerPanel() {
             <SelectItem value="automation">{T.automation}</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "all" | "failed_recent" | "success_recent")}>
           <SelectTrigger className="w-[170px] h-9"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{T.statusAll}</SelectItem>
@@ -544,7 +544,7 @@ export function SmartTriggerPanel() {
           </SelectContent>
         </Select>
         {(statusFilter === "failed_recent" || statusFilter === "success_recent") && (
-          <Select value={failedRange} onValueChange={(v) => setFailedRange(v as any)}>
+          <Select value={failedRange} onValueChange={(v) => setFailedRange(v as "1h" | "6h" | "24h" | "7d")}>
             <SelectTrigger className="w-[140px] h-9" title={T.rangeLabel}><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="1h">{T.range1h}</SelectItem>

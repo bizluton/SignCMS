@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useUserOrgs } from "@/hooks/useUserOrgs";
@@ -121,7 +121,7 @@ interface MediaItemRow {
 interface ProjectItem {
   id: string;
   name: string;
-  zones?: any;
+  zones?: unknown;
 }
 
 const getDisplayName = (item: Pick<MediaItemRow, "name" | "original_name">) => item.original_name?.trim() || item.name;
@@ -154,7 +154,7 @@ interface WidgetConfig {
   animation?: WidgetAnimation;
 }
 
-const WIDGET_ICONS: Record<WidgetSubType, any> = {
+const WIDGET_ICONS: Record<WidgetSubType, React.ComponentType<{ className?: string }>> = {
   date: Calendar, clock: Clock, webpage: Globe, marquee: Type, qrcode: QrCode, countdown: Timer, youtube: Youtube, weather: CloudSun,
 };
 
@@ -505,7 +505,7 @@ const MediaPage = () => {
   const fetchTrashAudit = useCallback(async () => {
     setTrashAuditLoading(true);
     setTrashAuditError(null);
-    let q = (supabase as any)
+    let q = supabase
       .from("activity_logs")
       .select("id, created_at, user_id, org_id, action_code, target_id, target_name, detail, action_params")
       .in("action_code", ["media.restore_soft_deleted", "media.purge_soft_deleted_item"])

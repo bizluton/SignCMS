@@ -94,7 +94,7 @@ export default function SchedulesPage() {
     if (!activeOrgId) return;
     let cancelled = false;
     void (async () => {
-      const { data } = await (supabase as any).rpc("auto_disable_expired_channel_blocks");
+      const { data } = await supabase.rpc("auto_disable_expired_channel_blocks");
       if (!cancelled && typeof data === "number" && data > 0) {
         reloadBlocks();
       }
@@ -144,7 +144,7 @@ export default function SchedulesPage() {
   useEffect(() => {
     if (!activeOrgId) return;
     (async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("design_projects")
         .select("id, name")
         .eq("org_id", activeOrgId)
@@ -157,7 +157,7 @@ export default function SchedulesPage() {
   useEffect(() => {
     if (!activeOrgId) { setTeams([]); return; }
     (async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("teams")
         .select("id, name")
         .eq("org_id", activeOrgId)
@@ -170,12 +170,12 @@ export default function SchedulesPage() {
   useEffect(() => {
     if (!selectedChannelId) { setAllowedProjectIds([]); return; }
     (async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("channel_allowed_projects")
         .select("design_project_id")
         .eq("channel_id", selectedChannelId)
         .order("sort_order", { ascending: true });
-      setAllowedProjectIds((data ?? []).map((r: any) => r.design_project_id));
+      setAllowedProjectIds((data ?? []).map((r) => r.design_project_id));
     })();
   }, [selectedChannelId, blocks]);
 
@@ -211,8 +211,8 @@ export default function SchedulesPage() {
       ]);
       setChannelImpact(report);
       setChannelDeleteQueued(pending.has(channel.id));
-    } catch (err: any) {
-      toast.error(err?.message ?? String(err));
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err));
       setChannelImpact({ groups: [], total: 0, hasAny: false });
     } finally {
       setChannelImpactLoading(false);

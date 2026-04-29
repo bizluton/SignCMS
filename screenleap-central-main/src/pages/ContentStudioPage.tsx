@@ -1331,7 +1331,7 @@ function ZoneTimeline({
       const dur = Math.round(getMediaDurationSec(m)) || 30;
       return {
         id: m.id,
-        type: "audio" as any,
+        type: "audio" as const,
         url: m.url || "",
         name: (m.original_name && m.original_name.trim()) || m.name,
         duration: dur,
@@ -1606,11 +1606,11 @@ function ZoneTimeline({
                 try {
                   const raw = e.dataTransfer.getData("application/x-studio-picker-item");
                   if (!raw) return;
-                  const parsed = JSON.parse(raw);
-                  const arr = Array.isArray(parsed) ? parsed : [parsed];
+                  const parsed = JSON.parse(raw) as unknown;
+                  const arr: PickerPayload[] = Array.isArray(parsed) ? parsed as PickerPayload[] : [parsed as PickerPayload];
                   // Only accept audio media on BGM track
                   const audioItems = arr.filter(
-                    (p: any) => p && p.kind === "media" && p.raw && p.raw.type === "audio",
+                    (p) => p && p.kind === "media" && p.raw && (p.raw as DbMediaItem).type === "audio",
                   );
                   if (arr.length > 0 && audioItems.length === 0) {
                     toast.error(t("studioTimelineBgmOnlyAudio"));
@@ -1620,12 +1620,12 @@ function ZoneTimeline({
                   e.preventDefault();
                   e.stopPropagation();
                   // Resolve to MediaItem and append
-                  const appended: MediaItem[] = audioItems.map((it: any) => {
-                    const m = it.raw;
+                  const appended: MediaItem[] = audioItems.map((it) => {
+                    const m = it.raw as DbMediaItem;
                     const dur = Math.round(getMediaDurationSec(m)) || 30;
                     return {
                       id: m.id,
-                      type: "audio" as any,
+                      type: "audio" as const,
                       url: m.url || "",
                       name: (m.original_name && m.original_name.trim()) || m.name,
                       duration: dur,
@@ -1853,7 +1853,9 @@ function ZoneTimeline({
                     if (!raw) return;
                     const parsed = JSON.parse(raw);
                     const arr = Array.isArray(parsed) ? parsed : [parsed];
-                    const valid = arr.filter((p: any) => p && (p.kind === "media" || p.kind === "widget"));
+                    const parsed2 = JSON.parse(raw) as unknown;
+                    const arr2: PickerPayload[] = Array.isArray(parsed2) ? parsed2 as PickerPayload[] : [parsed2 as PickerPayload];
+                    const valid = arr2.filter((p) => p && (p.kind === "media" || p.kind === "widget"));
                     if (valid.length === 0) return;
                     e.preventDefault();
                     e.stopPropagation();
