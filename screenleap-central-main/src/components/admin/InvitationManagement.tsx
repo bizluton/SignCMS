@@ -124,8 +124,8 @@ export default function InvitationManagement() {
         if (data?.error) throw new Error(data.error);
         successCount++;
         logActivity({ action: "send_invitation", category: "admin", targetName: addr, actionParams: { org: orgName } });
-      } catch (err: any) {
-        errors.push(`${addr}: ${err.message || t("invSendFailed")}`);
+      } catch (err: unknown) {
+        errors.push(`${addr}: ${err instanceof Error ? err.message : t("invSendFailed")}`);
       }
     }
 
@@ -163,8 +163,8 @@ export default function InvitationManagement() {
       toast.success(t("invResent"));
       logActivity({ action: "resend_invitation", category: "admin", targetName: inv.email, actionParams: { org: inv.org_name } });
       fetchData();
-    } catch (err: any) {
-      toast.error(err.message || t("invSendFailed"));
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : t("invSendFailed"));
     }
     setSending(false);
   };

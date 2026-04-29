@@ -101,7 +101,7 @@ export default function AuthPage() {
         if (error) throw error;
         // Detect "user already exists" — Supabase returns 200 with a user
         // object that has an empty identities array (anti-enumeration).
-        const identities = (data?.user as any)?.identities;
+        const identities = (data?.user as Record<string, unknown> | undefined)?.identities;
         if (data?.user && Array.isArray(identities) && identities.length === 0) {
           toast.error(t("authEmailExists"), { duration: 6000 });
           return;
@@ -121,8 +121,9 @@ export default function AuthPage() {
         logActivity({ action: "sign_in", category: "auth", actionParams: { email } });
         navigate("/");
       }
-    } catch (error: any) {
-      const msg = (error?.message || "").toLowerCase();
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : "";
+      const msg = errMsg.toLowerCase();
       if (
         isSignUp &&
         (msg.includes("already registered") ||
@@ -132,8 +133,8 @@ export default function AuthPage() {
       ) {
         toast.error(t("authEmailExists"), { duration: 6000 });
       } else {
-        const mappedKey = mapSupabaseAuthError(error?.message);
-        const friendly = mappedKey ? t(mappedKey as any) : (error.message || t("authFailed"));
+        const mappedKey = mapSupabaseAuthError(errMsg);
+        const friendly = mappedKey ? t(mappedKey as import("@/contexts/translations").TranslationKey) : (errMsg || t("authFailed"));
         // Only count as a brute-force failure for sign-in attempts where
         // the credentials were rejected (not for sign-up errors or rate limits).
         if (!isSignUp && (mappedKey === "authErrInvalidCredentials" || mappedKey === null)) {
@@ -163,8 +164,8 @@ export default function AuthPage() {
     try {
       const result = await lovable.auth.signInWithOAuth("google", { redirect_uri: window.location.origin });
       if (result.error) throw result.error;
-    } catch (error: any) {
-      toast.error(error.message || t("authGoogleFailed"));
+    } catch (error: unknown) {
+      toast.error(error instanceof Error ? error.message : t("authGoogleFailed"));
       setLoading(false);
     }
   };

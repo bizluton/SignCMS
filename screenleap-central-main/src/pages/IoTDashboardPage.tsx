@@ -80,7 +80,7 @@ export default function IoTDashboardPage() {
   // Fetch devices
   const fetchDevices = useCallback(async () => {
     setLoading(true);
-    let query = (supabase as any)
+    let query = supabase
       .from("iot_devices")
       .select("*, screens(id, name, branch, location)")
       .order("created_at", { ascending: true });
@@ -101,7 +101,7 @@ export default function IoTDashboardPage() {
     const since = new Date(Date.now() - getTimeRangeMs(timeRange)).toISOString();
     const deviceIds = deviceList.map((d) => d.id);
 
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("iot_sensor_readings")
       .select("device_id, value, recorded_at")
       .in("device_id", deviceIds)
@@ -144,9 +144,9 @@ export default function IoTDashboardPage() {
     const channel = supabase
       .channel(`iot-readings:${user?.id ?? "anon"}:${activeOrgId ?? "noorg"}`)
       .on(
-        "postgres_changes" as any,
+        "postgres_changes",
         { event: "INSERT", schema: "public", table: "iot_sensor_readings" },
-        (payload: any) => {
+        (payload: { new: Record<string, unknown> }) => {
           const row = payload.new;
           if (!row) return;
           setChartData((prev) => {
@@ -183,7 +183,7 @@ export default function IoTDashboardPage() {
         }));
 
       if (inserts.length > 0) {
-        await (supabase as any).from("iot_sensor_readings").insert(inserts);
+        await supabase.from("iot_sensor_readings").insert(inserts);
       }
     }, 5000);
   }, [devices, language]);

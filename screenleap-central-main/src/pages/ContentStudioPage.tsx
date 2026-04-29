@@ -379,6 +379,10 @@ interface DesignProject {
   overlays?: OverlayBlock[];
   created_at: string;
   updated_at: string;
+  team_id?: string | null;
+  collab_scope?: string | null;
+  org_id?: string | null;
+  created_by?: string | null;
 }
 
 interface LayoutPreset {
@@ -2697,7 +2701,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
                     <Button key={f} variant={pickerFilter === f ? "default" : "ghost"} size="sm"
                       className="h-5 text-[9px] px-2 rounded-full shrink-0"
                       onClick={() => setPickerFilter(f)}>
-                      {t(`pickerFilter_${f}`)}
+                      {t(`pickerFilter_${f}` as TranslationKey)}
                     </Button>
                   ))}
                 </div>
@@ -4448,49 +4452,51 @@ export default function ContentStudioPage() {
   }, [deleteConfirm]);
 
   // Export project as ZIP (JSON manifest + referenced media files)
-  const handleExport = useCallback(async (project: any) => {
+  const handleExport = useCallback(async (project: DesignProject) => {
     const exportToast = toast.loading(t("studioExportingProject"));
     try {
       // Re-fetch latest version to be safe
-      const { data: fresh } = await (supabase as any)
+      const { data: fresh } = await supabase
         .from("design_projects")
         .select("*")
         .eq("id", project.id)
         .single();
-      const proj = fresh || project;
-      const zonesData = Array.isArray(proj.zones) ? proj.zones : [];
+      const proj: DesignProject = fresh ? { ...fresh, zones: (fresh.zones as Zone[] | null) ?? [] } : project;
+      const zonesData: Array<Record<string, unknown>> = Array.isArray(proj.zones) ? proj.zones as Array<Record<string, unknown>> : [];
 
       // Collect all referenced media ids from zones / overlays / mediaItems / bgm
       const mediaIds = new Set<string>();
-      const walkContent = (content: any) => {
-        if (!content) return;
-        if (Array.isArray(content.mediaItems)) {
-          for (const m of content.mediaItems) if (m?.id) mediaIds.add(String(m.id));
+      const walkContent = (content: unknown) => {
+        if (!content || typeof content !== "object") return;
+        const c = content as Record<string, unknown>;
+        if (Array.isArray(c.mediaItems)) {
+          for (const m of c.mediaItems as Array<{ id?: unknown }>) if (m?.id) mediaIds.add(String(m.id));
         }
       };
       for (const z of zonesData) {
         walkContent(z?.content);
-        if (Array.isArray(z?.overlays)) for (const o of z.overlays) walkContent(o?.content);
+        if (Array.isArray(z?.overlays)) for (const o of z.overlays as Array<{ content?: unknown }>) walkContent(o?.content);
       }
       // Top-level overlays / bgm (if stored on project)
-      const topOverlays = (proj as any).overlays;
-      if (Array.isArray(topOverlays)) for (const o of topOverlays) walkContent(o?.content);
-      const bgm = (proj as any).bgmItems;
-      if (Array.isArray(bgm)) for (const b of bgm) if (b?.id) mediaIds.add(String(b.id));
+      const topOverlays = (proj as unknown as Record<string, unknown>).overlays;
+      if (Array.isArray(topOverlays)) for (const o of topOverlays as Array<{ content?: unknown }>) walkContent(o?.content);
+      const bgm = (proj as unknown as Record<string, unknown>).bgmItems;
+      if (Array.isArray(bgm)) for (const b of bgm as Array<{ id?: unknown }>) if (b?.id) mediaIds.add(String(b.id));
 
       // Fetch media metadata
-      let mediaRows: any[] = [];
+      type MediaRow = { id: string; name: string; original_name: string | null; type: string; mime_type: string; url: string; size_bytes: number; width: number | null; height: number | null; duration_seconds: number | null };
+      let mediaRows: MediaRow[] = [];
       if (mediaIds.size > 0) {
-        const { data } = await (supabase as any)
+        const { data } = await supabase
           .from("media_items")
           .select("id, name, original_name, type, mime_type, url, size_bytes, width, height, duration_seconds")
           .in("id", Array.from(mediaIds));
-        mediaRows = data || [];
+        mediaRows = (data || []) as MediaRow[];
       }
 
       const zip = new JSZip();
       const assetsFolder = zip.folder("assets")!;
-      const manifestMedia: any[] = [];
+      const manifestMedia: Array<Record<string, unknown>> = [];
 
       const sanitize = (s: string) => (s || "file").replace(/[^\w\-.]+/g, "_").slice(0, 80);
       const usedNames = new Set<string>();
@@ -5042,7 +5048,7 @@ export default function ContentStudioPage() {
             <SelectContent>
               {RESOLUTION_PRESETS[aspect].map((r) => (
                 <SelectItem key={r.id} value={r.id} className="text-xs">
-                  <span className="font-medium">{t(r.labelKey as any)}</span>
+                  <span className="font-medium">{t(r.labelKey as TranslationKey)}</span>
                   <span className="text-muted-foreground ml-2">{r.width}×{r.height}</span>
                 </SelectItem>
               ))}
@@ -5417,14 +5423,14 @@ export default function ContentStudioPage() {
                         <button
                           key={lp.id}
                           onClick={() => applyLayout(lp)}
-                          title={t(lp.nameKey as any)}
+                          title={t(lp.nameKey as TranslationKey)}
                           className="flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card hover:bg-accent hover:border-primary/50 transition-colors text-left group"
                         >
                           <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border group-hover:ring-primary/40 transition-all ${aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
                             <LayoutThumb zones={lp.zones} aspect={aspect} />
                           </div>
                           <div className="flex items-center justify-between gap-1">
-                            <p className="text-[11px] font-medium text-foreground truncate">{t(lp.nameKey as any)}</p>
+                            <p className="text-[11px] font-medium text-foreground truncate">{t(lp.nameKey as TranslationKey)}</p>
                             <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0">{lp.zones.length}</Badge>
                           </div>
                         </button>
@@ -5440,7 +5446,7 @@ export default function ContentStudioPage() {
                 <button key={tpl.id} onClick={() => applyTemplate(tpl)} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent transition-colors text-left group">
                   <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
                   <div>
-                    <p className="text-sm font-medium text-foreground">{t(tpl.nameKey as any)}</p>
+                    <p className="text-sm font-medium text-foreground">{t(tpl.nameKey as TranslationKey)}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
                       <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
@@ -5459,14 +5465,13 @@ export default function ContentStudioPage() {
                 </div>
               ) : projects.map((p) => {
                 const resBadge = getProjectResolutionBadge(p.zones);
-                const pAny = p as any;
-                const teamName = pAny.team_id
-                  ? (() => { const tm = teams.find((tt) => tt.id === pAny.team_id); return tm ? (tm.name === "Default" ? t("teamNoTeamLabel") : tm.name) : t("teamNoTeamLabel"); })()
+                const teamName = p.team_id
+                  ? (() => { const tm = teams.find((tt) => tt.id === p.team_id); return tm ? (tm.name === "Default" ? t("teamNoTeamLabel") : tm.name) : t("teamNoTeamLabel"); })()
                   : t("teamNoTeamLabel");
-                const collab = (pAny.collab_scope as "creator" | "team" | "org") || "creator";
+                const collab = (p.collab_scope as "creator" | "team" | "org" | null | undefined) || "creator";
                 const collabLabel = collab === "org" ? t("studioCollabOrg") : collab === "team" ? t("studioCollabTeam") : t("studioCollabCreator");
                 const CollabIcon = collab === "org" ? Building2 : collab === "team" ? Users : UserIcon;
-                const creatorName = getDisplayName(pAny.created_by, "—");
+                const creatorName = getDisplayName(p.created_by ?? null, "—");
                 void profilesVersion;
                 return (
                 <div key={p.id} className={`flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent transition-colors group ${currentProject?.id === p.id ? "border-primary" : "border-border"}`}>
@@ -6064,13 +6069,13 @@ export default function ContentStudioPage() {
                       </p>
                       <div className={`grid gap-2 ${aspect === "9:16" ? "grid-cols-3" : "grid-cols-2"}`}>
                         {filtered.map((lp) => (
-                          <button key={lp.id} onClick={() => { applyLayout(lp); setMobilePanelOpen(false); }} title={t(lp.nameKey as any)}
+                          <button key={lp.id} onClick={() => { applyLayout(lp); setMobilePanelOpen(false); }} title={t(lp.nameKey as TranslationKey)}
                             className="flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left">
                             <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border ${aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
                               <LayoutThumb zones={lp.zones} aspect={aspect} />
                             </div>
                             <div className="flex items-center justify-between gap-1">
-                              <p className="text-[11px] font-medium text-foreground truncate">{t(lp.nameKey as any)}</p>
+                              <p className="text-[11px] font-medium text-foreground truncate">{t(lp.nameKey as TranslationKey)}</p>
                               <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0">{lp.zones.length}</Badge>
                             </div>
                           </button>
@@ -6086,7 +6091,7 @@ export default function ContentStudioPage() {
                     className="w-full flex items-center gap-3 p-3 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left">
                     <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-foreground truncate">{t(tpl.nameKey as any)}</p>
+                      <p className="text-sm font-medium text-foreground truncate">{t(tpl.nameKey as TranslationKey)}</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
                         <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
@@ -6189,7 +6194,7 @@ export default function ContentStudioPage() {
                     <SelectContent>
                       {RESOLUTION_PRESETS[aspect].map((r) => (
                         <SelectItem key={r.id} value={r.id} className="text-xs">
-                          <span className="font-medium">{t(r.labelKey as any)}</span>
+                          <span className="font-medium">{t(r.labelKey as TranslationKey)}</span>
                           <span className="text-muted-foreground ml-2">{r.width}×{r.height}</span>
                         </SelectItem>
                       ))}
@@ -6745,7 +6750,7 @@ export default function ContentStudioPage() {
                       <span className="text-sm">{row.label}</span>
                       <Switch
                         checked={!!projectTransition.triggers[row.k]}
-                        onCheckedChange={(v) => updateProjectTransition({ triggers: { [row.k]: !!v } as any })}
+                        onCheckedChange={(v) => updateProjectTransition({ triggers: { [row.k]: !!v } as Partial<PageTransition["triggers"]> })}
                       />
                     </div>
                   ))}
@@ -6789,7 +6794,7 @@ export default function ContentStudioPage() {
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">{t("studioCollab")}</label>
-              <Select value={projectCollab} onValueChange={(v) => setProjectCollab(v as any)}>
+              <Select value={projectCollab} onValueChange={(v) => setProjectCollab(v as "creator" | "team" | "org")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="creator"><span className="inline-flex items-center gap-2"><UserIcon className="w-3.5 h-3.5" />{t("studioCollabCreator")}</span></SelectItem>

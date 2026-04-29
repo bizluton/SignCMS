@@ -29,7 +29,7 @@ interface WidgetRow {
   name: string;
   name_i18n: Record<string, string>;
   widget_type: string;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
   thumbnail: string;
   app_id: string | null;
   org_id: string | null;
@@ -71,7 +71,7 @@ export default function WidgetManagement() {
 
   const reload = async () => {
     setLoading(true);
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("widgets")
       .select("id, scope, name, name_i18n, widget_type, config, thumbnail, app_id, org_id, sort_order, created_at")
       .eq("scope", scope)
@@ -109,13 +109,13 @@ export default function WidgetManagement() {
 
   const handleSave = async () => {
     if (!form.name.trim()) { toast.error(t("widgetMgmtNameRequired")); return; }
-    let config: any;
-    try { config = JSON.parse(form.config_json); }
+    let config: Record<string, unknown>;
+    try { config = JSON.parse(form.config_json) as Record<string, unknown>; }
     catch { toast.error(t("widgetMgmtInvalidJson")); return; }
     if (scope === "app" && !form.app_id.trim()) { toast.error(t("widgetMgmtAppIdRequired")); return; }
 
     setSaving(true);
-    const payload: any = {
+    const payload: Record<string, unknown> = {
       scope,
       name: form.name.trim(),
       name_i18n: {
@@ -131,7 +131,7 @@ export default function WidgetManagement() {
     };
 
     if (editing) {
-      const { error } = await (supabase as any).from("widgets").update(payload).eq("id", editing.id);
+      const { error } = await supabase.from("widgets").update(payload).eq("id", editing.id);
       if (error) toast.error(error.message);
       else {
         toast.success(t("widgetMgmtUpdated"));
@@ -140,7 +140,7 @@ export default function WidgetManagement() {
         reload();
       }
     } else {
-      const { error } = await (supabase as any).from("widgets").insert({ ...payload, created_by: user?.id });
+      const { error } = await supabase.from("widgets").insert({ ...payload, created_by: user?.id });
       if (error) toast.error(error.message);
       else {
         toast.success(t("widgetMgmtCreated"));
@@ -155,7 +155,7 @@ export default function WidgetManagement() {
   const handleDelete = async () => {
     if (!deleteId) return;
     const row = rows.find((r) => r.id === deleteId);
-    const { error } = await (supabase as any).from("widgets").delete().eq("id", deleteId);
+    const { error } = await supabase.from("widgets").delete().eq("id", deleteId);
     if (error) toast.error(error.message);
     else {
       toast.success(t("widgetMgmtDeleted"));

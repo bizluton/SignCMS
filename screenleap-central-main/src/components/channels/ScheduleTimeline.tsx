@@ -229,7 +229,7 @@ export function ScheduleTimeline({ blocks, designProjects, channelColor, onBlock
     if (hydratedFor.current === userId) return;
     let cancelled = false;
     void (async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("profiles")
         .select("preferred_tz")
         .eq("user_id", userId)
@@ -250,7 +250,7 @@ export function ScheduleTimeline({ blocks, designProjects, channelColor, onBlock
     // Only persist after hydration to avoid overwriting the saved value with
     // the localStorage default on first render.
     if (hydratedFor.current !== userId) return;
-    void (supabase as any)
+    void supabase
       .from("profiles")
       .update({ preferred_tz: tz })
       .eq("user_id", userId);
