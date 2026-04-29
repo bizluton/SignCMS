@@ -4236,8 +4236,8 @@ export default function ContentStudioPage() {
     const loadedAspect = project.aspect as AspectRatio;
     setAspect(loadedAspect);
     // Hydrate team / collab so the settings dialog reflects the loaded project.
-    const loadedTeamId = (project as any).team_id;
-    const loadedCollab = (project as any).collab_scope;
+    const loadedTeamId = project.team_id;
+    const loadedCollab = project.collab_scope;
     setProjectTeamId(loadedTeamId ? String(loadedTeamId) : "none");
     setProjectCollab(
       loadedCollab === "team" || loadedCollab === "org" || loadedCollab === "creator"
@@ -4245,35 +4245,36 @@ export default function ContentStudioPage() {
         : "creator"
     );
     setProjectName(project.name || "");
-    const allData = project.zones || [];
-    const metaEntry = allData.find((z: any) => (z as any)._meta) as any;
-    const regularZones = allData.filter((z: any) => !(z as any)._overlay && !(z as any)._meta);
-    const overlayData = allData.filter((z: any) => (z as any)._overlay).map((o: any) => { const { _overlay, ...rest } = o; return rest as OverlayBlock; });
+    const allData: Array<Record<string, unknown>> = Array.isArray(project.zones) ? project.zones as Array<Record<string, unknown>> : [];
+    const metaEntry = allData.find((z) => z._meta) as Record<string, unknown> | undefined;
+    const regularZones = allData.filter((z) => !z._overlay && !z._meta) as unknown as Zone[];
+    const overlayData = allData.filter((z) => z._overlay).map((o) => { const { _overlay, ...rest } = o; return rest as unknown as OverlayBlock; });
 
     // 還原解析度，未存則用該 aspect 預設；若儲存的 id 是 custom 則保留 custom 標籤（即使尺寸恰好等於預設）
-    if (metaEntry?.resolution?.width && metaEntry?.resolution?.height) {
-      const r = metaEntry.resolution;
+    const metaRes = metaEntry?.resolution as { id?: string; width?: number; height?: number } | undefined;
+    if (metaRes?.width && metaRes?.height) {
+      const r = metaRes;
       if (r.id === "custom") {
         setResolution({ id: "custom", labelKey: "studioResCustom", width: r.width, height: r.height });
       } else {
         const matched = RESOLUTION_PRESETS[loadedAspect].find((p) => p.width === r.width && p.height === r.height);
-        setResolution(matched || { id: "custom", labelKey: "studioResCustom", width: r.width, height: r.height });
+        setResolution(matched || { id: "custom", labelKey: "studioResCustom", width: r.width ?? 1920, height: r.height ?? 1080 });
       }
     } else {
       setResolution(getDefaultResolution(loadedAspect));
     }
 
     // Restore multi-page snapshot if present; fall back to legacy single-page projects.
-    const savedPages: any[] = Array.isArray(metaEntry?.pages) ? metaEntry.pages : [];
+    const savedPages: Array<Record<string, unknown>> = Array.isArray(metaEntry?.pages) ? metaEntry.pages as Array<Record<string, unknown>> : [];
     if (savedPages.length > 0) {
-      const restored: StudioPage[] = savedPages.map((p: any, i: number) => ({
+      const restored: StudioPage[] = savedPages.map((p, i) => ({
         id: typeof p.id === "string" ? p.id : makePageId(),
         name: typeof p.name === "string" && p.name ? p.name : `版型 ${i + 1}`,
-        zones: Array.isArray(p.zones) ? p.zones : [],
-        overlays: Array.isArray(p.overlays) ? p.overlays : [],
+        zones: Array.isArray(p.zones) ? p.zones as Zone[] : [],
+        overlays: Array.isArray(p.overlays) ? p.overlays as OverlayBlock[] : [],
       }));
       setPages(restored);
-      const wantId = typeof metaEntry?.activePageId === "string" ? metaEntry.activePageId : restored[0].id;
+      const wantId = typeof metaEntry?.activePageId === "string" ? metaEntry.activePageId as string : restored[0].id;
       const active = restored.find((p) => p.id === wantId) || restored[0];
       setActivePageId(active.id);
       setZones(active.zones);
@@ -4288,8 +4289,8 @@ export default function ContentStudioPage() {
     }
 
     // Restore BGM track from _meta (graceful defaults for legacy projects)
-    const bgmMeta = metaEntry?.bgm;
-    setBgmItems(Array.isArray(bgmMeta?.items) ? bgmMeta.items : []);
+    const bgmMeta = metaEntry?.bgm as { items?: MediaItem[]; volume?: number; audioSource?: string } | undefined;
+    setBgmItems(Array.isArray(bgmMeta?.items) ? bgmMeta!.items! : []);
     setBgmVolume(typeof bgmMeta?.volume === "number" ? Math.max(0, Math.min(100, bgmMeta.volume)) : 30);
     setBgmAudioSource(typeof bgmMeta?.audioSource === "string" && bgmMeta.audioSource ? bgmMeta.audioSource : "bgm");
 
@@ -4322,19 +4323,19 @@ export default function ContentStudioPage() {
     handleLoad(target);
     // Restore the selected zone/overlay if it still exists in the loaded canvas.
     setTimeout(() => {
-      const allZoneEntries = (target.zones || []) as any[];
+      const allZoneEntries: Array<Record<string, unknown>> = Array.isArray(target.zones) ? target.zones as Array<Record<string, unknown>> : [];
       const regularZoneIds = new Set(
-        allZoneEntries.filter((z) => !z._overlay && !z._meta).map((z) => z.id)
+        allZoneEntries.filter((z) => !z._overlay && !z._meta).map((z) => z.id as string)
       );
       const overlayIds = new Set(
-        allZoneEntries.filter((z) => z._overlay).map((z) => z.id)
+        allZoneEntries.filter((z) => z._overlay).map((z) => z.id as string)
       );
       // Multi-page projects keep zones inside _meta.pages, so check there too.
-      const meta = allZoneEntries.find((z) => z?._meta) as any;
+      const meta = allZoneEntries.find((z) => z._meta) as Record<string, unknown> | undefined;
       if (Array.isArray(meta?.pages)) {
-        for (const pg of meta.pages) {
-          (pg.zones || []).forEach((z: any) => z?.id && regularZoneIds.add(z.id));
-          (pg.overlays || []).forEach((o: any) => o?.id && overlayIds.add(o.id));
+        for (const pg of meta!.pages as Array<{ zones?: Array<{ id?: string }>; overlays?: Array<{ id?: string }> }>) {
+          (pg.zones || []).forEach((z) => z?.id && regularZoneIds.add(z.id));
+          (pg.overlays || []).forEach((o) => o?.id && overlayIds.add(o.id));
         }
       }
       if (saved.selectedZone && regularZoneIds.has(saved.selectedZone)) {
@@ -4385,7 +4386,7 @@ export default function ContentStudioPage() {
     if (!deleteConfirm) return;
     const { id } = deleteConfirm;
     setDeleteConfirm(null);
-    await (supabase as any).from("design_projects").delete().eq("id", id);
+    await supabase.from("design_projects").delete().eq("id", id);
     if (currentProject?.id === id) { setCurrentProject(null); }
     loadProjects();
     toast.success(t("studioProjectDeleted"));
@@ -4412,8 +4413,8 @@ export default function ContentStudioPage() {
       await unassignProjectReference(item);
       toast.success(t("studioDeleteUnassignSuccess"));
       await refreshDeleteConfirmRefs(deleteConfirm.id);
-    } catch (err: any) {
-      toast.error(t("studioDeleteUnassignError"), { description: err?.message });
+    } catch (err: unknown) {
+      toast.error(t("studioDeleteUnassignError"), { description: err instanceof Error ? err.message : undefined });
       setDeleteConfirm((prev) => (prev ? { ...prev, busyKey: null } : prev));
     }
   }, [deleteConfirm, refreshDeleteConfirmRefs, t]);
@@ -4423,7 +4424,7 @@ export default function ContentStudioPage() {
     const project = projects.find((p) => p.id === deleteConfirm.id);
     const res = await queueDesignProjectDelete({
       projectId: deleteConfirm.id,
-      orgId: (project as any)?.org_id ?? activeOrgId ?? null,
+      orgId: project?.org_id ?? activeOrgId ?? null,
       userId: user.id,
     });
     if ("error" in res) {

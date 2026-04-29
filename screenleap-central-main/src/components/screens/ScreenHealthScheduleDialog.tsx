@@ -117,12 +117,12 @@ export function ScreenHealthScheduleDialog() {
     if (!activeOrgId) return;
     setLoading(true);
     const [{ data, error }, orgRes] = await Promise.all([
-      (supabase as any)
+      supabase
         .from("screen_health_report_schedules")
         .select("*")
         .eq("org_id", activeOrgId)
         .order("created_at", { ascending: false }),
-      (supabase as any)
+      supabase
         .from("organizations")
         .select("timezone")
         .eq("id", activeOrgId)
@@ -134,7 +134,7 @@ export function ScreenHealthScheduleDialog() {
       return;
     }
     setSchedules((data ?? []) as Schedule[]);
-    const tz = (orgRes?.data as any)?.timezone || "UTC";
+    const tz = (orgRes?.data as Record<string, unknown>)?.timezone as string || "UTC";
     setOrgTimezone(tz);
     // Default the form's tz to the org's tz (admins can still override).
     setTimezone((prev) => (prev && prev !== "UTC" ? prev : tz));
