@@ -16,11 +16,11 @@ import { CSRoute } from "@/components/CSRoute";
 import { SystemAdminRoute } from "@/components/SystemAdminRoute";
 import { getInitialTheme } from "@/hooks/usePreferences";
 import { ThemeSync } from "@/components/ThemeSync";
-import Index from "./pages/Index.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { RouteSkeleton } from "./components/PageSkeleton";
 
 // Lazy-loaded page chunks
+const Index = lazy(() => import("./pages/Index.tsx"));
 const Admin = lazy(() => import("./pages/Admin.tsx"));
 const Screens = lazy(() => import("./pages/Screens.tsx"));
 const Media = lazy(() => import("./pages/Media.tsx"));
