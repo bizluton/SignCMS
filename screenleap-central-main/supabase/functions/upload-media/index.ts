@@ -1,11 +1,3 @@
-// ⚠️ TODO(transcode): 影片轉檔流程「暫不處理」。
-// 目前所有影片上傳後 transcode_status 預設為 'none'，不會自動偵測 fps/bitrate/codec，
-// 也不會呼叫外部 ffmpeg worker。未來補上時請參考 docs/transcode-spec.md。
-// 相關待補項目：
-//   1. 前端 MediaInfo.js 偵測（fps>60 / bitrate>20Mbps / codec≠h264 / container≠mp4 / >4K → pending）
-//   2. 此 function 接收 source_fps/source_bitrate/source_codec/source_container 並寫入 media_items
-//   3. 新增 request-transcode / transcode-callback 兩支 Edge Function
-//   4. 自架 ffmpeg worker（HMAC 驗證 + 回呼）
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.99.3";
 
 const corsHeaders = {
@@ -110,6 +102,12 @@ Deno.serve(async (req) => {
     const durationSecRaw = formData.get("duration_seconds") as string | null;
     const projectId = formData.get("design_project_id") as string | null;
     const orgId = formData.get("org_id") as string | null;
+    // Transcode metadata (from MediaInfo.js on the client)
+    const sourceFpsRaw = formData.get("source_fps") as string | null;
+    const sourceBitrateRaw = formData.get("source_bitrate") as string | null;
+    const sourceCodec = (formData.get("source_codec") as string | null) || null;
+    const sourceContainer = (formData.get("source_container") as string | null) || null;
+    const needsTranscode = formData.get("needs_transcode") === "true";
 
     if (!file) {
       return new Response(JSON.stringify({ error: "No file provided" }), {
@@ -196,6 +194,8 @@ Deno.serve(async (req) => {
     const widthInt = widthRaw ? parseInt(widthRaw, 10) : NaN;
     const heightInt = heightRaw ? parseInt(heightRaw, 10) : NaN;
     const durSecNum = durationSecRaw ? parseFloat(durationSecRaw) : NaN;
+    const sourceFps = sourceFpsRaw ? parseFloat(sourceFpsRaw) : NaN;
+    const sourceBitrate = sourceBitrateRaw ? parseInt(sourceBitrateRaw, 10) : NaN;
     const insertData: Record<string, unknown> = {
       name: safeName(name),
       original_name: originalName,
@@ -211,6 +211,12 @@ Deno.serve(async (req) => {
       uploaded_by: userId,
       design_project_id: projectId && projectId !== "__none__" ? projectId : null,
       org_id: orgId,
+      // Transcode tracking
+      transcode_status: needsTranscode ? "pending_transcode" : "ready",
+      source_fps: Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : null,
+      source_bitrate: Number.isFinite(sourceBitrate) && sourceBitrate > 0 ? sourceBitrate : null,
+      source_codec: sourceCodec || null,
+      source_container: sourceContainer || null,
     };
 
     const { data, error } = await supabase
@@ -244,7 +250,7 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, id: data.id, url: publicUrl, storage_path: storagePath }),
+      JSON.stringify({ success: true, id: data.id, url: publicUrl, storage_path: storagePath, transcode_status: needsTranscode ? "pending_transcode" : "ready" }),
       {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

@@ -17,6 +17,7 @@ import {
   type MediaProjectRef,
 } from "@/lib/referenceCheck";
 import { computeFileMd5, isAcceptableImage, isAcceptableVideo, isAcceptableAudio, validateVideoSpec, validateImageSpec, tryNormalizeImage } from "@/lib/fileHash";
+import { probeVideoMeta } from "@/lib/videoTranscode";
 import {
   formatBytes as formatMediaBytes,
   formatDimensions,
@@ -116,6 +117,13 @@ interface MediaItemRow {
   md5?: string | null;
   mime_type?: string | null;
   uploaded_by?: string | null;
+  // Transcode tracking
+  transcode_status?: string | null;
+  source_fps?: number | null;
+  source_bitrate?: number | null;
+  source_codec?: string | null;
+  source_container?: string | null;
+  transcode_error?: string | null;
 }
 
 interface ProjectItem {
@@ -427,6 +435,7 @@ const MediaPage = () => {
   const [previewItem, setPreviewItem] = useState<MediaItemRow | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [transcodeRequestingId, setTranscodeRequestingId] = useState<string | null>(null);
   // Bulk selection state
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -785,7 +794,7 @@ const MediaPage = () => {
     setLoading(true);
     let mediaQ = supabase
       .from("media_items")
-      .select("id, name, original_name, type, url, thumbnail, size_bytes, width, height, duration_seconds, created_at, design_project_id, is_system, org_id, md5, mime_type, uploaded_by")
+      .select("id, name, original_name, type, url, thumbnail, size_bytes, width, height, duration_seconds, created_at, design_project_id, is_system, org_id, md5, mime_type, uploaded_by, transcode_status, source_fps, source_bitrate, source_codec, source_container, transcode_error")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
     let projectsQ = supabase
@@ -1007,6 +1016,12 @@ const MediaPage = () => {
       let width = 0;
       let height = 0;
       let durationSec = 0;
+      // Transcode detection (populated below for video files)
+      let sourceFps = 0;
+      let sourceBitrate = 0;
+      let sourceCodec = "";
+      let sourceContainer = "";
+      let needsTranscode = false;
 
       if (isImage) {
         const probeImage = (f: File) =>
@@ -1111,6 +1126,17 @@ const MediaPage = () => {
           event.target.value = "";
           return;
         }
+
+        // Deep probe with MediaInfo.js to detect fps/bitrate/codec for transcode gating
+        const probe = await probeVideoMeta(file);
+        sourceFps = probe.fps;
+        sourceBitrate = probe.bitrate;
+        sourceCodec = probe.codec;
+        sourceContainer = probe.container;
+        needsTranscode = probe.needsTranscode;
+        // Use MediaInfo dimensions if native element returned 0
+        if (width === 0 && probe.width > 0) width = probe.width;
+        if (height === 0 && probe.height > 0) height = probe.height;
       }
 
       if (isAudio) {
@@ -1173,6 +1199,13 @@ const MediaPage = () => {
       if (height > 0) formData.append("height", String(height));
       if (durationSec > 0) formData.append("duration_seconds", String(durationSec));
       formData.append("org_id", uploadOrgId);
+      if (isVideo) {
+        if (sourceFps > 0) formData.append("source_fps", String(sourceFps));
+        if (sourceBitrate > 0) formData.append("source_bitrate", String(sourceBitrate));
+        if (sourceCodec) formData.append("source_codec", sourceCodec);
+        if (sourceContainer) formData.append("source_container", sourceContainer);
+        formData.append("needs_transcode", String(needsTranscode));
+      }
 
       const session = await supabase.auth.getSession();
       const accessToken = session.data.session?.access_token;
@@ -1199,7 +1232,11 @@ const MediaPage = () => {
           toast.error(result.error || t("mediaUnsupported"));
         }
       } else {
-        toast.success(`${t("mediaUploaded")}：${file.name}`);
+        if (result.transcode_status === "pending_transcode") {
+          toast.success(`${t("mediaUploaded")}：${file.name}`, { description: t("transcodeUploadNote") as string });
+        } else {
+          toast.success(`${t("mediaUploaded")}：${file.name}`);
+        }
         logActivity({ action: "upload_media", category: "media", targetName: file.name });
         fetchAll();
       }
@@ -1242,6 +1279,41 @@ const MediaPage = () => {
     }
     setDeleteId(itemId);
     await checkMediaUsage(itemId);
+  };
+
+  const handleRequestTranscode = async (mediaId: string) => {
+    setTranscodeRequestingId(mediaId);
+    toast.info(t("transcodeStarting") as string);
+    try {
+      const session = await supabase.auth.getSession();
+      const accessToken = session.data.session?.access_token;
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/request-transcode`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ media_id: mediaId }),
+        },
+      );
+      const result = await res.json();
+      if (!res.ok || result.error) {
+        if (result.error === "worker_not_configured") {
+          toast.error(t("transcodeWorkerNotConfigured") as string);
+        } else {
+          toast.error(t("transcodeRequestFailed") as string);
+        }
+      } else {
+        toast.success(t("transcodeRequested") as string);
+        fetchAll();
+      }
+    } catch {
+      toast.error(t("transcodeRequestFailed") as string);
+    } finally {
+      setTranscodeRequestingId(null);
+    }
   };
 
   const handleDelete = async () => {
@@ -1772,6 +1844,25 @@ const MediaPage = () => {
                       {item.is_system ? t("widgetSystem") : t("widgetRegular")}
                     </Badge>
                   )}
+                  {/* Transcode status overlay badge */}
+                  {item.type === "video" && item.transcode_status === "pending_transcode" && (
+                    <Badge className="absolute right-2 top-2 text-[10px] bg-yellow-500 text-white border-0">
+                      {t("transcodeStatusPending")}
+                    </Badge>
+                  )}
+                  {item.type === "video" && item.transcode_status === "transcoding" && (
+                    <Badge className="absolute right-2 top-2 text-[10px] bg-blue-500 text-white border-0 animate-pulse">
+                      {t("transcodeStatusProcessing")}
+                    </Badge>
+                  )}
+                  {item.type === "video" && item.transcode_status === "failed" && (
+                    <Badge
+                      className="absolute right-2 top-2 text-[10px] bg-destructive text-destructive-foreground border-0 cursor-help"
+                      title={item.transcode_error ?? undefined}
+                    >
+                      {t("transcodeStatusFailed")}
+                    </Badge>
+                  )}
                 </div>
 
                 <div className="space-y-2 p-3">
@@ -1794,6 +1885,16 @@ const MediaPage = () => {
                     <span>·</span>
                     <div className="min-w-0 flex-1">{renderProjectSelect(item)}</div>
                   </div>
+                  {/* Transcode action button */}
+                  {item.type === "video" && (item.transcode_status === "pending_transcode" || item.transcode_status === "failed") && canManageMedia && (
+                    <button
+                      className="mt-1 w-full rounded border border-yellow-500 py-0.5 text-[11px] font-medium text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-950 disabled:opacity-50"
+                      disabled={transcodeRequestingId === item.id}
+                      onClick={(e) => { e.stopPropagation(); void handleRequestTranscode(item.id); }}
+                    >
+                      {item.transcode_status === "failed" ? t("transcodeRetry") : t("transcodeStart")}
+                    </button>
+                  )}
                 </div>
               </Card>
             );
@@ -1875,6 +1976,15 @@ const MediaPage = () => {
                         {item.is_system ? t("widgetSystem") : t("widgetRegular")}
                       </Badge>
                     )}
+                    {item.type === "video" && item.transcode_status === "pending_transcode" && (
+                      <Badge className="text-[10px] px-1.5 py-0 h-4 bg-yellow-500 text-white border-0">{t("transcodeStatusPending")}</Badge>
+                    )}
+                    {item.type === "video" && item.transcode_status === "transcoding" && (
+                      <Badge className="text-[10px] px-1.5 py-0 h-4 bg-blue-500 text-white border-0 animate-pulse">{t("transcodeStatusProcessing")}</Badge>
+                    )}
+                    {item.type === "video" && item.transcode_status === "failed" && (
+                      <Badge className="text-[10px] px-1.5 py-0 h-4 bg-destructive text-destructive-foreground border-0 cursor-help" title={item.transcode_error ?? undefined}>{t("transcodeStatusFailed")}</Badge>
+                    )}
                     <span className="flex items-center gap-1"><HardDrive className="w-3 h-3" />{formatMediaBytes(getSizeBytes(item))}</span>
                     {item.type === "audio" ? (
                       <span className="font-mono uppercase">{getAudioFormatLabel(item)}</span>
@@ -1888,6 +1998,17 @@ const MediaPage = () => {
                 </div>
 
                 <div className="flex shrink-0 items-center gap-1">
+                  {item.type === "video" && (item.transcode_status === "pending_transcode" || item.transcode_status === "failed") && canManageMedia && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 border-yellow-500 text-yellow-600 text-[11px] hover:bg-yellow-50 dark:hover:bg-yellow-950"
+                      disabled={transcodeRequestingId === item.id}
+                      onClick={(e) => { e.stopPropagation(); void handleRequestTranscode(item.id); }}
+                    >
+                      {item.transcode_status === "failed" ? t("transcodeRetry") : t("transcodeStart")}
+                    </Button>
+                  )}
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); openPreview(item); }} title={t("mediaTitle")}>
                     <Eye className="w-4 h-4" />
                   </Button>
