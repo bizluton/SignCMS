@@ -500,7 +500,7 @@ export default function PublishingCenterPage() {
       }));
     });
 
-    const { error } = await (supabase as any).from("publish_records").insert(inserts);
+    const { error } = await supabase.from("publish_records").insert(inserts);
     if (error) {
       toast.error(error.message);
     } else {
@@ -565,7 +565,7 @@ export default function PublishingCenterPage() {
       published_by: user?.id,
     }));
 
-    const { error } = await (supabase as any).from("publish_records").insert(inserts);
+    const { error } = await supabase.from("publish_records").insert(inserts);
     if (error) {
       toast.error(error.message);
     } else {
@@ -587,7 +587,7 @@ export default function PublishingCenterPage() {
   const handleRestoreNormal = async () => {
     setRestoring(true);
     // Update all emergency records to "restored"
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("publish_records")
       .update({ status: "restored" })
       .eq("status", "emergency");

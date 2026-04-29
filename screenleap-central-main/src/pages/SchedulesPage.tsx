@@ -228,7 +228,7 @@ export default function SchedulesPage() {
       setChannelImpact(report);
       setChannelDeleteQueued(pending.has(channelId));
       // If queue executed (channel removed), close dialog and refresh list
-      const stillExists = (await (supabase as any).from("channels").select("id").eq("id", channelId).maybeSingle()).data;
+      const stillExists = (await supabase.from("channels").select("id").eq("id", channelId).maybeSingle()).data;
       if (!stillExists) {
         toast.success(t("channelDeleteAutoExecuted"));
         setDeletingChannel(null);
@@ -237,8 +237,8 @@ export default function SchedulesPage() {
         reloadChannels();
         loadPendingChannelIds();
       }
-    } catch (err: any) {
-      toast.error(err?.message ?? String(err));
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -249,8 +249,8 @@ export default function SchedulesPage() {
       await unassignProjectReference(item);
       toast.success(t("studioDeleteUnassignSuccess"));
       await refreshChannelImpact(deletingChannel.id);
-    } catch (err: any) {
-      toast.error(`${t("studioDeleteUnassignError")}: ${err?.message ?? String(err)}`);
+    } catch (err: unknown) {
+      toast.error(`${t("studioDeleteUnassignError")}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setUnassigningKey(null);
     }
@@ -286,7 +286,7 @@ export default function SchedulesPage() {
 
   const handleDeleteChannel = async () => {
     if (!deletingChannel) return;
-    const { error } = await (supabase as any).from("channels").delete().eq("id", deletingChannel.id);
+    const { error } = await supabase.from("channels").delete().eq("id", deletingChannel.id);
     if (error) { toast.error(error.message); return; }
     toast.success(t("channelDeleted"));
     setDeletingChannel(null);
@@ -296,7 +296,7 @@ export default function SchedulesPage() {
 
   const handleDeleteBlock = async () => {
     if (!deletingBlock) return;
-    const { error } = await (supabase as any).from("channel_blocks").delete().eq("id", deletingBlock.id);
+    const { error } = await supabase.from("channel_blocks").delete().eq("id", deletingBlock.id);
     if (error) { toast.error(error.message); return; }
     toast.success(t("blockDeleted"));
     setDeletingBlock(null);

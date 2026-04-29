@@ -550,7 +550,7 @@ const MediaPage = () => {
 
   const fetchTrash = useCallback(async () => {
     setTrashLoading(true);
-    let q = (supabase as any)
+    let q = supabase
       .from("media_items")
       .select("id, name, original_name, type, thumbnail, size_bytes, deleted_at, org_id")
       .not("deleted_at", "is", null)
@@ -582,7 +582,7 @@ const MediaPage = () => {
     if (!trashOpen) return;
     let cancelled = false;
     const loadRetention = async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("schedule_cleanup_settings")
         .select("media_retention_days")
         .eq("id", 1)
@@ -661,14 +661,15 @@ const MediaPage = () => {
     const results: BulkResultItem[] = [];
     const succeededIds: string[] = [];
     for (const id of ids) {
-      const { data, error } = await (supabase as any).rpc(rpcName, { _media_id: id });
-      const success = !error && (data as any)?.success !== false;
+      const { data, error } = await supabase.rpc(rpcName as "restore_soft_deleted_media", { _media_id: id });
+      const rpcResult = data as { success?: boolean; error?: string } | null;
+      const success = !error && rpcResult?.success !== false;
       const name = nameById.get(id) || id.slice(0, 8);
       if (success) {
         succeededIds.push(id);
         results.push({ id, name, ok: true });
       } else {
-        const errMsg = error?.message || (data as any)?.error || "unknown_error";
+        const errMsg = error?.message || rpcResult?.error || "unknown_error";
         results.push({ id, name, ok: false, error: errMsg });
       }
     }
@@ -692,7 +693,7 @@ const MediaPage = () => {
   const fetchAllRef = useRef<() => void>(() => {});
   const handleRestore = useCallback(async (id: string) => {
     setTrashBusyId(id);
-    const { data, error } = await (supabase as any).rpc("restore_soft_deleted_media", { _media_id: id });
+    const { data, error } = await supabase.rpc("restore_soft_deleted_media", { _media_id: id });
     setTrashBusyId(null);
     if (error) {
       toast.error(error.message);
@@ -710,7 +711,7 @@ const MediaPage = () => {
 
   const handlePurgeNow = useCallback(async (id: string) => {
     setTrashBusyId(id);
-    const { data, error } = await (supabase as any).rpc("purge_soft_deleted_media_item", { _media_id: id });
+    const { data, error } = await supabase.rpc("purge_soft_deleted_media_item", { _media_id: id });
     setTrashBusyId(null);
     setPurgeConfirmId(null);
     if (error) {
