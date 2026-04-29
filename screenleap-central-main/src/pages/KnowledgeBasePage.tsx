@@ -109,7 +109,7 @@ const KnowledgeBasePage = () => {
       description: item.description ?? "",
       category: item.category,
       subCategory: item.sub_category ?? "",
-      categoryId: (item as any).category_id ?? "",
+      categoryId: (item as Record<string, unknown>).category_id as string ?? "",
       tagIds: (item.tags ?? []).map((t) => t.id),
     });
   };
@@ -152,7 +152,7 @@ const KnowledgeBasePage = () => {
   const filtered = items.filter((item) => {
     const matchSearch = item.title.includes(search) || item.description.includes(search);
     const matchCat = activeCategory === "all" || item.category === activeCategory;
-    const matchSubCat = !activeCategoryId || (item as any).category_id === activeCategoryId;
+    const matchSubCat = !activeCategoryId || (item as Record<string, unknown>).category_id === activeCategoryId;
     const matchTags =
       activeTagIds.length === 0 ||
       activeTagIds.every((tid) => (item.tags ?? []).some((t) => t.id === tid));
@@ -348,11 +348,11 @@ const KnowledgeBasePage = () => {
                   <div className="flex flex-wrap gap-1.5">
                     {(() => {
                       const scoped = dbCategories.filter(
-                        (dc: any) => (dc.parent_key ?? "store") === cat.id
+                        (dc) => (dc.parent_key ?? "store") === cat.id
                       );
                       if (scoped.length > 0) {
                         return scoped.map((dc) => {
-                          const count = catItems.filter((i) => (i as any).category_id === dc.id).length;
+                          const count = catItems.filter((i) => (i as Record<string, unknown>).category_id === dc.id).length;
                           const selected = activeCategoryId === dc.id;
                           return (
                             <Badge
@@ -553,7 +553,7 @@ const KnowledgeBasePage = () => {
                           <span>{cat?.name}</span>
                           <ChevronRight className="h-3 w-3" />
                           <span>
-                            {dbCategories.find((c) => c.id === (item as any).category_id)?.name
+                            {dbCategories.find((c) => c.id === (item as Record<string, unknown>).category_id)?.name
                               ?? item.sub_category
                               ?? "-"}
                           </span>

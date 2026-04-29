@@ -165,7 +165,7 @@ export function ScreenHealthScheduleDialog() {
       return;
     }
     setSaving(true);
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("screen_health_report_schedules")
       .insert({
         org_id: activeOrgId,
@@ -189,7 +189,7 @@ export function ScreenHealthScheduleDialog() {
   };
 
   const toggleEnabled = async (s: Schedule) => {
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("screen_health_report_schedules")
       .update({ enabled: !s.enabled })
       .eq("id", s.id);
@@ -198,7 +198,7 @@ export function ScreenHealthScheduleDialog() {
   };
 
   const remove = async (s: Schedule) => {
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("screen_health_report_schedules")
       .delete()
       .eq("id", s.id);
@@ -215,8 +215,8 @@ export function ScreenHealthScheduleDialog() {
       "scheduled-screen-health-report",
       { body: { schedule_id: s.id, force: true } },
     );
-    if (error || !(data as any)?.ok) {
-      toast.error((error as any)?.message || t("scheduleSendFailed"));
+    if (error || !(data as Record<string, unknown>)?.ok) {
+      toast.error(error?.message || t("scheduleSendFailed"));
       return;
     }
     toast.success(t("scheduleSent"));
@@ -334,7 +334,7 @@ export function ScreenHealthScheduleDialog() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
               <Label className="text-xs">{t("scheduleCadence")}</Label>
-              <Select value={cadence} onValueChange={(v) => setCadence(v as any)}>
+              <Select value={cadence} onValueChange={(v) => setCadence(v as "daily" | "weekly")}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
