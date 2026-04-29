@@ -1,6 +1,4 @@
-// Shared helper to ensure every transactional email enqueue has an unsubscribe_token.
-// The Lovable Email API rejects transactional sends without one (400 missing_unsubscribe).
-// Use `getOrCreateUnsubscribeToken` before calling `enqueue_email`.
+// Shared helper to get or create an unsubscribe token for a recipient email.
 
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2'
 
