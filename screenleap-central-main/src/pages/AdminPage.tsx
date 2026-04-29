@@ -40,8 +40,13 @@ export default function AdminPage() {
   const [tempPassword, setTempPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const { isSystemAdmin, loading: sysAdminLoading } = useIsSystemAdmin();
-  const defaultTab = (isSystemAdmin || isOrgAdmin) ? "users" : "teams";
-  const [activeTab, setActiveTab] = useState<string>(defaultTab);
+  const defaultTab = isSystemAdmin ? "users" : isOrgAdmin ? "users" : "teams";
+  const [activeTab, setActiveTab] = useState<string>("teams");
+  // Sync activeTab once roles resolve to avoid stale initial state
+  useEffect(() => {
+    setActiveTab(defaultTab);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sysAdminLoading, roleLoading]);
 
   // Guard: if a non-system-admin somehow lands on a system-admin-only tab, redirect to default
   useEffect(() => {

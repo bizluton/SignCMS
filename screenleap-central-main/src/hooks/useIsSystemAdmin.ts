@@ -33,15 +33,21 @@ export function useIsSystemAdmin() {
 
         if (cancelled) return;
         if (error) {
-          console.warn("useIsSystemAdmin check failed:", error);
-          setIsSystemAdmin(false);
+          console.error("useIsSystemAdmin check failed:", error);
+          // Retry once on transient errors rather than silently returning false
+          const { data: retryData } = await supabase
+            .from("system_admins")
+            .select("user_id")
+            .eq("user_id", user.id)
+            .maybeSingle();
+          if (!cancelled) setIsSystemAdmin(!!retryData);
         } else {
           setIsSystemAdmin(!!data);
         }
-        setLoading(false);
-      } catch (error) {
+        if (!cancelled) setLoading(false);
+      } catch (err) {
         if (cancelled) return;
-        console.warn("useIsSystemAdmin unexpected failure:", error);
+        console.error("useIsSystemAdmin unexpected failure:", err);
         setIsSystemAdmin(false);
         setLoading(false);
       }
