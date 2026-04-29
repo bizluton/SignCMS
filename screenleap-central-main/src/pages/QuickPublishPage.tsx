@@ -812,10 +812,10 @@ export default function QuickPublishPage() {
         end_time: endTime,
         days: scheduleMode === "loop" ? Array.from(weekdays) : [],
       }));
-    const { data: schedulesData, error: scheduleError } = await (supabase as any).from("schedules").insert(inserts).select("id, screen_id");
+    const { data: schedulesData, error: scheduleError } = await supabase.from("schedules").insert(inserts).select("id, screen_id");
     if (scheduleError) { setPublishing(false); toast.error(scheduleError.message); return; }
 
-    const scheduleItems = (schedulesData || []).map((schedule: any) => ({
+    const scheduleItems = (schedulesData || []).map((schedule: { id: string; screen_id: string }) => ({
       schedule_id: schedule.id,
       design_project_id: quickProject.id,
       item_type: "design_project",
@@ -823,7 +823,7 @@ export default function QuickPublishPage() {
       duration: quickProjectDuration,
     }));
     if (scheduleItems.length > 0) {
-      const { error: itemError } = await (supabase as any).from("schedule_items").insert(scheduleItems);
+      const { error: itemError } = await supabase.from("schedule_items").insert(scheduleItems);
       if (itemError) { setPublishing(false); toast.error(itemError.message); return; }
     }
 
@@ -841,7 +841,7 @@ export default function QuickPublishPage() {
         published_by: user?.id,
       };
     });
-    const { error } = await (supabase as any).from("publish_records").insert(records);
+    const { error } = await supabase.from("publish_records").insert(records);
     setPublishing(false);
     if (error) { toast.error(error.message); return; }
     logActivity({

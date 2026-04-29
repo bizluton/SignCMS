@@ -3577,13 +3577,13 @@ export default function ContentStudioPage() {
   const [dbWidgets, setDbWidgets] = useState<{ id: string; name: string; url: string; created_at?: string }[]>([]);
 
   const loadMedia = useCallback(async () => {
-    let mediaQ = (supabase as any)
+    let mediaQ = supabase
       .from("media_items")
       .select("id, name, original_name, type, url, thumbnail, size_bytes, width, height, duration_seconds, mime_type, created_at")
       .neq("type", "widget")
       .order("created_at", { ascending: false });
 
-    let widgetQ = (supabase as any)
+    let widgetQ = supabase
       .from("media_items")
       .select("id, name, url, created_at")
       .eq("type", "widget")
@@ -3594,7 +3594,7 @@ export default function ContentStudioPage() {
       widgetQ = widgetQ.eq("org_id", activeOrgId);
     }
 
-    const [mediaRes, widgetRes]: any = await Promise.all([mediaQ, widgetQ]);
+    const [mediaRes, widgetRes] = await Promise.all([mediaQ, widgetQ]);
     if (mediaRes.error) toast.error(mediaRes.error.message);
     else setDbMedia(mediaRes.data || []);
     if (widgetRes.error) toast.error(widgetRes.error.message);
@@ -3609,15 +3609,15 @@ export default function ContentStudioPage() {
   // Load projects list
   const loadProjects = useCallback(async () => {
     setProjects([]);
-    let q = (supabase as any).from("design_projects").select("*").order("updated_at", { ascending: false });
+    let q = supabase.from("design_projects").select("*").order("updated_at", { ascending: false });
     if (activeOrgId) q = q.eq("org_id", activeOrgId);
     const { data } = await q;
-    const list = (data || []).map((d: any) => ({ ...d, zones: d.zones || [] }));
-    setProjects(list);
+    const list = (data || []).map((d) => ({ ...d, zones: d.zones || [] }));
+    setProjects(list as DesignProject[]);
     // Preload creator names for project cards
-    ensureProfiles(list.map((p: any) => p.created_by).filter(Boolean));
+    ensureProfiles(list.map((p) => p.created_by).filter(Boolean) as string[]);
     // Mark which projects have a pending delete request queued
-    const ids = list.map((p: any) => p.id).filter(Boolean);
+    const ids = list.map((p) => p.id).filter(Boolean) as string[];
     fetchPendingDeleteRequests(ids).then(setPendingDeleteIds).catch(() => undefined);
   }, [activeOrgId, ensureProfiles, STUDIO_DATA_VERSION]);
 
@@ -3626,7 +3626,7 @@ export default function ContentStudioPage() {
   // Load teams for save dialog
   useEffect(() => {
     (async () => {
-      let q = (supabase as any).from("teams").select("id, name, org_id").order("name");
+      let q = supabase.from("teams").select("id, name, org_id").order("name");
       if (activeOrgId) q = q.eq("org_id", activeOrgId);
       const { data } = await q;
       setTeams(data || []);
