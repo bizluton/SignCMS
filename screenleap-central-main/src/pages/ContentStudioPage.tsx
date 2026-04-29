@@ -1851,11 +1851,9 @@ function ZoneTimeline({
                   try {
                     const raw = e.dataTransfer.getData("application/x-studio-picker-item");
                     if (!raw) return;
-                    const parsed = JSON.parse(raw);
-                    const arr = Array.isArray(parsed) ? parsed : [parsed];
-                    const parsed2 = JSON.parse(raw) as unknown;
-                    const arr2: PickerPayload[] = Array.isArray(parsed2) ? parsed2 as PickerPayload[] : [parsed2 as PickerPayload];
-                    const valid = arr2.filter((p) => p && (p.kind === "media" || p.kind === "widget"));
+                    const parsed = JSON.parse(raw) as unknown;
+                    const arr: PickerPayload[] = Array.isArray(parsed) ? parsed as PickerPayload[] : [parsed as PickerPayload];
+                    const valid = arr.filter((p) => p && (p.kind === "media" || p.kind === "widget"));
                     if (valid.length === 0) return;
                     e.preventDefault();
                     e.stopPropagation();
@@ -1995,7 +1993,7 @@ function ZoneTimeline({
                                   <VideoThumb
                                     src={item.url}
                                     name={item.name}
-                                    poster={(item as any).thumbnail || undefined}
+                                    poster={undefined}
                                     className="absolute inset-0 pointer-events-none"
                                     showPlayHint={false}
                                   />
@@ -2301,7 +2299,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
   const [pickerView, setPickerView] = useState<"grid" | "list">("grid");
 
   const pickerItems = useMemo(() => {
-    const items: { id: string; kind: "media" | "widget"; name: string; searchName: string; type?: string; icon: React.ReactNode; thumbnail?: string; raw: any; createdAt?: string }[] = [];
+    const items: { id: string; kind: "media" | "widget"; name: string; searchName: string; type?: string; icon: React.ReactNode; thumbnail?: string; raw: PickerRaw; createdAt?: string }[] = [];
     dbMedia.forEach((m) => {
       // Audio is managed exclusively from the BGM track on the timeline.
       if (m.type === "audio") return;
@@ -2317,10 +2315,10 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
       });
     });
     dbWidgets.forEach((w) => {
-      let config: any = null;
+      let config: WidgetConfig | null = null;
       try {
         const raw = w.url?.startsWith("widget://") ? w.url.slice("widget://".length) : w.url;
-        if (raw?.startsWith("{")) config = JSON.parse(raw);
+        if (raw?.startsWith("{")) config = JSON.parse(raw) as WidgetConfig;
       } catch {}
       const WidgetIcon = config?.widgetType === "clock" ? Clock : config?.widgetType === "date" ? Calendar : config?.widgetType === "webpage" ? Globe : Code2;
       items.push({
@@ -2433,7 +2431,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
       setRenameTarget(null);
       return;
     }
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("media_items")
       .update({ original_name: newName })
       .eq("id", renameTarget.id);
@@ -2458,7 +2456,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
     const mediaDetailMap = new Map<string, { id: string; name: string; original_name?: string | null; type: string; url: string; thumbnail: string; duration_seconds: number | null }>();
 
     if (mediaIds.length > 0) {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("media_items")
         .select("id, name, original_name, type, url, thumbnail, duration_seconds")
         .in("id", mediaIds);
@@ -2468,7 +2466,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
         return;
       }
 
-      (data || []).forEach((item: any) => mediaDetailMap.set(item.id, item));
+      (data || []).forEach((item) => mediaDetailMap.set(item.id, item));
     }
 
     const appendedItems: MediaItem[] = [];
@@ -2938,7 +2936,7 @@ function ZoneAnimatedWrapper({ animation, children }: { animation?: string; chil
 }
 
 // ── Widget Zone Preview ────────────────────────────────────────────
-function WidgetZonePreview({ config }: { config: any }) {
+function WidgetZonePreview({ config }: { config: WidgetConfig }) {
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -2951,10 +2949,10 @@ function WidgetZonePreview({ config }: { config: any }) {
 }
 
 // ── Widget Item Settings (timeline popover) ────────────────────────
-function WidgetItemSettings({ config, onChange }: { config: any; onChange: (next: any) => void }) {
+function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChange: (next: WidgetConfig) => void }) {
   const { t } = useLanguage();
   const wt = config?.widgetType as string | undefined;
-  const set = (patch: Record<string, any>) => onChange({ ...config, ...patch });
+  const set = (patch: Record<string, unknown>) => onChange({ ...config, ...patch });
 
   return (
     <div className="space-y-2 pt-2 border-t border-border">
@@ -3101,7 +3099,7 @@ function WidgetItemSettings({ config, onChange }: { config: any; onChange: (next
 }
 
 // ── Widget Zone Preview (continued original body) ──────────────────
-function WidgetZonePreviewBody({ config, now }: { config: any; now: Date }) {
+function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Date }) {
 
   if (!config) return null;
   const bg = config.bgColor || "#1a1a2e";
@@ -3274,11 +3272,12 @@ export default function ContentStudioPage() {
     seconds: 10,
     triggers: { gpio: false, remote: true, api: false },
   };
-  const normalizePageTransition = (t?: any): PageTransition => {
-    if (!t || typeof t !== "object") return { ...DEFAULT_PAGE_TRANSITION, triggers: { ...DEFAULT_PAGE_TRANSITION.triggers } };
-    const mode = t.mode === "fixed" || t.mode === "trigger" ? t.mode : "auto";
-    const seconds = typeof t.seconds === "number" && t.seconds > 0 ? Math.min(3600, t.seconds) : 10;
-    const tr = (t.triggers && typeof t.triggers === "object") ? t.triggers : {};
+  const normalizePageTransition = (raw?: unknown): PageTransition => {
+    if (!raw || typeof raw !== "object") return { ...DEFAULT_PAGE_TRANSITION, triggers: { ...DEFAULT_PAGE_TRANSITION.triggers } };
+    const rec = raw as Record<string, unknown>;
+    const mode = rec.mode === "fixed" || rec.mode === "trigger" ? rec.mode : "auto";
+    const seconds = typeof rec.seconds === "number" && rec.seconds > 0 ? Math.min(3600, rec.seconds) : 10;
+    const tr = (rec.triggers && typeof rec.triggers === "object") ? rec.triggers as Record<string, unknown> : {};
     return {
       mode,
       seconds,

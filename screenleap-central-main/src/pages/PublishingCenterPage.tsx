@@ -218,7 +218,7 @@ export default function PublishingCenterPage() {
     type RawProject = { id: string; name: string; org_id: string | null; aspect: string; created_by: string | null; team_id: string | null; collab_scope: string };
     setLoading(true);
     let schedQ = supabase.from("schedules").select("id, name, org_id, screen_id, screens:screen_id(name)").order("name");
-    let screenQ = supabase.from("screens").select("id, name, branch, online, org_id").order("branch, name" as "branch");
+    let screenQ = supabase.from("screens").select("id, name, branch, online, org_id").order("branch").order("name");
     let channelQ = supabase.from("channels").select("id, name, org_id, color, enabled, sort_order, team_id, collab_scope").order("sort_order", { ascending: true }).order("created_at", { ascending: true });
     let projectQ = supabase.from("design_projects").select("id, name, org_id, aspect, created_by, team_id, collab_scope").order("name");
     if (activeOrgId) {

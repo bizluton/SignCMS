@@ -783,12 +783,12 @@ const MediaPage = () => {
   // Fetch media, projects and org license in parallel for fastest first paint
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    let mediaQ = (supabase as any)
+    let mediaQ = supabase
       .from("media_items")
       .select("id, name, original_name, type, url, thumbnail, size_bytes, width, height, duration_seconds, created_at, design_project_id, is_system, org_id, md5, mime_type, uploaded_by")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
-    let projectsQ = (supabase as any)
+    let projectsQ = supabase
       .from("design_projects")
       .select("id, name, org_id, zones")
       .order("name", { ascending: true });
@@ -798,18 +798,18 @@ const MediaPage = () => {
     }
     const licenseQ = activeOrgId
       ? supabase.from("organizations").select("license_plan, license_expires_at").eq("id", activeOrgId).single()
-      : Promise.resolve({ data: null } as any);
+      : Promise.resolve({ data: null, error: null });
 
     // Load teammates: every user_id sharing at least one team with current user
     const teammatesQ = user?.id
       ? (async () => {
-          const { data: myTeams } = await (supabase as any)
+          const { data: myTeams } = await supabase
             .from("team_members").select("team_id").eq("user_id", user.id);
-          const teamIds = (myTeams || []).map((r: any) => r.team_id);
+          const teamIds = (myTeams || []).map((r) => r.team_id);
           if (teamIds.length === 0) return { data: [] as { user_id: string }[] };
-          const { data: members } = await (supabase as any)
+          const { data: members } = await supabase
             .from("team_members").select("user_id").in("team_id", teamIds);
-          return { data: members || [] };
+          return { data: (members || []) as { user_id: string }[] };
         })()
       : Promise.resolve({ data: [] as { user_id: string }[] });
 
@@ -825,9 +825,9 @@ const MediaPage = () => {
     if (projectsRes.error) toast.error(projectsRes.error.message);
     else setProjects((projectsRes.data || []) as ProjectItem[]);
 
-    if (licenseRes && (licenseRes as any).data) setOrgLicense((licenseRes as any).data);
+    if (licenseRes && licenseRes.data) setOrgLicense(licenseRes.data as { license_plan: string; license_expires_at: string });
 
-    const ids = new Set<string>(((teammatesRes as any).data || []).map((r: any) => r.user_id));
+    const ids = new Set<string>((teammatesRes.data || []).map((r) => r.user_id));
     if (user?.id) ids.add(user.id);
     setTeammateIds(ids);
 
@@ -909,19 +909,20 @@ const MediaPage = () => {
    */
   const mediaUsageMap = useMemo(() => {
     const map = new Map<string, { id: string; name: string }[]>();
-    const collectIds = (node: any, out: Set<string>) => {
+    const collectIds = (node: unknown, out: Set<string>) => {
       if (!node || typeof node !== "object") return;
       if (Array.isArray(node)) { node.forEach((n) => collectIds(n, out)); return; }
-      if (Array.isArray(node.mediaItems)) {
-        for (const m of node.mediaItems) if (m && typeof m === "object" && m.id) out.add(String(m.id));
+      const obj = node as Record<string, unknown>;
+      if (Array.isArray(obj.mediaItems)) {
+        for (const m of obj.mediaItems) if (m && typeof m === "object" && (m as Record<string, unknown>).id) out.add(String((m as Record<string, unknown>).id));
       }
-      if (Array.isArray(node.bgmItems)) {
-        for (const b of node.bgmItems) if (b && typeof b === "object" && b.id) out.add(String(b.id));
+      if (Array.isArray(obj.bgmItems)) {
+        for (const b of obj.bgmItems) if (b && typeof b === "object" && (b as Record<string, unknown>).id) out.add(String((b as Record<string, unknown>).id));
       }
-      if (Array.isArray(node.overlays)) {
-        for (const o of node.overlays) collectIds(o?.content, out);
+      if (Array.isArray(obj.overlays)) {
+        for (const o of obj.overlays) collectIds((o as Record<string, unknown>)?.content, out);
       }
-      if (node.content) collectIds(node.content, out);
+      if (obj.content) collectIds(obj.content, out);
     };
     for (const p of projects) {
       const ids = new Set<string>();
@@ -945,8 +946,8 @@ const MediaPage = () => {
     if (ids.length === 0) { setMediaScheduleMap(new Map()); return; }
     let cancelled = false;
     (async () => {
-      const { data, error } = await (supabase as any)
-        .from("schedule_items")
+      const fromTable = (table: string) => supabase.from(table as Parameters<typeof supabase.from>[0]);
+      const { data, error } = await fromTable("schedule_items")
         .select("media_id, schedules:schedule_id(id, name)")
         .in("media_id", ids);
       if (cancelled || error || !Array.isArray(data)) return;
@@ -1146,7 +1147,7 @@ const MediaPage = () => {
       const md5 = await computeFileMd5(workingFile);
 
       // Pre-check duplicate within the same org BEFORE uploading
-      const dup = await (supabase as any)
+      const dup = await supabase
         .from("media_items")
         .select("id, original_name")
         .eq("org_id", uploadOrgId)
@@ -1252,7 +1253,7 @@ const MediaPage = () => {
     // Soft-delete: mark as trashed instead of hard-deleting. Items remain
     // restorable for 7 days from the trash dialog. Physical storage files are
     // kept intact until the trash entry is restored or purged.
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("media_items")
       .update({ deleted_at: new Date().toISOString() })
       .eq("id", deleteId)
@@ -1322,7 +1323,7 @@ const MediaPage = () => {
     }
 
     // Soft-delete bulk: move items to trash instead of hard-deleting them.
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("media_items")
       .update({ deleted_at: new Date().toISOString() })
       .in("id", deletableIds)
@@ -1397,7 +1398,7 @@ const MediaPage = () => {
     };
     const widgetOrgId = activeOrgId || defaultOrgId;
     if (!widgetOrgId) { toast.error(t("teamSelectOrg")); return; }
-    const { error } = await (supabase as any).from("media_items").insert({
+    const { error } = await supabase.from("media_items").insert({
       name: widgetForm.name.trim(), type: "widget",
       url: "widget://" + JSON.stringify(config),
       thumbnail: "",

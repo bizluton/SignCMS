@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import type { Json } from "@/integrations/supabase/types";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useActiveOrg } from "@/contexts/ActiveOrgContext";
@@ -685,14 +686,14 @@ export default function QuickPublishPage() {
   const loadLibrary = async () => {
     if (!activeOrgId) return;
     setLibraryLoading(true);
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("media_items")
       .select("id, original_name, type, url, thumbnail, duration_seconds")
       .eq("org_id", activeOrgId)
       .in("type", ["image", "video"])
       .order("created_at", { ascending: false })
       .limit(60);
-    setLibraryItems(data || []);
+    setLibraryItems((data || []) as LibraryItem[]);
     setLibraryLoading(false);
   };
 
@@ -707,7 +708,7 @@ export default function QuickPublishPage() {
     });
   }, [libraryItems, librarySearch, libraryFilter]);
 
-  const pickFromLibrary = (item: any) => {
+  const pickFromLibrary = (item: LibraryItem) => {
     if (!activeZoneId) return;
     setZoneAssignments((prev) => ({
       ...prev,
@@ -783,12 +784,12 @@ export default function QuickPublishPage() {
       : null;
 
     const quickPublishZones = mapAssignmentsToStudioZones(selectedZones, zoneAssignments);
-    const { data: quickProject, error: projectError } = await (supabase as any)
+    const { data: quickProject, error: projectError } = await supabase
       .from("design_projects")
       .insert({
         name: baseName,
         aspect: selectedTpl?.aspect || "16:9",
-        zones: quickPublishZones,
+        zones: quickPublishZones as unknown as Json,
         created_by: user?.id,
         org_id: activeOrgId,
         collab_scope: "creator",
