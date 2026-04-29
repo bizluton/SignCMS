@@ -16,11 +16,11 @@ import { CSRoute } from "@/components/CSRoute";
 import { SystemAdminRoute } from "@/components/SystemAdminRoute";
 import { getInitialTheme } from "@/hooks/usePreferences";
 import { ThemeSync } from "@/components/ThemeSync";
-import Index from "./pages/Index.tsx";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { RouteSkeleton } from "./components/PageSkeleton";
 
 // Lazy-loaded page chunks
+const Index = lazy(() => import("./pages/Index.tsx"));
 const Admin = lazy(() => import("./pages/Admin.tsx"));
 const Screens = lazy(() => import("./pages/Screens.tsx"));
 const Media = lazy(() => import("./pages/Media.tsx"));
@@ -122,14 +122,15 @@ const AppRoutes = () => {
   );
 };
 
-// Aggressive caching: keep data fresh in memory for 5 min, GC after 10 min.
-// Refetch only on explicit invalidation, not on every focus/mount — pages feel instant on switch.
+// Caching: data stays fresh in memory for 5 min, GC after 10 min.
+// refetchOnWindowFocus ensures multi-tab users see current state.
+// refetchOnMount: false keeps instant navigation; explicit invalidation handles mutations.
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5 * 60 * 1000,
       gcTime: 10 * 60 * 1000,
-      refetchOnWindowFocus: false,
+      refetchOnWindowFocus: true,
       refetchOnMount: false,
       retry: 1,
     },

@@ -94,7 +94,7 @@ export default function SchedulesPage() {
     if (!activeOrgId) return;
     let cancelled = false;
     void (async () => {
-      const { data } = await (supabase as any).rpc("auto_disable_expired_channel_blocks");
+      const { data } = await supabase.rpc("auto_disable_expired_channel_blocks");
       if (!cancelled && typeof data === "number" && data > 0) {
         reloadBlocks();
       }
@@ -144,7 +144,7 @@ export default function SchedulesPage() {
   useEffect(() => {
     if (!activeOrgId) return;
     (async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("design_projects")
         .select("id, name")
         .eq("org_id", activeOrgId)
@@ -157,7 +157,7 @@ export default function SchedulesPage() {
   useEffect(() => {
     if (!activeOrgId) { setTeams([]); return; }
     (async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("teams")
         .select("id, name")
         .eq("org_id", activeOrgId)
@@ -170,12 +170,12 @@ export default function SchedulesPage() {
   useEffect(() => {
     if (!selectedChannelId) { setAllowedProjectIds([]); return; }
     (async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("channel_allowed_projects")
         .select("design_project_id")
         .eq("channel_id", selectedChannelId)
         .order("sort_order", { ascending: true });
-      setAllowedProjectIds((data ?? []).map((r: any) => r.design_project_id));
+      setAllowedProjectIds((data ?? []).map((r) => r.design_project_id));
     })();
   }, [selectedChannelId, blocks]);
 
@@ -211,8 +211,8 @@ export default function SchedulesPage() {
       ]);
       setChannelImpact(report);
       setChannelDeleteQueued(pending.has(channel.id));
-    } catch (err: any) {
-      toast.error(err?.message ?? String(err));
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err));
       setChannelImpact({ groups: [], total: 0, hasAny: false });
     } finally {
       setChannelImpactLoading(false);
@@ -228,7 +228,7 @@ export default function SchedulesPage() {
       setChannelImpact(report);
       setChannelDeleteQueued(pending.has(channelId));
       // If queue executed (channel removed), close dialog and refresh list
-      const stillExists = (await (supabase as any).from("channels").select("id").eq("id", channelId).maybeSingle()).data;
+      const stillExists = (await supabase.from("channels").select("id").eq("id", channelId).maybeSingle()).data;
       if (!stillExists) {
         toast.success(t("channelDeleteAutoExecuted"));
         setDeletingChannel(null);
@@ -237,8 +237,8 @@ export default function SchedulesPage() {
         reloadChannels();
         loadPendingChannelIds();
       }
-    } catch (err: any) {
-      toast.error(err?.message ?? String(err));
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -249,8 +249,8 @@ export default function SchedulesPage() {
       await unassignProjectReference(item);
       toast.success(t("studioDeleteUnassignSuccess"));
       await refreshChannelImpact(deletingChannel.id);
-    } catch (err: any) {
-      toast.error(`${t("studioDeleteUnassignError")}: ${err?.message ?? String(err)}`);
+    } catch (err: unknown) {
+      toast.error(`${t("studioDeleteUnassignError")}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setUnassigningKey(null);
     }
@@ -286,7 +286,7 @@ export default function SchedulesPage() {
 
   const handleDeleteChannel = async () => {
     if (!deletingChannel) return;
-    const { error } = await (supabase as any).from("channels").delete().eq("id", deletingChannel.id);
+    const { error } = await supabase.from("channels").delete().eq("id", deletingChannel.id);
     if (error) { toast.error(error.message); return; }
     toast.success(t("channelDeleted"));
     setDeletingChannel(null);
@@ -296,7 +296,7 @@ export default function SchedulesPage() {
 
   const handleDeleteBlock = async () => {
     if (!deletingBlock) return;
-    const { error } = await (supabase as any).from("channel_blocks").delete().eq("id", deletingBlock.id);
+    const { error } = await supabase.from("channel_blocks").delete().eq("id", deletingBlock.id);
     if (error) { toast.error(error.message); return; }
     toast.success(t("blockDeleted"));
     setDeletingBlock(null);
@@ -304,13 +304,13 @@ export default function SchedulesPage() {
   };
 
   const toggleChannelEnabled = async (c: Channel, next: boolean) => {
-    const { error } = await (supabase as any).from("channels").update({ enabled: next }).eq("id", c.id);
+    const { error } = await supabase.from("channels").update({ enabled: next }).eq("id", c.id);
     if (error) { toast.error(error.message); return; }
     reloadChannels();
   };
 
   const toggleBlockEnabled = async (b: ChannelBlock, next: boolean) => {
-    const { error } = await (supabase as any).from("channel_blocks").update({ enabled: next }).eq("id", b.id);
+    const { error } = await supabase.from("channel_blocks").update({ enabled: next }).eq("id", b.id);
     if (error) { toast.error(error.message); return; }
     reloadBlocks();
   };
@@ -318,7 +318,7 @@ export default function SchedulesPage() {
   const persistChannelOrder = async (orderedIds: string[]) => {
     // Persist sort_order for each channel
     const updates = orderedIds.map((id, idx) =>
-      (supabase as any).from("channels").update({ sort_order: idx }).eq("id", id),
+      supabase.from("channels").update({ sort_order: idx }).eq("id", id),
     );
     const results = await Promise.all(updates);
     const firstErr = results.find((r) => r.error)?.error;
@@ -347,7 +347,7 @@ export default function SchedulesPage() {
     // Optimistic update
     setAllowedProjectIds(orderedIds);
     // Replace rows for this channel with new order
-    const { error: delErr } = await (supabase as any)
+    const { error: delErr } = await supabase
       .from("channel_allowed_projects")
       .delete()
       .eq("channel_id", selectedChannelId);
@@ -358,7 +358,7 @@ export default function SchedulesPage() {
         design_project_id: pid,
         sort_order: idx,
       }));
-      const { error: insErr } = await (supabase as any)
+      const { error: insErr } = await supabase
         .from("channel_allowed_projects")
         .insert(rows);
       if (insErr) { toast.error(insErr.message); return; }
@@ -557,12 +557,12 @@ export default function SchedulesPage() {
             await reloadChannels();
             // Refresh allowed projects for the currently selected channel
             if (selectedChannelId) {
-              const { data } = await (supabase as any)
+              const { data } = await supabase
                 .from("channel_allowed_projects")
                 .select("design_project_id")
                 .eq("channel_id", selectedChannelId)
                 .order("sort_order", { ascending: true });
-              setAllowedProjectIds((data ?? []).map((r: any) => r.design_project_id));
+              setAllowedProjectIds((data ?? []).map((r) => r.design_project_id));
             }
           }}
         />

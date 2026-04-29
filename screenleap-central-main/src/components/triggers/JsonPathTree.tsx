@@ -2,7 +2,7 @@ import { useState } from "react";
 import { ChevronRight, ChevronDown, Copy, Check } from "lucide-react";
 
 interface NodeProps {
-  value: any;
+  value: unknown;
   path: string;
   name?: string;
   depth: number;
@@ -11,8 +11,8 @@ interface NodeProps {
   defaultOpen?: boolean;
 }
 
-const isObj = (v: any) => v !== null && typeof v === "object" && !Array.isArray(v);
-const isArr = (v: any) => Array.isArray(v);
+const isObj = (v: unknown) => v !== null && typeof v === "object" && !Array.isArray(v);
+const isArr = (v: unknown) => Array.isArray(v);
 
 const escapeKey = (k: string) =>
   /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k) ? k : JSON.stringify(k);
@@ -24,7 +24,7 @@ const joinPath = (base: string, key: string | number) => {
   return base ? `${base}.${safe}` : safe;
 };
 
-function PrimitiveValue({ value }: { value: any }) {
+function PrimitiveValue({ value }: { value: unknown }) {
   if (value === null) return <span className="italic text-muted-foreground">null</span>;
   if (value === undefined) return <span className="italic text-muted-foreground">undefined</span>;
   if (typeof value === "string") return <span className="text-emerald-600 dark:text-emerald-400">"{value}"</span>;
@@ -85,7 +85,7 @@ function Node({ value, path, name, depth, copiedPath, onCopy, defaultOpen }: Nod
       {container && open && (
         <div className="ml-4 border-l border-border/60 pl-2">
           {isArr(value)
-            ? (value as any[]).map((v, i) => (
+            ? (value as unknown[]).map((v, i) => (
                 <Node
                   key={i}
                   value={v}
@@ -96,7 +96,7 @@ function Node({ value, path, name, depth, copiedPath, onCopy, defaultOpen }: Nod
                   onCopy={onCopy}
                 />
               ))
-            : Object.entries(value as Record<string, any>).map(([k, v]) => (
+            : Object.entries(value as Record<string, unknown>).map(([k, v]) => (
                 <Node
                   key={k}
                   value={v}
@@ -119,7 +119,7 @@ export function JsonPathTree({
   copiedPath,
   onCopyPath,
 }: {
-  value: any;
+  value: unknown;
   rootName?: string;
   copiedPath: string | null;
   onCopyPath: (path: string) => void;

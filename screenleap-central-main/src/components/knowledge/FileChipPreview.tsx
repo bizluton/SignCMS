@@ -56,7 +56,7 @@ async function renderPdfLarge(storagePath: string): Promise<string | null> {
     const url = await getSignedUrl(storagePath);
     if (!url) return null;
     try {
-      const pdf = await (pdfjs as any).getDocument({
+      const pdf = await pdfjs.getDocument({
         url,
         ...pdfDocumentOptions,
       }).promise;

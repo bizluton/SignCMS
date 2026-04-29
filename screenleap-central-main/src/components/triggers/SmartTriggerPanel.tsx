@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Plus, Zap, Activity, Radio, Cpu, KeyRound, Webhook, Clock, Pencil, Trash2, Search, Loader2, CheckCircle2, XCircle, History, RefreshCw, Download, Copy, Check, Save, BookmarkCheck, X as XIcon } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -38,7 +38,22 @@ interface FilterPreset {
 
 const PRESETS_STORAGE_KEY = "smart_trigger_filter_presets_v1";
 
-const SOURCE_META: Record<string, { icon: any; color: string; label: { zh: string; en: string; ja: string } }> = {
+type SupabaseFluentQuery = {
+  select: (s: string) => SupabaseFluentQuery;
+  eq: (k: string, v: string | boolean | null) => SupabaseFluentQuery;
+  in: (k: string, v: string[]) => SupabaseFluentQuery;
+  gte: (k: string, v: string) => SupabaseFluentQuery;
+  lt: (k: string, v: string) => SupabaseFluentQuery;
+  order: (k: string, o: { ascending: boolean }) => SupabaseFluentQuery;
+  limit: (n: number) => Promise<{ data: Record<string, unknown>[] | null; error: { message: string } | null }>;
+  insert: (row: Record<string, unknown>) => Promise<{ error: { message: string } | null }>;
+  update: (patch: Record<string, unknown>) => SupabaseFluentQuery;
+  delete: () => SupabaseFluentQuery;
+};
+type SupabaseDyn = { from: (t: string) => SupabaseFluentQuery };
+const db = supabase as unknown as SupabaseDyn;
+
+const SOURCE_META: Record<string, { icon: React.ElementType; color: string; label: { zh: string; en: string; ja: string } }> = {
   remote: { icon: Radio, color: "text-blue-500", label: { zh: "遙控器", en: "Remote", ja: "リモコン" } },
   gpio: { icon: Cpu, color: "text-purple-500", label: { zh: "GPIO", en: "GPIO", ja: "GPIO" } },
   api: { icon: KeyRound, color: "text-cyan-500", label: { zh: "API", en: "API", ja: "API" } },
@@ -56,7 +71,7 @@ interface LastRun {
   created_at: string;
   success: boolean;
   error_message: string | null;
-  trigger_payload?: any;
+  trigger_payload?: Record<string, unknown>;
   trigger_source?: string;
   trigger_key?: string;
 }
@@ -181,7 +196,7 @@ export function SmartTriggerPanel() {
   const fetchRules = async () => {
     if (!orgId) return;
     setLoading(true);
-    const { data, error } = await (supabase as any)
+    const { data, error } = await db
       .from("smart_trigger_rules")
       .select("*, design_projects:target_design_project_id(name)")
       .eq("org_id", orgId)
@@ -189,27 +204,28 @@ export function SmartTriggerPanel() {
       .order("created_at", { ascending: false });
     setLoading(false);
     if (error) { toast.error(error.message); return; }
-    const ruleRows = (data || []).map((r: any) => ({ ...r, target_name: r.design_projects?.name }));
-    setRules(ruleRows);
+    const ruleRows = (data || []).map((r) => ({ ...r, target_name: (r.design_projects as { name?: string } | null)?.name }));
+    setRules(ruleRows as unknown as RuleRow[]);
     // Fetch latest log per rule
-    const ids = ruleRows.map((r) => r.id);
+    const ids = ruleRows.map((r) => String(r.id));
     if (ids.length === 0) { setLastRuns({}); return; }
-    const { data: logs } = await (supabase as any)
+    const { data: logs } = await db
       .from("smart_trigger_logs")
       .select("rule_id, created_at, success, error_message, trigger_payload, trigger_source, trigger_key")
       .in("rule_id", ids)
       .order("created_at", { ascending: false })
       .limit(500);
     const map: Record<string, LastRun> = {};
-    (logs || []).forEach((l: any) => {
-      if (l.rule_id && !map[l.rule_id]) {
-        map[l.rule_id] = {
-          created_at: l.created_at,
-          success: l.success,
-          error_message: l.error_message,
-          trigger_payload: l.trigger_payload,
-          trigger_source: l.trigger_source,
-          trigger_key: l.trigger_key,
+    (logs || []).forEach((l) => {
+      const ruleId = String(l.rule_id ?? "");
+      if (ruleId && !map[ruleId]) {
+        map[ruleId] = {
+          created_at: String(l.created_at ?? ""),
+          success: Boolean(l.success),
+          error_message: l.error_message != null ? String(l.error_message) : null,
+          trigger_payload: l.trigger_payload as Record<string, unknown> | undefined,
+          trigger_source: l.trigger_source != null ? String(l.trigger_source) : undefined,
+          trigger_key: l.trigger_key != null ? String(l.trigger_key) : undefined,
         };
       }
     });
@@ -229,7 +245,7 @@ export function SmartTriggerPanel() {
     let cancelled = false;
     (async () => {
       setLoadingHistory(true);
-      const { data } = await (supabase as any)
+      const { data } = await db
         .from("smart_trigger_logs")
         .select("created_at, success, error_message, trigger_payload, trigger_source, trigger_key")
         .eq("rule_id", detailsRule.id)
@@ -249,7 +265,7 @@ export function SmartTriggerPanel() {
     if (!detailsRule || loadingMoreHistory || !historyHasMore) return;
     setLoadingMoreHistory(true);
     const last = attemptHistory[attemptHistory.length - 1];
-    const { data } = await (supabase as any)
+    const { data } = await db
       .from("smart_trigger_logs")
       .select("created_at, success, error_message, trigger_payload, trigger_source, trigger_key")
       .eq("rule_id", detailsRule.id)
@@ -265,7 +281,7 @@ export function SmartTriggerPanel() {
   // Validate that a value can be safely serialized to JSON (no circular refs,
   // no functions / BigInt / undefined-only payloads). Returns the JSON string
   // on success or null on failure.
-  const safeStringify = (value: any, indent: number = 2): string | null => {
+  const safeStringify = (value: unknown, indent: number = 2): string | null => {
     try {
       const seen = new WeakSet();
       const json = JSON.stringify(value, (_k, v) => {
@@ -404,7 +420,7 @@ export function SmartTriggerPanel() {
 
   const handleRetry = async (rule: RuleRow) => {
     setRetrying(rule.id);
-    const { error } = await (supabase as any).from("smart_trigger_logs").insert({
+    const { error } = await db.from("smart_trigger_logs").insert({
       org_id: orgId,
       rule_id: rule.id,
       screen_id: rule.screen_id ?? null,
@@ -424,7 +440,7 @@ export function SmartTriggerPanel() {
     if (!orgId) return;
     setExporting(true);
     const since = new Date(Date.now() - rangeMs).toISOString();
-    const { data, error } = await (supabase as any)
+    const { data, error } = await db
       .from("smart_trigger_logs")
       .select("created_at, rule_id, trigger_source, trigger_key, error_message, trigger_payload")
       .eq("org_id", orgId)
@@ -436,13 +452,13 @@ export function SmartTriggerPanel() {
     if (error) { toast.error(error.message); return; }
     if (!data || data.length === 0) { toast.info(T.exportEmpty); return; }
     const ruleNameById = new Map(rules.map((r) => [r.id, r.name]));
-    const esc = (v: any) => {
+    const esc = (v: unknown) => {
       const s = v === null || v === undefined ? "" : typeof v === "string" ? v : JSON.stringify(v);
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const header = ["created_at", "rule_id", "rule_name", "trigger_source", "trigger_key", "error_message", "trigger_payload"];
-    const rows = data.map((l: any) => [
-      l.created_at, l.rule_id, ruleNameById.get(l.rule_id) || "",
+    const rows = data.map((l) => [
+      l.created_at, l.rule_id, ruleNameById.get(String(l.rule_id ?? "")) || "",
       l.trigger_source, l.trigger_key, l.error_message, l.trigger_payload,
     ].map(esc).join(","));
     const csv = "\uFEFF" + header.join(",") + "\n" + rows.join("\n");
@@ -458,7 +474,7 @@ export function SmartTriggerPanel() {
 
   const toggleEnabled = async (rule: RuleRow, enabled: boolean) => {
     setRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, enabled } : r));
-    const { error } = await (supabase as any).from("smart_trigger_rules").update({ enabled }).eq("id", rule.id);
+    const { error } = await db.from("smart_trigger_rules").update({ enabled }).eq("id", rule.id);
     if (error) {
       toast.error(error.message);
       setRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, enabled: !enabled } : r));
@@ -467,7 +483,7 @@ export function SmartTriggerPanel() {
 
   const handleDelete = async () => {
     if (!deleting) return;
-    const { error } = await (supabase as any).from("smart_trigger_rules").delete().eq("id", deleting.id);
+    const { error } = await db.from("smart_trigger_rules").delete().eq("id", deleting.id);
     if (error) { toast.error(error.message); return; }
     toast.success(T.deleted);
     setDeleting(null);
@@ -511,7 +527,7 @@ export function SmartTriggerPanel() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={T.search} className="pl-9 h-9" />
         </div>
-        <Select value={modeFilter} onValueChange={(v) => setModeFilter(v as any)}>
+        <Select value={modeFilter} onValueChange={(v) => setModeFilter(v as "all" | "shortcut" | "automation")}>
           <SelectTrigger className="w-[140px] h-9"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{T.all}</SelectItem>
@@ -519,7 +535,7 @@ export function SmartTriggerPanel() {
             <SelectItem value="automation">{T.automation}</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as any)}>
+        <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as "all" | "failed_recent" | "success_recent")}>
           <SelectTrigger className="w-[170px] h-9"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{T.statusAll}</SelectItem>
@@ -528,7 +544,7 @@ export function SmartTriggerPanel() {
           </SelectContent>
         </Select>
         {(statusFilter === "failed_recent" || statusFilter === "success_recent") && (
-          <Select value={failedRange} onValueChange={(v) => setFailedRange(v as any)}>
+          <Select value={failedRange} onValueChange={(v) => setFailedRange(v as "1h" | "6h" | "24h" | "7d")}>
             <SelectTrigger className="w-[140px] h-9" title={T.rangeLabel}><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="1h">{T.range1h}</SelectItem>

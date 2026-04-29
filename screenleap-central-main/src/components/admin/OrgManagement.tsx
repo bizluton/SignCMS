@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Building2, Plus, Pencil, Trash2, Users, Loader2 } from "lucide-react";
+import type { TranslationKey } from "@/contexts/translations";
 
 type PlanTier = "evaluation" | "starter" | "business" | "professional" | "enterprise";
 const PLAN_TIERS: PlanTier[] = ["evaluation", "starter", "business", "professional", "enterprise"];
@@ -212,7 +213,7 @@ export default function OrgManagement() {
                       {org.description && <p className="text-sm text-muted-foreground mt-0.5">{org.description}</p>}
                       <p className="text-[11px] text-muted-foreground/80 mt-1 font-mono break-all">UUID: {org.id}</p>
                       <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground flex-wrap">
-                        <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">{t(`planTier${org.plan_tier.charAt(0).toUpperCase() + org.plan_tier.slice(1)}` as any)}</span>
+                        <span className="px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">{t(`planTier${org.plan_tier.charAt(0).toUpperCase() + org.plan_tier.slice(1)}` as TranslationKey)}</span>
                         <span>{org.teamCount} {t("orgTeamCount")}</span>
                         <span>{org.memberCount} {t("orgMemberCount")}</span>
                       </div>
@@ -282,7 +283,7 @@ export default function OrgManagement() {
                   <SelectContent>
                     {PLAN_TIERS.map(tier => (
                       <SelectItem key={tier} value={tier}>
-                        {t(`planTier${tier.charAt(0).toUpperCase() + tier.slice(1)}` as any)}
+                        {t(`planTier${tier.charAt(0).toUpperCase() + tier.slice(1)}` as TranslationKey)}
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -36,8 +36,8 @@ export default function UnsubscribePage() {
           setEmail(data?.email || "");
           setState("valid");
         }
-      } catch (e: any) {
-        setErrorMsg(e?.message || String(e));
+      } catch (e: unknown) {
+        setErrorMsg(e instanceof Error ? e.message : String(e));
         setState("invalid");
       }
     })();
@@ -50,8 +50,8 @@ export default function UnsubscribePage() {
       { body: { token } },
     );
     setSubmitting(false);
-    if (error || !(data as any)?.ok) {
-      setErrorMsg((error as any)?.message || "Unsubscribe failed");
+    if (error || !(data as Record<string, unknown>)?.ok) {
+      setErrorMsg(error instanceof Error ? error.message : "Unsubscribe failed");
       setState("error");
     } else {
       setState("done");

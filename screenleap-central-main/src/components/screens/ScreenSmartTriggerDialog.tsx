@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Loader2, Plus, Zap, Pencil, Trash2, Radio, Cpu, KeyRound, Activity, Webhook, Clock } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -27,7 +27,7 @@ interface RuleRow extends SmartTriggerRule {
   id: string;
 }
 
-const SOURCE_ICON: Record<string, any> = {
+const SOURCE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   remote: Radio, gpio: Cpu, api: KeyRound, iot_sensor: Activity, webhook: Webhook, schedule: Clock,
 };
 
@@ -71,17 +71,17 @@ export function ScreenSmartTriggerDialog({ open, onOpenChange, screenId, screenN
       setLoading(true);
       // Fetch org rules (scope=org), screen-specific rules linked via screen_smart_trigger_rules, and overrides
       const [orgRes, linkRes, ovrRes] = await Promise.all([
-        (supabase as any).from("smart_trigger_rules").select("*").eq("org_id", orgId).eq("scope", "org").order("priority", { ascending: false }).order("created_at", { ascending: false }),
-        (supabase as any).from("screen_smart_trigger_rules").select("rule_id, smart_trigger_rules(*)").eq("screen_id", screenId),
-        (supabase as any).from("screen_smart_trigger_overrides").select("rule_id, enabled").eq("screen_id", screenId),
+        supabase.from("smart_trigger_rules").select("*").eq("org_id", orgId).eq("scope", "org").order("priority", { ascending: false }).order("created_at", { ascending: false }),
+        supabase.from("screen_smart_trigger_rules").select("rule_id, smart_trigger_rules(*)").eq("screen_id", screenId),
+        supabase.from("screen_smart_trigger_overrides").select("rule_id, enabled").eq("screen_id", screenId),
       ]);
       if (cancelled) return;
       if (orgRes.error) toast.error(t.failedToLoad + ": " + orgRes.error.message);
       setOrgRules((orgRes.data || []) as RuleRow[]);
-      const linked = ((linkRes.data || []) as any[]).map((r) => r.smart_trigger_rules).filter(Boolean);
+      const linked = (linkRes.data || []).map((r) => (r as { rule_id: string; smart_trigger_rules: unknown }).smart_trigger_rules).filter(Boolean);
       setScreenRules(linked as RuleRow[]);
       const map: Record<string, boolean> = {};
-      ((ovrRes.data || []) as any[]).forEach((r) => { map[r.rule_id] = r.enabled; });
+      (ovrRes.data || []).forEach((r) => { map[r.rule_id] = r.enabled; });
       setOverrides(map);
       setLoading(false);
     })();
@@ -91,22 +91,22 @@ export function ScreenSmartTriggerDialog({ open, onOpenChange, screenId, screenN
   const reload = async () => {
     if (!screenId || !orgId) return;
     const [orgRes, linkRes, ovrRes] = await Promise.all([
-      (supabase as any).from("smart_trigger_rules").select("*").eq("org_id", orgId).eq("scope", "org").order("priority", { ascending: false }).order("created_at", { ascending: false }),
-      (supabase as any).from("screen_smart_trigger_rules").select("rule_id, smart_trigger_rules(*)").eq("screen_id", screenId),
-      (supabase as any).from("screen_smart_trigger_overrides").select("rule_id, enabled").eq("screen_id", screenId),
+      supabase.from("smart_trigger_rules").select("*").eq("org_id", orgId).eq("scope", "org").order("priority", { ascending: false }).order("created_at", { ascending: false }),
+      supabase.from("screen_smart_trigger_rules").select("rule_id, smart_trigger_rules(*)").eq("screen_id", screenId),
+      supabase.from("screen_smart_trigger_overrides").select("rule_id, enabled").eq("screen_id", screenId),
     ]);
     setOrgRules((orgRes.data || []) as RuleRow[]);
-    const linked = ((linkRes.data || []) as any[]).map((r) => r.smart_trigger_rules).filter(Boolean);
+    const linked = (linkRes.data || []).map((r) => (r as { rule_id: string; smart_trigger_rules: unknown }).smart_trigger_rules).filter(Boolean);
     setScreenRules(linked as RuleRow[]);
     const map: Record<string, boolean> = {};
-    ((ovrRes.data || []) as any[]).forEach((r) => { map[r.rule_id] = r.enabled; });
+    (ovrRes.data || []).forEach((r) => { map[r.rule_id] = r.enabled; });
     setOverrides(map);
   };
 
   const toggleOrgRule = async (ruleId: string, nextEnabled: boolean) => {
     if (!screenId) return;
     // Upsert override row
-    const { error } = await (supabase as any).from("screen_smart_trigger_overrides").upsert({
+    const { error } = await supabase.from("screen_smart_trigger_overrides").upsert({
       screen_id: screenId,
       rule_id: ruleId,
       enabled: nextEnabled,
@@ -116,7 +116,7 @@ export function ScreenSmartTriggerDialog({ open, onOpenChange, screenId, screenN
   };
 
   const toggleScreenRule = async (ruleId: string, nextEnabled: boolean) => {
-    const { error } = await (supabase as any).from("smart_trigger_rules").update({ enabled: nextEnabled }).eq("id", ruleId);
+    const { error } = await supabase.from("smart_trigger_rules").update({ enabled: nextEnabled }).eq("id", ruleId);
     if (error) { toast.error(error.message); return; }
     setScreenRules((prev) => prev.map((r) => r.id === ruleId ? { ...r, enabled: nextEnabled } : r));
   };
@@ -124,7 +124,7 @@ export function ScreenSmartTriggerDialog({ open, onOpenChange, screenId, screenN
   const removeScreenRule = async (ruleId: string) => {
     if (!confirm(t.confirmRemove)) return;
     // Delete the underlying rule (cascade removes the link row)
-    const { error } = await (supabase as any).from("smart_trigger_rules").delete().eq("id", ruleId);
+    const { error } = await supabase.from("smart_trigger_rules").delete().eq("id", ruleId);
     if (error) { toast.error(error.message); return; }
     setScreenRules((prev) => prev.filter((r) => r.id !== ruleId));
   };
@@ -166,15 +166,15 @@ export function ScreenSmartTriggerDialog({ open, onOpenChange, screenId, screenN
     // Ensure link row exists for newly created screen rules
     // (Edits keep their existing link; only new inserts need linking)
     // Fetch latest screen-scope rules for this screen and reconcile links
-    const { data: latestScreenScopeRules } = await (supabase as any)
+    const { data: latestScreenScopeRules } = await supabase
       .from("smart_trigger_rules")
       .select("id")
       .eq("scope", "screen")
       .eq("screen_id", screenId);
-    const ids = ((latestScreenScopeRules || []) as any[]).map((r) => r.id);
+    const ids = (latestScreenScopeRules || []).map((r) => r.id);
     if (ids.length > 0) {
       const rows = ids.map((rule_id) => ({ screen_id: screenId, rule_id, created_by: user?.id ?? null }));
-      await (supabase as any).from("screen_smart_trigger_rules").upsert(rows, { onConflict: "screen_id,rule_id" });
+      await supabase.from("screen_smart_trigger_rules").upsert(rows, { onConflict: "screen_id,rule_id" });
     }
     await reload();
   };

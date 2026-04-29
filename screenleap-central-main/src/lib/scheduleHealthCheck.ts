@@ -44,16 +44,55 @@ const TRANSCODE_OK = new Set(["complete", "completed", "ready", "done", "none", 
  *  must be skipped — they aren't stored in the media_items table. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+interface ScheduleItemRow {
+  id: string;
+  media_id: string | null;
+  design_project_id: string | null;
+  item_type: string | null;
+  sort_order: number | null;
+}
+
+interface BgmItemRow {
+  id: string;
+  media_id: string | null;
+  sort_order: number | null;
+}
+
+interface DesignProjectRow {
+  id: string;
+  name: string | null;
+  zones: unknown[] | null;
+}
+
+interface ZoneContent {
+  mediaItems?: Array<{ id?: unknown; type?: string }>;
+}
+
+interface Zone {
+  content?: ZoneContent;
+  overlays?: Array<{ content?: ZoneContent }>;
+  bgm?: { items?: Array<{ id?: unknown }> };
+}
+
+interface MediaItemRow {
+  id: string;
+  name: string | null;
+  original_name: string | null;
+  url: string | null;
+  transcode_status: string | null;
+  mime_type: string | null;
+}
+
 export async function runScheduleHealthCheck(scheduleId: string): Promise<HealthCheckResult> {
-  const { data: schedRow } = await (supabase as any)
+  const { data: schedRow } = await supabase
     .from("schedules").select("id, name").eq("id", scheduleId).maybeSingle();
 
   const [{ data: itemRows }, { data: bgmRows }] = await Promise.all([
-    (supabase as any)
+    supabase
       .from("schedule_items")
       .select("id, media_id, design_project_id, item_type, sort_order")
       .eq("schedule_id", scheduleId).order("sort_order"),
-    (supabase as any)
+    supabase
       .from("schedule_bgm_items")
       .select("id, media_id, sort_order")
       .eq("schedule_id", scheduleId).order("sort_order"),
@@ -63,11 +102,11 @@ export async function runScheduleHealthCheck(scheduleId: string): Promise<Health
   const mediaRefs = new Map<string, HealthIssue["referencedFrom"]>();
   const designIds = new Set<string>();
 
-  for (const it of itemRows || []) {
+  for (const it of (itemRows as ScheduleItemRow[] | null) || []) {
     if (it.media_id) mediaRefs.set(String(it.media_id), "schedule_item");
     if (it.design_project_id) designIds.add(String(it.design_project_id));
   }
-  for (const b of bgmRows || []) {
+  for (const b of (bgmRows as BgmItemRow[] | null) || []) {
     if (b.media_id && !mediaRefs.has(String(b.media_id))) {
       mediaRefs.set(String(b.media_id), "schedule_bgm");
     }
@@ -75,13 +114,13 @@ export async function runScheduleHealthCheck(scheduleId: string): Promise<Health
 
   // Resolve design projects → may pull in extra media ids referenced by zones.
   const issues: HealthIssue[] = [];
-  let designRows: any[] = [];
+  let designRows: DesignProjectRow[] = [];
   if (designIds.size > 0) {
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("design_projects")
       .select("id, name, zones")
       .in("id", Array.from(designIds));
-    designRows = data || [];
+    designRows = (data as DesignProjectRow[] | null) || [];
     const fetchedDesignIds = new Set(designRows.map((d) => String(d.id)));
     for (const id of designIds) {
       if (!fetchedDesignIds.has(id)) {
@@ -92,7 +131,7 @@ export async function runScheduleHealthCheck(scheduleId: string): Promise<Health
         });
       }
     }
-    const walk = (content: any) => {
+    const walk = (content: ZoneContent | null | undefined) => {
       if (!content) return;
       if (Array.isArray(content.mediaItems)) {
         for (const m of content.mediaItems) {
@@ -105,7 +144,7 @@ export async function runScheduleHealthCheck(scheduleId: string): Promise<Health
       }
     };
     for (const d of designRows) {
-      const zones = Array.isArray(d.zones) ? d.zones : [];
+      const zones = Array.isArray(d.zones) ? (d.zones as Zone[]) : [];
       for (const z of zones) {
         walk(z?.content);
         if (Array.isArray(z?.overlays)) for (const o of z.overlays) walk(o?.content);
@@ -125,13 +164,13 @@ export async function runScheduleHealthCheck(scheduleId: string): Promise<Health
   }
 
   // Resolve media rows.
-  let mediaRows: any[] = [];
+  let mediaRows: MediaItemRow[] = [];
   if (mediaRefs.size > 0) {
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("media_items")
       .select("id, name, original_name, url, transcode_status, mime_type")
       .in("id", Array.from(mediaRefs.keys()));
-    mediaRows = data || [];
+    mediaRows = (data as MediaItemRow[] | null) || [];
   }
   const fetchedMediaIds = new Set(mediaRows.map((r) => String(r.id)));
 
@@ -180,7 +219,7 @@ export async function runScheduleHealthCheck(scheduleId: string): Promise<Health
 
   return {
     scheduleId,
-    scheduleName: schedRow?.name ?? "(unknown)",
+    scheduleName: (schedRow as { name?: string } | null)?.name ?? "(unknown)",
     totalReferenced: mediaRefs.size,
     totalDesignProjects: designIds.size,
     okCount,

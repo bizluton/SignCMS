@@ -24,7 +24,7 @@ export function useMediaTags(orgId: string | null | undefined, mediaIds: string[
   useEffect(() => {
     if (!orgId) { setTags([]); return; }
     (async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("media_tags").select("id, org_id, name, color")
         .eq("org_id", orgId).order("name");
       setTags((data || []) as MediaTag[]);
@@ -34,7 +34,7 @@ export function useMediaTags(orgId: string | null | undefined, mediaIds: string[
   useEffect(() => {
     if (mediaIds.length === 0) { setItemTags(new Map()); return; }
     (async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("media_item_tags").select("media_id, tag_id").in("media_id", mediaIds);
       const m = new Map<string, string[]>();
       ((data || []) as { media_id: string; tag_id: string }[]).forEach((r) => {
@@ -130,11 +130,11 @@ export function MediaTagEditor({
     if (!canEdit) return;
     setBusy(true);
     if (selectedIds.includes(tagId)) {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("media_item_tags").delete().eq("media_id", mediaId).eq("tag_id", tagId);
       if (error) toast.error(error.message);
     } else {
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("media_item_tags").insert({ media_id: mediaId, tag_id: tagId });
       if (error) toast.error(error.message);
     }
@@ -146,10 +146,10 @@ export function MediaTagEditor({
     const name = newName.trim();
     if (!name || !orgId) return;
     setBusy(true);
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("media_tags").insert({ org_id: orgId, name }).select("id").single();
     if (error) { toast.error(error.message); setBusy(false); return; }
-    await (supabase as any).from("media_item_tags").insert({ media_id: mediaId, tag_id: data.id });
+    await supabase.from("media_item_tags").insert({ media_id: mediaId, tag_id: data.id });
     setNewName("");
     onChanged();
     setBusy(false);

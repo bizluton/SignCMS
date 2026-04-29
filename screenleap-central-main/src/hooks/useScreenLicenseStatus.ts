@@ -36,7 +36,7 @@ export function useScreenLicenseStatus(screenId: string | null | undefined) {
       setLoading(false);
       return;
     }
-    const { data, error } = await (supabase as any).rpc("check_screen_license_status", {
+    const { data, error } = await supabase.rpc("check_screen_license_status", {
       _screen_id: screenId,
     });
     if (!mounted.current) return;
@@ -60,7 +60,7 @@ export function useScreenLicenseStatus(screenId: string | null | undefined) {
   // Realtime: any change on device_licenses → re-check this screen's status.
   useEffect(() => {
     if (!screenId) return;
-    const channel = (supabase as any)
+    const channel = supabase
       .channel(`screen-license-${screenId}`)
       .on(
         "postgres_changes",
@@ -71,7 +71,7 @@ export function useScreenLicenseStatus(screenId: string | null | undefined) {
       )
       .subscribe();
     return () => {
-      (supabase as any).removeChannel(channel);
+      supabase.removeChannel(channel);
     };
   }, [screenId, refresh]);
 

@@ -51,7 +51,7 @@ async function renderPdfThumb(storagePath: string): Promise<string | null> {
     if (error || !data?.signedUrl) return null;
 
     try {
-      const loadingTask = (pdfjs as any).getDocument({
+      const loadingTask = pdfjs.getDocument({
         url: data.signedUrl,
         ...pdfDocumentOptions,
       });

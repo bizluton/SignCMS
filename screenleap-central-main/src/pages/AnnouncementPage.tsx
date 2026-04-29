@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useEffect, useCallback } from "react";
+import DOMPurify from "dompurify";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useActiveOrg } from "@/contexts/ActiveOrgContext";
 import { Button } from "@/components/ui/button";
@@ -98,12 +99,12 @@ const AnnouncementPage = () => {
     try {
       const saved = localStorage.getItem(orgKey("signboard-announcements", oid));
       if (saved) {
-        return JSON.parse(saved).map((a: any) => ({
+        return (JSON.parse(saved) as Array<Record<string, unknown>>).map((a) => ({
           ...a,
-          startDate: new Date(a.startDate),
-          endDate: new Date(a.endDate),
-          createdAt: new Date(a.createdAt),
-        }));
+          startDate: new Date(a.startDate as string),
+          endDate: new Date(a.endDate as string),
+          createdAt: new Date(a.createdAt as string),
+        } as Announcement));
       }
     } catch {}
     return [];
@@ -548,7 +549,7 @@ const AnnouncementPage = () => {
                             "text-white/80 leading-relaxed line-clamp-4 prose prose-sm prose-invert",
                             previewMode === "landscape" ? "text-sm" : "text-xs"
                           )}
-                          dangerouslySetInnerHTML={{ __html: content || "<p>…</p>" }}
+                          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content || "<p>…</p>") }}
                         />
                         {startDate && endDate && (
                           <p className="text-white/50 text-[10px] mt-3">

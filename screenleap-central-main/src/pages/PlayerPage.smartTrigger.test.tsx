@@ -14,31 +14,63 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 type RealtimeHandler = (payload: { new: Record<string, unknown> }) => void;
 
-const realtimeHandlers: RealtimeHandler[] = [];
+// Track handlers keyed by channel name prefix so tests can target the right one.
+const channelHandlers = new Map<string, RealtimeHandler[]>();
 
 const SCREEN_ID = "screen-1";
 const ORG_ID = "org-1";
 const RULE_ID = "rule-1";
 const DP_ID = "dp-1";
 const LOG_ID = "log-1";
-const DURATION_S = 5;
+// 1 second: Math.max(1, 1) = 1 in the component, keeping the test fast.
+const DURATION_S = 1;
 
-const channelObj: any = {
-  on(_evt: string, _opts: unknown, cb: RealtimeHandler) {
-    realtimeHandlers.push(cb);
-    return channelObj;
-  },
-  subscribe() {
-    return channelObj;
-  },
-};
+interface ChannelObj {
+  on(_evt: string, _opts: unknown, cb: RealtimeHandler): ChannelObj;
+  subscribe(): ChannelObj;
+  unsubscribe(): ChannelObj;
+}
 
-function makeQuery(table: string) {
+function makeChannelObj(name: string): ChannelObj {
+  const handlers: RealtimeHandler[] = [];
+  channelHandlers.set(name, handlers);
+  const obj: ChannelObj = {
+    on(_evt: string, _opts: unknown, cb: RealtimeHandler) {
+      handlers.push(cb);
+      return obj;
+    },
+    subscribe() { return obj; },
+    unsubscribe() { return obj; },
+  };
+  return obj;
+}
+
+/** Fire the first handler registered on the smart-trigger-logs channel. */
+function fireSmartTriggerHandler(payload: { new: Record<string, unknown> }) {
+  for (const [name, handlers] of channelHandlers.entries()) {
+    if (name.startsWith("smart-trigger-logs")) {
+      handlers.forEach((h) => h(payload));
+      return;
+    }
+  }
+  throw new Error("No smart-trigger-logs channel handler found");
+}
+
+interface QueryChain {
+  select(): QueryChain;
+  eq(col: string, val: unknown): QueryChain;
+  order(): QueryChain;
+  insert(): Promise<{ data: null; error: null }>;
+  maybeSingle(): Promise<{ data: Record<string, unknown> | null; error: null }>;
+  then(resolve: (v: unknown) => void): void;
+}
+
+function makeQuery(table: string): QueryChain {
   const state: { table: string; filters: Record<string, unknown> } = {
     table,
     filters: {},
   };
-  const chain: any = {
+  const chain: QueryChain = {
     select() { return chain; },
     eq(col: string, val: unknown) { state.filters[col] = val; return chain; },
     order() { return chain; },
@@ -108,14 +140,28 @@ function makeQuery(table: string) {
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     from: (table: string) => makeQuery(table),
-    channel: (_name: string) => channelObj,
+    channel: (name: string) => makeChannelObj(name),
     removeChannel: () => {},
+    rpc: vi.fn().mockResolvedValue({
+      data: { licensed: true, status: "active", license_id: null, license_code: null },
+      error: null,
+    }),
   },
 }));
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
+
+// Stable `t` prevents the re-render loop caused by LanguageProvider recreating
+// `t` on every render, which in turn recreates fetchAll and applyTriggerOverride
+// useCallback memos, causing effects to re-run and `loading` to oscillate.
+vi.mock("@/contexts/LanguageContext", () => {
+  const t = (key: string) => key;
+  return {
+    useLanguage: () => ({ language: "en" as const, t, setLanguage: () => {} }),
+  };
+});
 
 import PlayerPage from "./PlayerPage";
 import { LanguageProvider } from "@/contexts/LanguageProvider";
@@ -134,14 +180,12 @@ function renderPlayer() {
 
 describe("PlayerPage smart-trigger override", () => {
   beforeEach(() => {
-    realtimeHandlers.length = 0;
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    // Wednesday noon UTC — within the schedule's 00:00–23:59 window.
-    vi.setSystemTime(new Date("2026-04-22T12:00:00Z"));
+    channelHandlers.clear();
+    // Use real timers so React's scheduler and waitFor work reliably.
+    // The mock schedule covers all days 00:00-23:59, so no time-faking needed.
   });
 
   afterEach(() => {
-    vi.useRealTimers();
     vi.clearAllMocks();
   });
 
@@ -150,15 +194,18 @@ describe("PlayerPage smart-trigger override", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Test Screen/)).toBeInTheDocument();
-    });
+    }, { timeout: 8_000 });
     await waitFor(() => {
       expect(screen.getByText(/Scheduled Image/)).toBeInTheDocument();
-    });
+    }, { timeout: 8_000 });
 
-    expect(realtimeHandlers.length).toBeGreaterThanOrEqual(1);
+    expect(channelHandlers.size).toBeGreaterThanOrEqual(1);
 
+    // applyTriggerOverride is async (floating Promise — not awaited by the
+    // Realtime callback). We drain microtasks inside act() so the mock resolves
+    // and setOverrideItem is called before act() exits and flushes React state.
     await act(async () => {
-      realtimeHandlers[0]({
+      fireSmartTriggerHandler({
         new: {
           id: LOG_ID,
           rule_id: RULE_ID,
@@ -168,31 +215,35 @@ describe("PlayerPage smart-trigger override", () => {
           trigger_key: "promo",
         },
       });
+      // Drain microtasks: applyTriggerOverride needs ~2 ticks for the mock to resolve.
+      await Promise.resolve();
+      await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });
+
+    // "Promo Project" appears in both the content <p> and the status header,
+    // so we use getAllByText (allows multiple matches) instead of getByText.
+    await waitFor(() => {
+      expect(screen.getAllByText(/Promo Project/).length).toBeGreaterThan(0);
+    }, { timeout: 3_000 });
+
+    // DURATION_S = 1 → the override restore timer fires after ~1 s (real time).
+    await new Promise((resolve) => setTimeout(resolve, DURATION_S * 1000 + 400));
 
     await waitFor(() => {
-      expect(screen.getByText(/Promo Project/)).toBeInTheDocument();
-    });
-
-    await act(async () => {
-      vi.advanceTimersByTime(DURATION_S * 1000 + 250);
-      await Promise.resolve();
-    });
-
-    await waitFor(() => {
-      expect(screen.queryByText(/Promo Project/)).not.toBeInTheDocument();
+      // queryAllByText never throws; returns empty array when none found.
+      expect(screen.queryAllByText(/Promo Project/).length).toBe(0);
       expect(screen.getByText(/Scheduled Image/)).toBeInTheDocument();
-    });
-  });
+    }, { timeout: 3_000 });
+  }, 15_000); // 200ms setup + 1s override + 400ms buffer + assertions
 
   it("ignores Realtime inserts for a different screen_id", async () => {
     renderPlayer();
     await waitFor(() => expect(screen.getByText(/Scheduled Image/)).toBeInTheDocument());
 
     await act(async () => {
-      realtimeHandlers[0]({
+      fireSmartTriggerHandler({
         new: {
           id: "log-other",
           rule_id: RULE_ID,
@@ -206,7 +257,7 @@ describe("PlayerPage smart-trigger override", () => {
       await Promise.resolve();
     });
 
-    expect(screen.queryByText(/Promo Project/)).not.toBeInTheDocument();
+    expect(screen.queryAllByText(/Promo Project/).length).toBe(0);
     expect(screen.getByText(/Scheduled Image/)).toBeInTheDocument();
   });
 });

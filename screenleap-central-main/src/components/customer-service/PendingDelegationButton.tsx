@@ -39,7 +39,7 @@ export default function PendingDelegationButton({ sessionId, customerId, isSelf,
 
   const load = useCallback(async () => {
     if (!user) return;
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("delegation_requests")
       .select("id, created_at, hours")
       .eq("session_id", sessionId)
@@ -77,7 +77,7 @@ export default function PendingDelegationButton({ sessionId, customerId, isSelf,
   const handleCancel = async () => {
     if (!pending || cancelling) return;
     setCancelling(true);
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("delegation_requests")
       .update({ status: "cancelled", resolved_at: new Date().toISOString() })
       .eq("id", pending.id);

@@ -77,7 +77,7 @@ export default function SystemAdminManagement() {
     }
     setSearching(true);
     debounceRef.current = window.setTimeout(async () => {
-      const { data, error } = await (supabase.rpc as any)("search_users_for_admin", { _query: term });
+      const { data, error } = await (supabase as unknown as { rpc: (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> }).rpc("search_users_for_admin", { _query: term });
       if (!error) setSearchResults((data as UserSearchResult[]) || []);
       setSearching(false);
     }, 300);

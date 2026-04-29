@@ -262,7 +262,7 @@ async function estimateFps(file: File): Promise<number | null> {
     const url = URL.createObjectURL(file);
     const v = anyVid;
     v.muted = true;
-    (v as any).playsInline = true;
+    (v as HTMLVideoElement & { playsInline: boolean }).playsInline = true;
     v.preload = "auto";
     v.src = url;
 

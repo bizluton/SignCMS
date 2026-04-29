@@ -11,7 +11,7 @@ export interface WidgetRow {
   name: string;
   name_i18n: Record<string, string>;
   widget_type: string;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
   thumbnail: string;
   app_id: string | null;
   org_id: string | null;
@@ -25,7 +25,7 @@ export interface CatalogWidget {
   id: string;
   scope: WidgetScope;
   name: string;
-  config: Record<string, any>;
+  config: Record<string, unknown>;
   thumbnail: string;
   app_id: string | null;
   org_id: string | null;
@@ -48,7 +48,7 @@ export function useWidgets() {
   const reload = useCallback(async () => {
     setLoading(true);
     // RLS already filters: system + app are visible to all; user-scope only own org
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("widgets")
       .select("id, scope, name, name_i18n, widget_type, config, thumbnail, app_id, org_id, sort_order, created_at, updated_at, created_by")
       .order("scope", { ascending: true })

@@ -29,13 +29,15 @@ const RING_MAX = 50;
 const ring: ShareLinkLogEntry[] = [];
 
 if (typeof window !== "undefined") {
-  (window as any).__shareLinkLog = ring;
+  (window as Window & { __shareLinkLog: ShareLinkLogEntry[] }).__shareLinkLog = ring;
 }
 
 /** Generate a short correlation id like `slk_8f2a1b` for one share-link interaction. */
 export function newCorrelationId(): string {
   const rnd =
-    (crypto as any)?.randomUUID?.()?.replace(/-/g, "").slice(0, 8) ??
+    (typeof crypto?.randomUUID === "function"
+      ? crypto.randomUUID().replace(/-/g, "").slice(0, 8)
+      : null) ??
     Math.random().toString(36).slice(2, 10);
   return `slk_${rnd}`;
 }

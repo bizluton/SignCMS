@@ -106,15 +106,15 @@ export default function OnboardingPage() {
       });
       toast.success(t("onboardingSuccess"));
       navigate("/", { replace: true });
-    } catch (err: any) {
+    } catch (err: unknown) {
       void logActivity({
         action: "onboarding_create_failed",
         category: "auth",
         targetType: "organization",
         targetName: name,
-        detail: `exception=${(err?.message || "unknown").slice(0, 200)}`,
+        detail: `exception=${(err instanceof Error ? err.message : "unknown").slice(0, 200)}`,
       });
-      toast.error(err?.message || t("onboardingFailed"));
+      toast.error(err instanceof Error ? err.message : t("onboardingFailed"));
     } finally {
       setLoading(false);
     }
@@ -166,14 +166,14 @@ export default function OnboardingPage() {
       });
       toast.success(t("onboardingJoinSuccess"));
       navigate("/", { replace: true });
-    } catch (err: any) {
+    } catch (err: unknown) {
       void logActivity({
         action: "onboarding_join_failed",
         category: "auth",
         targetType: "invitation",
-        detail: `exception=${(err?.message || "unknown").slice(0, 200)}; token=${tokenHint}`,
+        detail: `exception=${(err instanceof Error ? err.message : "unknown").slice(0, 200)}; token=${tokenHint}`,
       });
-      toast.error(err?.message || t("onboardingFailed"));
+      toast.error(err instanceof Error ? err.message : t("onboardingFailed"));
     } finally {
       setJoinLoading(false);
     }

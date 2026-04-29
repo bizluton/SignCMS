@@ -1,20 +1,27 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useActiveOrg } from "@/contexts/ActiveOrgContext";
 
-/** Returns total unread customer messages across all open sessions (for admin sidebar badge). */
+/** Returns total unread customer messages across open sessions scoped to the active org. */
 export function useUnreadCustomerMessages() {
   const [count, setCount] = useState(0);
   const { user } = useAuth();
+  const { activeOrgId } = useActiveOrg();
 
   useEffect(() => {
-    const fetch = async () => {
-      // Get all open session ids
+    if (!user || !activeOrgId) { setCount(0); return; }
+
+    let cancelled = false;
+
+    const fetchCount = async () => {
       const { data: sessions } = await supabase
         .from("customer_chat_sessions")
         .select("id")
-        .eq("status", "open");
+        .eq("status", "open")
+        .eq("org_id", activeOrgId);
 
+      if (cancelled) return;
       if (!sessions || sessions.length === 0) { setCount(0); return; }
 
       const ids = sessions.map((s) => s.id);
@@ -25,28 +32,27 @@ export function useUnreadCustomerMessages() {
         .eq("sender_type", "customer")
         .eq("is_read", false);
 
-      setCount(c || 0);
+      if (!cancelled) setCount(c || 0);
     };
 
-    void fetch();
-    const id = window.setInterval(fetch, 5000);
+    void fetchCount();
 
-    // Also listen for realtime inserts (per-user channel topic for natural scoping)
+    // Realtime only — no polling timer needed
     const channel = supabase
-      .channel(`sidebar-unread:${user?.id ?? "anon"}`)
+      .channel(`sidebar-unread:${user.id}:${activeOrgId}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "customer_chat_messages" }, () => {
-        void fetch();
+        void fetchCount();
       })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "customer_chat_messages" }, () => {
-        void fetch();
+        void fetchCount();
       })
       .subscribe();
 
     return () => {
-      window.clearInterval(id);
+      cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [user?.id]);
+  }, [user, activeOrgId]);
 
   return count;
 }

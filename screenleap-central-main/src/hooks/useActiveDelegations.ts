@@ -40,14 +40,14 @@ export function useActiveDelegations() {
     setLoading(true);
     const nowIso = new Date().toISOString();
     const [{ data: g }, { data: r }] = await Promise.all([
-      (supabase as any)
+      supabase
         .from("delegation_grants")
         .select("*")
         .eq("grantor_id", user.id)
         .eq("status", "active")
         .gt("expires_at", nowIso)
         .order("created_at", { ascending: false }),
-      (supabase as any)
+      supabase
         .from("delegation_grants")
         .select("*")
         .eq("grantee_id", user.id)
@@ -122,8 +122,8 @@ export function useActiveDelegations() {
           table: "delegation_grants",
           filter: `grantee_id=eq.${user.id}`,
         },
-        (payload: any) => {
-          const newRow = payload.new as { id: string; status: string; grantor_id: string };
+        (payload: { new: { id: string; status: string; grantor_id: string } }) => {
+          const newRow = payload.new;
           if (newRow?.status === "revoked") {
             const wasActive = received.find((g) => g.id === newRow.id);
             if (wasActive) {
@@ -142,8 +142,8 @@ export function useActiveDelegations() {
           table: "delegation_grants",
           filter: `grantor_id=eq.${user.id}`,
         },
-        (payload: any) => {
-          const newRow = payload.new as { id: string; status: string; grantee_id: string };
+        (payload: { new: { id: string; status: string; grantee_id: string } }) => {
+          const newRow = payload.new;
           if (newRow?.status === "ended") {
             const wasActive = granted.find((g) => g.id === newRow.id);
             if (wasActive) {

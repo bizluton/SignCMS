@@ -74,7 +74,7 @@ export default function ResetPasswordPage() {
       if (error) throw error;
       toast.success(t("resetSuccess"));
       navigate("/");
-    } catch (error: any) { toast.error(error.message || t("resetFailed")); }
+    } catch (error: unknown) { toast.error(error instanceof Error ? error.message : t("resetFailed")); }
     finally { setLoading(false); }
   };
 

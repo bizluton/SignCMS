@@ -187,9 +187,10 @@ export function SmartTriggerDialog({ open, onOpenChange, orgId, rule, onSaved }:
       cooldown_seconds: form.cooldown_seconds,
       created_by: user?.id ?? null,
     };
+    const db = supabase as unknown as { from: (t: string) => { update: (p: unknown) => { eq: (col: string, val: string) => Promise<{ error: { message: string } | null }> }; insert: (p: unknown) => Promise<{ error: { message: string } | null }> } };
     const { error } = form.id
-      ? await (supabase as any).from("smart_trigger_rules").update(payload).eq("id", form.id)
-      : await (supabase as any).from("smart_trigger_rules").insert(payload);
+      ? await db.from("smart_trigger_rules").update(payload).eq("id", form.id)
+      : await db.from("smart_trigger_rules").insert(payload);
     setSaving(false);
     if (error) { toast.error(error.message); return; }
     toast.success(T.saved);

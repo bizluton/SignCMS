@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import type { Json } from "@/integrations/supabase/types";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useActiveOrg } from "@/contexts/ActiveOrgContext";
@@ -60,6 +61,8 @@ interface ScreenOption { id: string; name: string; branch: string; online: boole
 interface ZoneMediaAssignment { id: string; name: string; type: "image" | "video"; url: string; thumbnail?: string; duration_seconds?: number | null; }
 interface ZoneUploadState { name: string; type: "image" | "video"; previewUrl: string; progress: number; index: number; total: number; }
 interface ZoneDragState { canUpload: boolean; reason: string; fileCount: number; }
+interface LibraryItem { id: string; original_name: string; type: string; url: string; thumbnail: string; duration_seconds: number | null; }
+interface ZoneContentMediaItem { id: unknown; type: unknown; url: unknown; name: unknown; duration: unknown; }
 
 const WEEKDAYS = [
   { code: "mon", zh: "一", en: "M", ja: "月" },
@@ -229,14 +232,15 @@ const mapAssignmentsToStudioZones = (zones: StudioZonePreset[], assignments: Rec
 const mapStudioZonesToAssignments = (zones: StudioZonePreset[]) => {
   const next: Record<string, ZoneMediaAssignment[]> = {};
   zones.forEach((zone) => {
-    const mediaItems = Array.isArray((zone as any).content?.mediaItems) ? (zone as any).content.mediaItems : [];
+    const zoneContent = (zone as { content?: { mediaItems?: unknown[] } }).content;
+    const mediaItems: unknown[] = Array.isArray(zoneContent?.mediaItems) ? zoneContent.mediaItems : [];
     if (mediaItems.length === 0) return;
-    next[zone.id] = mediaItems
-      .filter((item: any) => item?.id && (item.type === "image" || item.type === "video"))
-      .map((item: any) => ({
+    next[zone.id] = (mediaItems as ZoneContentMediaItem[])
+      .filter((item) => item?.id && (item.type === "image" || item.type === "video"))
+      .map((item) => ({
         id: String(item.id),
         name: String(item.name || item.id),
-        type: item.type,
+        type: item.type as "image" | "video",
         url: String(item.url || ""),
         duration_seconds: Number(item.duration) || DEFAULT_IMAGE_DURATION_SECONDS,
       }));
@@ -276,7 +280,7 @@ function LayoutThumb({ zones, aspect }: { zones: ZoneDef[]; aspect: "16:9" | "9:
   );
 }
 
-function QualityStrip({ items }: { items: { icon: any; label: string; value: string }[] }) {
+function QualityStrip({ items }: { items: { icon: React.ComponentType<{ className?: string }>; label: string; value: string }[] }) {
   if (items.length === 0) return null;
   return (
     <div className="grid grid-cols-1 gap-2 rounded-2xl border bg-primary/5 p-3 animate-in fade-in slide-in-from-top-2 duration-300 sm:grid-cols-3">
@@ -526,7 +530,7 @@ export default function QuickPublishPage() {
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
-  const [libraryItems, setLibraryItems] = useState<any[]>([]);
+  const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [librarySearch, setLibrarySearch] = useState("");
   const [libraryFilter, setLibraryFilter] = useState<"all" | "image" | "video">("all");
@@ -555,9 +559,9 @@ export default function QuickPublishPage() {
     setScreens([]);
     (async () => {
       const [tplRes, scrRes] = await Promise.all([
-        (supabase as any).from("design_projects").select("id, name, aspect, zones")
+        supabase.from("design_projects").select("id, name, aspect, zones")
           .eq("org_id", activeOrgId).order("updated_at", { ascending: false }).limit(48),
-        (supabase as any).from("screens").select("id, name, branch, online")
+        supabase.from("screens").select("id, name, branch, online")
           .eq("org_id", activeOrgId).order("name"),
       ]);
       setTemplates(tplRes.data || []);
@@ -579,7 +583,7 @@ export default function QuickPublishPage() {
     return null;
   }, [templateId, templates, language, studioSources]);
 
-  const selectedZones = useMemo(() => selectedTpl?.zones?.filter((z) => !((z as any)._meta)) || [], [selectedTpl]);
+  const selectedZones = useMemo(() => selectedTpl?.zones?.filter((z) => !(z as { _meta?: boolean })._meta) || [], [selectedTpl]);
   const assignedZoneCount = useMemo(() => selectedZones.filter((z) => (zoneAssignments[z.id]?.length || 0) > 0).length, [selectedZones, zoneAssignments]);
   const activeAssignment = activeZoneId ? zoneAssignments[activeZoneId]?.[0] : null;
   useEffect(() => {
@@ -641,7 +645,7 @@ export default function QuickPublishPage() {
       toast.error(t("uploadFailed") + (result.errorDetail ? `: ${result.errorDetail}` : ""));
       return;
     }
-    const { data: m } = await (supabase as any).from("media_items").select("url, thumbnail, type, duration_seconds").eq("id", result.data!.id).maybeSingle();
+    const { data: m } = await supabase.from("media_items").select("url, thumbnail, type, duration_seconds").eq("id", result.data!.id).maybeSingle();
     if (m) {
       setZoneAssignments((prev) => ({
         ...prev,
@@ -682,14 +686,14 @@ export default function QuickPublishPage() {
   const loadLibrary = async () => {
     if (!activeOrgId) return;
     setLibraryLoading(true);
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("media_items")
       .select("id, original_name, type, url, thumbnail, duration_seconds")
       .eq("org_id", activeOrgId)
       .in("type", ["image", "video"])
       .order("created_at", { ascending: false })
       .limit(60);
-    setLibraryItems(data || []);
+    setLibraryItems((data || []) as LibraryItem[]);
     setLibraryLoading(false);
   };
 
@@ -704,7 +708,7 @@ export default function QuickPublishPage() {
     });
   }, [libraryItems, librarySearch, libraryFilter]);
 
-  const pickFromLibrary = (item: any) => {
+  const pickFromLibrary = (item: LibraryItem) => {
     if (!activeZoneId) return;
     setZoneAssignments((prev) => ({
       ...prev,
@@ -780,12 +784,12 @@ export default function QuickPublishPage() {
       : null;
 
     const quickPublishZones = mapAssignmentsToStudioZones(selectedZones, zoneAssignments);
-    const { data: quickProject, error: projectError } = await (supabase as any)
+    const { data: quickProject, error: projectError } = await supabase
       .from("design_projects")
       .insert({
         name: baseName,
         aspect: selectedTpl?.aspect || "16:9",
-        zones: quickPublishZones,
+        zones: quickPublishZones as unknown as Json,
         created_by: user?.id,
         org_id: activeOrgId,
         collab_scope: "creator",
@@ -808,10 +812,10 @@ export default function QuickPublishPage() {
         end_time: endTime,
         days: scheduleMode === "loop" ? Array.from(weekdays) : [],
       }));
-    const { data: schedulesData, error: scheduleError } = await (supabase as any).from("schedules").insert(inserts).select("id, screen_id");
+    const { data: schedulesData, error: scheduleError } = await supabase.from("schedules").insert(inserts).select("id, screen_id");
     if (scheduleError) { setPublishing(false); toast.error(scheduleError.message); return; }
 
-    const scheduleItems = (schedulesData || []).map((schedule: any) => ({
+    const scheduleItems = (schedulesData || []).map((schedule: { id: string; screen_id: string }) => ({
       schedule_id: schedule.id,
       design_project_id: quickProject.id,
       item_type: "design_project",
@@ -819,7 +823,7 @@ export default function QuickPublishPage() {
       duration: quickProjectDuration,
     }));
     if (scheduleItems.length > 0) {
-      const { error: itemError } = await (supabase as any).from("schedule_items").insert(scheduleItems);
+      const { error: itemError } = await supabase.from("schedule_items").insert(scheduleItems);
       if (itemError) { setPublishing(false); toast.error(itemError.message); return; }
     }
 
@@ -837,7 +841,7 @@ export default function QuickPublishPage() {
         published_by: user?.id,
       };
     });
-    const { error } = await (supabase as any).from("publish_records").insert(records);
+    const { error } = await supabase.from("publish_records").insert(records);
     setPublishing(false);
     if (error) { toast.error(error.message); return; }
     logActivity({

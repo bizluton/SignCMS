@@ -77,34 +77,35 @@ export function OrgSwitcher({
       // Step 1: load only the org list + (if needed) the user's allowed org ids.
       // Avoid pulling full screens / team_members tables — those are O(n) and quickly become slow.
       const orgListPromise = supabase.from("organizations").select("id, name, description").order("name");
-      const allowedPromise = isOrgAdmin && !isAdmin && !isCsAgent
+      type MemberWithTeam = { teams: { org_id: string } | null };
+      const allowedPromise: Promise<{ data: MemberWithTeam[] | null }> = isOrgAdmin && !isAdmin && !isCsAgent
         ? supabase.auth.getUser().then(({ data }) =>
             supabase.from("team_members")
               .select("teams!inner(org_id)")
               .eq("user_id", data.user?.id ?? "")
-          )
-        : Promise.resolve({ data: null } as any);
+          ) as Promise<{ data: MemberWithTeam[] | null }>
+        : Promise.resolve({ data: null });
 
       const [{ data: orgData }, { data: currentUserMembers }] = await Promise.all([orgListPromise, allowedPromise]);
       if (cancelled) return;
 
       const allowedOrgIds = new Set<string>(
-        (currentUserMembers || []).map((m: any) => m.teams?.org_id).filter(Boolean)
+        (currentUserMembers || []).map((m) => m.teams?.org_id).filter((id): id is string => Boolean(id))
       );
 
-      const visibleOrgs = (orgData || []).filter((o: any) => {
+      const visibleOrgs = (orgData || []).filter((o) => {
         if (isAdmin || isCsAgent) return true;
         if (isOrgAdmin) return allowedOrgIds.has(o.id);
         return false;
       });
 
       // Step 2: render org list immediately (counts come in next).
-      setOrgs(visibleOrgs.map((o: any) => ({ ...o, deviceCount: 0, memberCount: 0 })) as Org[]);
+      setOrgs(visibleOrgs.map((o) => ({ ...o, deviceCount: 0, memberCount: 0 })) as Org[]);
       setOrgsLoaded(true);
 
       // Step 3: lazy-load per-org counts in parallel using head:true count:exact (no row payload).
       const counts = await Promise.all(
-        visibleOrgs.map(async (o: any) => {
+        visibleOrgs.map(async (o) => {
           const [screensRes, membersRes] = await Promise.all([
             supabase.from("screens").select("id", { count: "exact", head: true }).eq("org_id", o.id),
             supabase.from("team_members").select("teams!inner(org_id)", { count: "exact", head: true })
@@ -117,7 +118,7 @@ export function OrgSwitcher({
 
       const countMap = new Map(counts.map((c) => [c.id, c]));
       setOrgs(
-        visibleOrgs.map((o: any) => ({
+        visibleOrgs.map((o) => ({
           ...o,
           deviceCount: countMap.get(o.id)?.devices ?? 0,
           memberCount: countMap.get(o.id)?.members ?? 0,

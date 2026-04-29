@@ -38,7 +38,7 @@ export default function OrgLicenseStatus() {
       .select("name, license_plan, license_expires_at")
       .eq("id", activeOrgId!)
       .single();
-    setOrgData(data as any);
+    setOrgData(data as { name: string; license_plan: string; license_expires_at: string } | null);
     setLoading(false);
   };
 
@@ -63,7 +63,7 @@ export default function OrgLicenseStatus() {
     if (error) {
       toast.error(t("licenseRedeemFailed"));
     } else {
-      const result = data as any;
+      const result = data as { success: boolean; error?: string };
       if (result?.success) {
         toast.success(t("licenseRedeemSuccess"));
         setCode("");

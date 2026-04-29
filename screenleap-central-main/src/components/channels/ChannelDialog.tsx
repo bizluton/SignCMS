@@ -69,10 +69,9 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, designProjec
       setBgmVolume(channel?.bgm_volume ?? 50);
       setEnabled(channel?.enabled ?? true);
       setDefaultProjectId(channel?.default_design_project_id ?? "");
-      const ch = channel as any;
-      setTeamId(ch?.team_id ? String(ch.team_id) : "none");
-      const cs = ch?.collab_scope;
-      const hasTeam = !!ch?.team_id;
+      setTeamId(channel?.team_id ? String(channel.team_id) : "none");
+      const cs = channel?.collab_scope;
+      const hasTeam = !!channel?.team_id;
       setCollabScope(
         cs === "creator" || cs === "team" || cs === "org"
           ? cs
@@ -84,19 +83,19 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, designProjec
       // load allowed projects
       if (channel?.id) {
         (async () => {
-          const { data } = await (supabase as any)
+          const { data } = await supabase
             .from("channel_allowed_projects")
             .select("design_project_id")
             .eq("channel_id", channel.id)
             .order("sort_order", { ascending: true });
-          setAllowedProjectIds((data ?? []).map((r: any) => r.design_project_id));
+          setAllowedProjectIds((data ?? []).map((r) => r.design_project_id));
         })();
       } else {
         setAllowedProjectIds([]);
       }
       // Load teams for current org
       (async () => {
-        const { data } = await (supabase as any)
+        const { data } = await supabase
           .from("teams")
           .select("id, name")
           .eq("org_id", orgId)
@@ -153,12 +152,12 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, designProjec
       team_id: teamIdToSave,
       collab_scope: collabToSave,
     };
-    let error: any;
+    let error: { message: string } | null;
     let channelId = channel?.id;
     if (channel) {
-      ({ error } = await (supabase as any).from("channels").update(payload).eq("id", channel.id));
+      ({ error } = await supabase.from("channels").update(payload).eq("id", channel.id));
     } else {
-      const { data, error: insErr } = await (supabase as any)
+      const { data, error: insErr } = await supabase
         .from("channels")
         .insert({ ...payload, created_by: user?.id })
         .select("id")
@@ -173,7 +172,7 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, designProjec
     }
     // sync allowed projects (delete + reinsert)
     if (channelId) {
-      const { error: delErr } = await (supabase as any)
+      const { error: delErr } = await supabase
         .from("channel_allowed_projects")
         .delete()
         .eq("channel_id", channelId);
@@ -186,7 +185,7 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, designProjec
           design_project_id: pid,
           sort_order: idx,
         }));
-        const { error: insErr } = await (supabase as any)
+        const { error: insErr } = await supabase
           .from("channel_allowed_projects")
           .insert(rows);
         if (insErr) {
@@ -238,7 +237,7 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, designProjec
             </div>
             <div className="space-y-1.5">
               <Label>{t("channelCollab")}</Label>
-              <Select value={collabScope} onValueChange={(v) => setCollabScope(v as any)}>
+              <Select value={collabScope} onValueChange={(v) => setCollabScope(v as "creator" | "team" | "org")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="creator">

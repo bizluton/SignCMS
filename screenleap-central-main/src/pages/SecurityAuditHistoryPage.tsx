@@ -50,7 +50,7 @@ export default function SecurityAuditHistoryPage() {
     try {
       const fromTs = new Date(from + "T00:00:00").toISOString();
       const toTs = new Date(to + "T23:59:59").toISOString();
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("security_audit_findings")
         .select("id, run_at, ok, findings_count, findings, triggered_by, pinned")
         .gte("run_at", fromTs)
@@ -59,8 +59,8 @@ export default function SecurityAuditHistoryPage() {
         .limit(500);
       if (error) throw error;
       setRows((data ?? []) as AuditRow[]);
-    } catch (e: any) {
-      toast.error(`Failed to load: ${e.message ?? String(e)}`);
+    } catch (e: unknown) {
+      toast.error(`Failed to load: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setLoading(false);
     }
@@ -78,7 +78,7 @@ export default function SecurityAuditHistoryPage() {
   const toggle = (id: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   };
@@ -88,7 +88,7 @@ export default function SecurityAuditHistoryPage() {
     const next = !row.pinned;
     // optimistic
     setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, pinned: next } : r)));
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("security_audit_findings")
       .update({ pinned: next })
       .eq("id", row.id);

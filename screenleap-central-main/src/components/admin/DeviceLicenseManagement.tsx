@@ -79,9 +79,9 @@ export default function DeviceLicenseManagement() {
   const fetchData = async () => {
     setLoading(true);
     const [{ data: list }, { data: orgsData }, { data: modelsData }] = await Promise.all([
-      (supabase as any).from("device_licenses").select("*").order("created_at", { ascending: false }),
+      supabase.from("device_licenses").select("*").order("created_at", { ascending: false }),
       supabase.from("organizations").select("id, name").order("name"),
-      (supabase as any).from("device_models").select("*").order("sort_order").order("name"),
+      supabase.from("device_models").select("*").order("sort_order").order("name"),
     ]);
     setRows((list as DeviceLicense[]) || []);
     setOrgs((orgsData as OrgRow[]) || []);
@@ -93,7 +93,7 @@ export default function DeviceLicenseManagement() {
     if (!model.trim() || !serial.trim()) { toast.error("請填寫設備型號與序號"); return; }
     if (!orgId) { toast.error("請選擇授權組織"); return; }
     setSaving(true);
-    const { data, error } = await (supabase.rpc as any)("generate_device_license", {
+    const { data, error } = await supabase.rpc("generate_device_license", {
       _device_model: model.trim(),
       _device_serial: serial.trim(),
       _org_id: orgId,
@@ -112,14 +112,14 @@ export default function DeviceLicenseManagement() {
 
   const revoke = async (id: string) => {
     if (!confirm("確定要撤銷此設備授權？撤銷後該設備將無法通過驗證。")) return;
-    const { data, error } = await (supabase.rpc as any)("revoke_device_license", { _id: id });
+    const { data, error } = await supabase.rpc("revoke_device_license", { _id: id });
     if (error) toast.error(error.message);
     else if (data?.success === false) toast.error(ERROR_MAP[data.error] || data.error);
     else { toast.success("已撤銷"); fetchData(); }
   };
 
   const restore = async (id: string) => {
-    const { data, error } = await (supabase.rpc as any)("restore_device_license", { _id: id });
+    const { data, error } = await supabase.rpc("restore_device_license", { _id: id });
     if (error) toast.error(error.message);
     else if (data?.success === false) toast.error(ERROR_MAP[data.error] || data.error);
     else { toast.success("已恢復為啟用"); fetchData(); }
@@ -127,7 +127,7 @@ export default function DeviceLicenseManagement() {
 
   const remove = async (id: string, label: string) => {
     if (!confirm(`確定要刪除設備授權 ${label} 嗎？此動作無法復原。`)) return;
-    const { data, error } = await (supabase.rpc as any)("delete_device_license", { _id: id });
+    const { data, error } = await supabase.rpc("delete_device_license", { _id: id });
     if (error) toast.error(error.message);
     else if (data?.success === false) toast.error(ERROR_MAP[data.error] || data.error);
     else { toast.success("已刪除"); fetchData(); }
@@ -330,10 +330,10 @@ function DeviceModelsDialog({
     setOrderedModels(next);
     setBusy(true);
     const updates = await Promise.all(
-      next.map(m => (supabase as any).from("device_models").update({ sort_order: m.sort_order }).eq("id", m.id))
+      next.map(m => supabase.from("device_models").update({ sort_order: m.sort_order }).eq("id", m.id))
     );
     setBusy(false);
-    const failed = updates.find((r: any) => r.error);
+    const failed = updates.find((r) => r.error);
     if (failed) {
       toast.error("排序更新失敗");
       setOrderedModels(models);
@@ -355,7 +355,7 @@ function DeviceModelsDialog({
     const err = validateName(name);
     if (err) { toast.error(err); return; }
     setBusy(true);
-    const { error } = await (supabase as any).from("device_models").insert({
+    const { error } = await supabase.from("device_models").insert({
       name, sort_order: parseInt(newSort) || 0,
     });
     setBusy(false);
@@ -374,7 +374,7 @@ function DeviceModelsDialog({
     const err = validateName(name, id);
     if (err) { toast.error(err); return; }
     setBusy(true);
-    const { error } = await (supabase as any).from("device_models").update({
+    const { error } = await supabase.from("device_models").update({
       name, sort_order: parseInt(editSort) || 0,
     }).eq("id", id);
     setBusy(false);
@@ -390,7 +390,7 @@ function DeviceModelsDialog({
 
   const remove = async (m: DeviceModel) => {
     setBusy(true);
-    const { count, error: countError } = await (supabase as any)
+    const { count, error: countError } = await supabase
       .from("device_licenses")
       .select("id", { count: "exact", head: true })
       .eq("device_model", m.name);
@@ -404,7 +404,7 @@ function DeviceModelsDialog({
       ? `型號「${m.name}」目前已被 ${used} 筆設備授權資料使用。\n\n刪除此型號不會刪除既有授權資料，但日後無法在下拉選單中選擇此型號。\n\n確定要刪除嗎？`
       : `確定要刪除型號「${m.name}」？目前沒有任何設備授權使用此型號。`;
     if (!confirm(message)) { setBusy(false); return; }
-    const { error } = await (supabase as any).from("device_models").delete().eq("id", m.id);
+    const { error } = await supabase.from("device_models").delete().eq("id", m.id);
     setBusy(false);
     if (error) toast.error(error.message);
     else { toast.success("已刪除"); onChanged(); }

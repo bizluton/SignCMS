@@ -129,7 +129,7 @@ export function ScreenHealthExportDialog({ screens, alertedScreenIds }: Props) {
         import("jspdf"),
         import("jspdf-autotable"),
       ]);
-      const autoTable = (autoTableModule as any).default || (autoTableModule as any);
+      const autoTable = (autoTableModule as Record<string, unknown>).default ?? autoTableModule;
       const doc = new jsPDF({ orientation: "landscape" });
       doc.setFontSize(14);
       doc.text(t("screensExportTitle"), 14, 14);
@@ -150,8 +150,8 @@ export function ScreenHealthExportDialog({ screens, alertedScreenIds }: Props) {
       doc.save(`${filenameStem}.pdf`);
       toast.success("PDF ✓");
       setOpen(false);
-    } catch (err: any) {
-      toast.error(`PDF failed: ${err?.message ?? err}`);
+    } catch (err: unknown) {
+      toast.error(`PDF failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 

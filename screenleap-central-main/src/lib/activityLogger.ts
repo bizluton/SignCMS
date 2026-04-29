@@ -32,7 +32,10 @@ let cachedIp: string | null = null;
 async function getClientIp(): Promise<string> {
   if (cachedIp) return cachedIp;
   try {
-    const res = await fetch("https://api.ipify.org?format=json");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch("https://api.ipify.org?format=json", { signal: controller.signal });
+    clearTimeout(timer);
     const data = await res.json();
     cachedIp = data.ip || "";
     return cachedIp;
@@ -68,7 +71,7 @@ export async function logActivity(params: LogActivityParams) {
       }
     }
 
-    await (supabase as any).from("activity_logs").insert({
+    await supabase.from("activity_logs").insert({
       user_id: user.id,
       action: params.action,
       action_code: params.action,

@@ -59,7 +59,7 @@ export function OfflineScreenAlertsPanel({ screens, activeOrgId, onChanged }: Pr
       return;
     }
     const ids = offlineScreens.map((s) => s.id);
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("screen_alerts")
       .select("id, screen_id, status, acknowledged_at, resolved_at, last_seen_at")
       .in("screen_id", ids)
@@ -89,7 +89,7 @@ export function OfflineScreenAlertsPanel({ screens, activeOrgId, onChanged }: Pr
         detected_at: new Date().toISOString(),
       }));
       // Best-effort insert; unique index prevents duplicates per screen
-      await (supabase as any).from("screen_alerts").insert(rows);
+      await supabase.from("screen_alerts").insert(rows);
       if (!cancelled) await refreshAlerts();
     })();
     return () => {
@@ -101,7 +101,7 @@ export function OfflineScreenAlertsPanel({ screens, activeOrgId, onChanged }: Pr
   const handleAck = async (alert: AlertRow) => {
     if (!user) return;
     setBusyId(alert.id);
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("screen_alerts")
       .update({
         status: "acknowledged",
@@ -122,7 +122,7 @@ export function OfflineScreenAlertsPanel({ screens, activeOrgId, onChanged }: Pr
   const handleResolve = async (alert: AlertRow) => {
     if (!user) return;
     setBusyId(alert.id);
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("screen_alerts")
       .update({
         status: "resolved",

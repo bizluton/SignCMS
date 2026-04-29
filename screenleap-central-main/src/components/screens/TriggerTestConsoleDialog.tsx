@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,7 @@ interface PresetRunResult {
   error?: string;
 }
 
-const newId = () => (crypto as any)?.randomUUID?.() ?? `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+const newId = () => (crypto as { randomUUID?: () => string })?.randomUUID?.() ?? `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 function DiagRow({
   label,
@@ -75,10 +75,10 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
   const [triggerKey, setTriggerKey] = useState("");
   const [payloadText, setPayloadText] = useState('{\n  "value": 1\n}');
   const [running, setRunning] = useState(false);
-  const [resolved, setResolved] = useState<any[]>([]);
-  const [matched, setMatched] = useState<any[]>([]);
-  const [logs, setLogs] = useState<any[]>([]);
-  const [response, setResponse] = useState<any>(null);
+  const [resolved, setResolved] = useState<Record<string, unknown>[]>([]);
+  const [matched, setMatched] = useState<Record<string, unknown>[]>([]);
+  const [logs, setLogs] = useState<Record<string, unknown>[]>([]);
+  const [response, setResponse] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [shareExpiry, setShareExpiry] = useState<string>(""); // datetime-local value
   const [linkExpired, setLinkExpired] = useState<{ at: string } | null>(null);
@@ -136,14 +136,14 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
       return false;
     }
     try {
-      const decoded: any = await decodeSharePayload(decodeURIComponent(m[1]));
-      let data: any;
+      const decoded: unknown = await decodeSharePayload(decodeURIComponent(m[1]));
+      let data: Record<string, unknown>;
       let isReadOnly = false;
       const isEnvelope =
         decoded && typeof decoded === "object" && "data" in decoded && "sig" in decoded;
-      // Build a diagnostics snapshot of what we parsed, regardless of outcome.
-      const sigVal = isEnvelope ? (decoded as any).sig : undefined;
-      const dataPart: any = isEnvelope ? (decoded as any).data : decoded;
+      const decodedObj = decoded as Record<string, unknown>;
+      const sigVal = isEnvelope ? decodedObj.sig : undefined;
+      const dataPart: Record<string, unknown> | null = isEnvelope ? decodedObj.data as Record<string, unknown> : decoded as Record<string, unknown>;
       const expRaw =
         dataPart && typeof dataPart === "object" && typeof dataPart.expiresAt === "number"
           ? dataPart.expiresAt
@@ -185,7 +185,7 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
             },
           });
         }
-        data = decoded;
+        data = decodedObj;
         isReadOnly = true;
       } else {
         // Verify with retry/backoff on transient (network/5xx) errors only.
@@ -202,7 +202,7 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
                   ? "正在驗證簽章…"
                   : `第 ${attempt}/${MAX_ATTEMPTS} 次重試簽章驗證… (cid=${cid})`,
             });
-            ok = await verifySharePayload(decoded.data, decoded.sig);
+            ok = await verifySharePayload(decodedObj.data, decodedObj.sig as string);
             lastTransient = null;
             break;
           } catch (e) {
@@ -231,11 +231,11 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
         if (ok === null) {
           logger.log("verify_failed_after_retry", "Gave up after retries", {
             attempts: MAX_ATTEMPTS,
-            lastError: (lastTransient as any)?.message ?? null,
+            lastError: lastTransient instanceof Error ? lastTransient.message : null,
           });
           setVerification({
             status: "error",
-            reason: `驗證服務多次重試後仍無法連線 (${(lastTransient as any)?.message ?? "network error"}) (cid=${cid})`,
+            reason: `驗證服務多次重試後仍無法連線 (${lastTransient instanceof Error ? lastTransient.message : "network error"}) (cid=${cid})`,
           });
           if (!silent) {
             toast.error("無法驗證分享連結", {
@@ -246,7 +246,7 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
         }
         if (!ok) {
           logger.log("invalid_signature", "Server reported HMAC mismatch", {
-            sigLen: typeof decoded.sig === "string" ? decoded.sig.length : null,
+            sigLen: typeof decodedObj.sig === "string" ? decodedObj.sig.length : null,
           });
           setVerification({
             status: "invalid",
@@ -264,8 +264,8 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
           }
           return false;
         }
-        logger.log("valid", "Signature verified", { sigLen: decoded.sig?.length ?? 0 });
-        data = decoded.data;
+        logger.log("valid", "Signature verified", { sigLen: typeof decodedObj.sig === "string" ? decodedObj.sig.length : 0 });
+        data = decodedObj.data as Record<string, unknown>;
       }
       setReadOnly(isReadOnly);
       const expAt =
@@ -287,7 +287,7 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
       }
       setLinkExpired(null);
       if (Array.isArray(data.presets) && data.presets.length > 0) {
-        const incoming: Preset[] = data.presets.map((p: any, i: number) => ({
+        const incoming: Preset[] = (data.presets as Record<string, unknown>[]).map((p, i: number) => ({
           id: p.id ?? newId(),
           name: p.name ?? `Preset ${i + 1}`,
           orgId: p.orgId ?? "",
@@ -321,7 +321,7 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
       }
       setError(null);
       return true;
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (e instanceof PayloadTooLargeError) {
         logger.log("payload_too_large", "Server returned 413", {
           receivedBytes: e.receivedBytes,
@@ -337,10 +337,11 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
           });
         }
       } else {
-        logger.log("decode_failed", "Decode/parse error", { error: e?.message ?? String(e) });
-        setVerification({ status: "error", reason: `${e?.message ?? String(e)} (cid=${cid})` });
+        const msg = e instanceof Error ? e.message : String(e);
+        logger.log("decode_failed", "Decode/parse error", { error: msg });
+        setVerification({ status: "error", reason: `${msg} (cid=${cid})` });
         if (!silent) {
-          toast.error("無法解析連結：" + (e?.message ?? String(e)), {
+          toast.error("無法解析連結：" + msg, {
             description: `Debug ID: ${cid}`,
           });
         }
@@ -444,13 +445,13 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
       let sig: string;
       try {
         sig = await signSharePayload(data);
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (e instanceof PayloadTooLargeError) {
           toast.error("分享內容過大，無法簽署", {
             description: `Payload ${e.receivedBytes ?? "?"} bytes 超過伺服器上限 ${e.maxBytes ?? "?"} bytes。請減少 preset 數量或縮減 payload 內容後再試。`,
           });
         } else {
-          toast.error("無法取得簽章：" + (e?.message ?? String(e)));
+          toast.error("無法取得簽章：" + (e instanceof Error ? e.message : String(e)));
         }
         return;
       }
@@ -470,8 +471,8 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
       toast.success(expiresAt
         ? `已複製已簽署連結 (${bundle.length} presets・${sizeNote}・${new Date(expiresAt).toLocaleString()} 過期)`
         : `已複製已簽署連結 (${bundle.length} presets・${sizeNote})`);
-    } catch (e: any) {
-      toast.error("複製失敗: " + (e?.message ?? String(e)));
+    } catch (e: unknown) {
+      toast.error("複製失敗: " + (e instanceof Error ? e.message : String(e)));
     }
   };
 
@@ -510,11 +511,15 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
         },
       });
       if (fnError) throw fnError;
-      setResponse(data);
-      setMatched(data?.matched_rules ?? data?.matched ?? []);
+      setResponse(data as Record<string, unknown>);
+      const responseData = data as Record<string, unknown> | null;
+      const matchedRules = responseData?.matched_rules ?? responseData?.matched ?? [];
+      setMatched(Array.isArray(matchedRules) ? matchedRules as Record<string, unknown>[] : []);
 
       // Fetch latest logs
-      const { data: logRows } = await (supabase as any)
+      type SupabaseQuery = { select: (s: string) => SupabaseQuery; eq: (k: string, v: string) => SupabaseQuery; order: (k: string, o: { ascending: boolean }) => SupabaseQuery; limit: (n: number) => Promise<{ data: Record<string, unknown>[] | null }> };
+      type SupabaseDyn = { from: (t: string) => SupabaseQuery };
+      const { data: logRows } = await (supabase as unknown as SupabaseDyn)
         .from("smart_trigger_logs")
         .select("*")
         .eq("org_id", orgId.trim())
@@ -523,8 +528,8 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
         .limit(10);
       setLogs(logRows ?? []);
       toast.success("測試完成");
-    } catch (e: any) {
-      const msg = e?.message ?? String(e);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
       toast.error("測試失敗: " + msg);
     } finally {
@@ -550,10 +555,12 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
           },
         });
         if (fnError) throw fnError;
-        const matchedCount = (data as any)?.matched_rules?.length ?? (data as any)?.matched?.length ?? 0;
+        const d = data as Record<string, unknown> | null;
+        const matchedRulesArr = d?.matched_rules ?? d?.matched;
+        const matchedCount = Array.isArray(matchedRulesArr) ? matchedRulesArr.length : 0;
         results.push({ presetId: p.id, ok: true, matchedCount });
-      } catch (e: any) {
-        results.push({ presetId: p.id, ok: false, matchedCount: 0, error: e?.message ?? String(e) });
+      } catch (e: unknown) {
+        results.push({ presetId: p.id, ok: false, matchedCount: 0, error: e instanceof Error ? e.message : String(e) });
       }
     }
     setBatchResults(results);
@@ -587,7 +594,7 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
           <div className="flex items-center justify-between gap-2 flex-wrap">
             {(() => {
               const v = verification;
-              const map: Record<string, { cls: string; icon: any; label: string }> = {
+              const map: Record<string, { cls: string; icon: React.ElementType; label: string }> = {
                 none:     { cls: "border-border bg-muted text-muted-foreground", icon: ShieldAlert, label: "尚未檢查" },
                 missing:  { cls: "border-border bg-muted text-muted-foreground", icon: ShieldAlert, label: "無分享連結" },
                 unsigned: { cls: "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400", icon: ShieldAlert, label: "未簽署 (Unsigned)" },
@@ -600,9 +607,9 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
               const detail =
                 v.status === "valid"
                   ? `驗證時間 ${v.checkedAt}${v.expiresAt ? ` · 連結到期 ${v.expiresAt}` : ""}`
-                  : v.status === "none" || v.status === "missing"
-                  ? (v as any).reason ?? "開啟對話框時將自動驗證 URL 中的分享連結"
-                  : (v as any).reason;
+                  : v.status === "none"
+                  ? "開啟對話框時將自動驗證 URL 中的分享連結"
+                  : v.reason;
               return (
                 <div className={`rounded-md border px-2.5 py-1.5 text-xs flex items-start gap-2 max-w-[70%] ${m.cls}`}>
                   <Icon className="w-3.5 h-3.5 mt-0.5 shrink-0" />
@@ -836,13 +843,13 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
               <TabsContent value="matched" className="space-y-2">
                 {matched.length === 0 ? (
                   <p className="text-xs text-muted-foreground">沒有規則匹配此 payload。</p>
-                ) : matched.map((r: any) => (
-                  <div key={r.id} className="border border-border rounded-md p-3 space-y-1">
+                ) : matched.map((r) => (
+                  <div key={String(r.id)} className="border border-border rounded-md p-3 space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">{r.name}</span>
-                      <Badge variant="outline">priority {r.priority ?? 0}</Badge>
+                      <span className="text-sm font-medium">{String(r.name ?? "")}</span>
+                      <Badge variant="outline">priority {r.priority != null ? String(r.priority) : 0}</Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground font-mono">{r.trigger_source}/{r.trigger_key}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{String(r.trigger_source ?? "")}/{String(r.trigger_key ?? "")}</p>
                   </div>
                 ))}
               </TabsContent>
@@ -850,16 +857,16 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
               <TabsContent value="resolved" className="space-y-2">
                 {resolved.length === 0 ? (
                   <p className="text-xs text-muted-foreground">該 screen/org 沒有任何啟用的候選規則。</p>
-                ) : resolved.map((r: any) => (
-                  <div key={r.id} className="border border-border rounded-md p-3 space-y-1">
+                ) : resolved.map((r) => (
+                  <div key={String(r.id)} className="border border-border rounded-md p-3 space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">{r.name}</span>
+                      <span className="text-sm font-medium">{String(r.name ?? "")}</span>
                       <div className="flex gap-1">
-                        <Badge variant="secondary">{r.scope}</Badge>
-                        <Badge variant="outline">priority {r.priority ?? 0}</Badge>
+                        <Badge variant="secondary">{String(r.scope ?? "")}</Badge>
+                        <Badge variant="outline">priority {r.priority != null ? String(r.priority) : 0}</Badge>
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground font-mono">{r.trigger_source}/{r.trigger_key}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{String(r.trigger_source ?? "")}/{String(r.trigger_key ?? "")}</p>
                     {r.trigger_condition && (
                       <pre className="text-[10px] bg-muted/40 rounded p-2 overflow-auto">{JSON.stringify(r.trigger_condition, null, 2)}</pre>
                     )}
@@ -870,18 +877,18 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
               <TabsContent value="logs" className="space-y-2">
                 {logs.length === 0 ? (
                   <p className="text-xs text-muted-foreground">沒有歷史日誌。</p>
-                ) : logs.map((l: any) => (
-                  <div key={l.id} className="border border-border rounded-md p-2 text-xs space-y-1">
+                ) : logs.map((l) => (
+                  <div key={String(l.id)} className="border border-border rounded-md p-2 text-xs space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="flex items-center gap-1">
                         {l.success ? <CheckCircle2 className="w-3 h-3 text-success" /> : <AlertCircle className="w-3 h-3 text-destructive" />}
-                        <span className="font-mono">{l.trigger_source}/{l.trigger_key}</span>
+                        <span className="font-mono">{String(l.trigger_source ?? "")}/{String(l.trigger_key ?? "")}</span>
                       </span>
-                      <span className="text-muted-foreground">{new Date(l.created_at).toLocaleString()}</span>
+                      <span className="text-muted-foreground">{new Date(String(l.created_at)).toLocaleString()}</span>
                     </div>
-                    {l.error_message && <p className="text-destructive">{l.error_message}</p>}
+                    {l.error_message && <p className="text-destructive">{String(l.error_message)}</p>}
                     {l.debug_id && (
-                      <p className="text-[10px] text-muted-foreground font-mono">debug_id: {l.debug_id}</p>
+                      <p className="text-[10px] text-muted-foreground font-mono">debug_id: {String(l.debug_id)}</p>
                     )}
                   </div>
                 ))}

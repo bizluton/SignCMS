@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Monitor, Plus, Pencil, Trash2, Search, MapPin, Loader2, FolderPlus, Layers, MoreHorizontal, Settings, RotateCw, Power, RefreshCw, Eye, Moon, Play, Brush, FileText, Radio, Wifi, Cable, ArrowUpDown, SlidersHorizontal, X, WifiOff, Zap, TerminalSquare, ShieldOff } from "lucide-react";
 import { Tv } from "lucide-react";
+import type { ScreenDetailScreen } from "@/components/screens/ScreenDetailDrawer";
 import { ScreenChannelDialog } from "@/components/screens/ScreenChannelDialog";
 import { ConnectionInfo } from "@/components/screens/ConnectionInfo";
 import { isScreenUnlicensed } from "@/lib/screenConnectionVisibility";
@@ -192,7 +193,7 @@ export default function ScreensPage() {
     if (!iotScreen) return;
     const fetchIotDevices = async () => {
       setIotLoading(true);
-      const { data, error } = await (supabase as any).from("iot_devices").select("*").eq("screen_id", iotScreen.id).order("created_at", { ascending: true });
+      const { data, error } = await supabase.from("iot_devices").select("*").eq("screen_id", iotScreen.id).order("created_at", { ascending: true });
       if (error) toast.error(error.message);
       else setIotDevices(data || []);
       setIotLoading(false);
@@ -205,8 +206,8 @@ export default function ScreensPage() {
     if (!settingsScreen) return;
     const fetchOptions = async () => {
       const [mediaRes, designRes] = await Promise.all([
-        (supabase as any).from("media_items").select("id, name, type").in("type", ["image", "video"]).is("deleted_at", null).order("created_at", { ascending: false }),
-        (supabase as any).from("design_projects").select("id, name").order("created_at", { ascending: false }),
+        supabase.from("media_items").select("id, name, type").in("type", ["image", "video"]).is("deleted_at", null).order("created_at", { ascending: false }),
+        supabase.from("design_projects").select("id, name").order("created_at", { ascending: false }),
       ]);
       setMediaOptions(mediaRes.data || []);
       setDesignOptions(designRes.data || []);
@@ -218,7 +219,7 @@ export default function ScreensPage() {
 
   const fetchScreens = async () => {
     setLoading(true);
-    let query = (supabase as any).from("screens").select("id, name, branch, location, resolution, online, org_id, team_id, serial_number, ip_address, connection_type, avg_upload_speed, avg_download_speed, firmware_version, updated_at").order("created_at", { ascending: true });
+    let query = supabase.from("screens").select("id, name, branch, location, resolution, online, org_id, team_id, serial_number, ip_address, connection_type, avg_upload_speed, avg_download_speed, firmware_version, updated_at").order("created_at", { ascending: true });
     if (activeOrgId) query = query.eq("org_id", activeOrgId);
     const { data, error } = await query;
     if (error) { toast.error(error.message); }
@@ -239,26 +240,26 @@ export default function ScreensPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      let query = (supabase as any)
+      let query = supabase
         .from("screen_alerts")
         .select("screen_id")
         .eq("status", "active");
       if (activeOrgId) query = query.eq("org_id", activeOrgId);
       const { data } = await query;
       if (cancelled) return;
-      setAlertedScreenIds(new Set((data || []).map((r: any) => r.screen_id)));
+      setAlertedScreenIds(new Set((data || []).map((r) => r.screen_id)));
     })();
     return () => { cancelled = true; };
   }, [activeOrgId, screens.length]);
 
   // Live status: subscribe to realtime updates on screens (online + updated_at)
   useEffect(() => {
-    const channel = (supabase as any)
+    const channel = supabase
       .channel("screens-live-status")
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "screens" },
-        (payload: any) => {
+        (payload: { new: Record<string, unknown> }) => {
           const next = payload.new as Screen;
           if (!next?.id) return;
           if (activeOrgId && next.org_id !== activeOrgId) return;
@@ -269,7 +270,7 @@ export default function ScreensPage() {
       )
       .subscribe();
     return () => {
-      (supabase as any).removeChannel(channel);
+      supabase.removeChannel(channel);
     };
   }, [activeOrgId]);
 
@@ -279,7 +280,7 @@ export default function ScreensPage() {
     if (ids.length === 0) { setLicenseStatusByScreen({}); return; }
     const results = await Promise.all(
       ids.map(async (id) => {
-        const { data } = await (supabase as any).rpc("check_screen_license_status", { _screen_id: id });
+        const { data } = await supabase.rpc("check_screen_license_status", { _screen_id: id });
         return [id, data] as const;
       }),
     );
@@ -294,7 +295,7 @@ export default function ScreensPage() {
   }, [screens.map((s) => s.id).join(","), refreshLicenseStatuses]);
   // Realtime: any device_license change → refresh statuses for currently shown screens.
   useEffect(() => {
-    const channel = (supabase as any)
+    const channel = supabase
       .channel("screens-license-watch")
       .on(
         "postgres_changes",
@@ -305,7 +306,7 @@ export default function ScreensPage() {
       )
       .subscribe();
     return () => {
-      (supabase as any).removeChannel(channel);
+      supabase.removeChannel(channel);
     };
   }, [screens.map((s) => s.id).join(","), refreshLicenseStatuses]);
 
@@ -316,15 +317,15 @@ export default function ScreensPage() {
     let cancelled = false;
     (async () => {
       const ids = screens.map((s) => s.id);
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("screen_channel_subscriptions")
         .select("screen_id, is_default, channels:channel_id(name)")
         .in("screen_id", ids);
       if (cancelled || !data) return;
       const map: Record<string, string> = {};
       // Prefer default subscription; otherwise first available
-      data.forEach((row: any) => {
-        const name = row.channels?.name;
+      data.forEach((row) => {
+        const name = (row.channels as { name: string } | null)?.name;
         if (!name) return;
         if (row.is_default || !map[row.screen_id]) {
           map[row.screen_id] = name;
@@ -338,7 +339,7 @@ export default function ScreensPage() {
   // Fetch teams (all visible) for team selector
   useEffect(() => {
     (async () => {
-      const { data } = await (supabase as any).from("teams").select("id, name, org_id");
+      const { data } = await supabase.from("teams").select("id, name, org_id");
       setTeams(data || []);
     })();
   }, [activeOrgId]);
@@ -374,7 +375,7 @@ export default function ScreensPage() {
   const openEdit = (screen: Screen) => {
     setEditingId(screen.id);
     setForm({
-      name: screen.name, branch: screen.branch || "", location: screen.location, resolution: screen.resolution, org_id: screen.org_id || "", team_id: (screen as any).team_id || "",
+      name: screen.name, branch: screen.branch || "", location: screen.location, resolution: screen.resolution, org_id: screen.org_id || "", team_id: screen.team_id || "",
       serial_number: screen.serial_number || "", ip_address: screen.ip_address || "", connection_type: screen.connection_type || "wired",
       avg_upload_speed: screen.avg_upload_speed || "", avg_download_speed: screen.avg_download_speed || "",
       firmware_version: screen.firmware_version || "",
@@ -395,13 +396,13 @@ export default function ScreensPage() {
       return;
     }
     setLicenseChecking(true);
-    const { data, error } = await (supabase as any).rpc("lookup_device_license_by_code", { _code: code });
+    const { data, error } = await supabase.rpc("lookup_device_license_by_code", { _code: code });
     setLicenseChecking(false);
     if (error) {
       setLicenseError(error.message);
       return;
     }
-    const result = data as any;
+    const result = data as Record<string, unknown> | null;
     if (!result?.valid) {
       const errMap: Record<string, { zh: string; en: string; ja: string }> = {
         not_found: { zh: "找不到此授權碼或不屬於您的組織", en: "License code not found or not in your organization", ja: "このライセンスコードは見つからないか、あなたの組織に属していません" },
@@ -410,20 +411,25 @@ export default function ScreensPage() {
         invalid_code_format: { zh: "授權碼格式錯誤（須為 6 位數字）", en: "Invalid code format (must be 6 digits)", ja: "コード形式が無効です（6桁の数字）" },
         unauthenticated: { zh: "請先登入", en: "Please sign in", ja: "サインインしてください" },
       };
-      const m = errMap[result?.error] || { zh: result?.error || "驗證失敗", en: result?.error || "Verification failed", ja: result?.error || "検証に失敗しました" };
+      const errKey = typeof result?.error === "string" ? result.error : "";
+      const m = errMap[errKey] || { zh: errKey || "驗證失敗", en: errKey || "Verification failed", ja: errKey || "検証に失敗しました" };
       setLicenseError(m[language]);
       return;
     }
+    const deviceModel = typeof result.device_model === "string" ? result.device_model : "";
+    const deviceSerial = typeof result.device_serial === "string" ? result.device_serial : "";
+    const orgId = typeof result.org_id === "string" ? result.org_id : "";
+    const orgName = typeof result.org_name === "string" ? result.org_name : undefined;
     setLicenseInfo({
-      device_model: result.device_model,
-      device_serial: result.device_serial,
-      org_id: result.org_id,
-      org_name: result.org_name,
+      device_model: deviceModel,
+      device_serial: deviceSerial,
+      org_id: orgId,
+      org_name: orgName,
     });
     setForm((prev) => ({
       ...prev,
-      serial_number: result.device_serial || "",
-      org_id: result.org_id || prev.org_id,
+      serial_number: deviceSerial || "",
+      org_id: orgId || prev.org_id,
     }));
     toast.success({ zh: "授權碼驗證成功", en: "License verified", ja: "ライセンス認証成功" }[language]);
   };
@@ -456,7 +462,7 @@ export default function ScreensPage() {
     if (!resolvedOrgId) { toast.error(t("teamSelectOrg")); return; }
     setSaving(true);
     if (editingId) {
-      const { error } = await (supabase as any).from("screens").update({ name: form.name, branch: finalBranch || "", location: form.location, resolution: form.resolution, org_id: resolvedOrgId, team_id: form.team_id || null, serial_number: form.serial_number, ip_address: form.ip_address, connection_type: form.connection_type, avg_upload_speed: form.avg_upload_speed, avg_download_speed: form.avg_download_speed, firmware_version: form.firmware_version, updated_at: new Date().toISOString() }).eq("id", editingId);
+      const { error } = await supabase.from("screens").update({ name: form.name, branch: finalBranch || "", location: form.location, resolution: form.resolution, org_id: resolvedOrgId, team_id: form.team_id || null, serial_number: form.serial_number, ip_address: form.ip_address, connection_type: form.connection_type, avg_upload_speed: form.avg_upload_speed, avg_download_speed: form.avg_download_speed, firmware_version: form.firmware_version, updated_at: new Date().toISOString() }).eq("id", editingId);
       if (error) toast.error(error.message);
       else {
         toast.success(t("screensUpdated"));
@@ -464,7 +470,7 @@ export default function ScreensPage() {
         logScreenEvent({ screenId: editingId, orgId: resolvedOrgId, eventType: "config", eventCode: "screen.config_updated", eventParams: { name: form.name, branch: finalBranch || "(未分組)", location: form.location || "-", resolution: form.resolution || "-" }, eventTitle: "設定更新", eventDetail: `名稱：${form.name}｜分組：${finalBranch || "(未分組)"}｜位置：${form.location || "-"}｜解析度：${form.resolution || "-"}` });
       }
     } else {
-      const { data: inserted, error } = await (supabase as any).from("screens").insert({ name: form.name, branch: finalBranch || "", location: form.location, resolution: form.resolution, org_id: resolvedOrgId, team_id: form.team_id || null, uploaded_by: user?.id, serial_number: form.serial_number, ip_address: form.ip_address, connection_type: form.connection_type, avg_upload_speed: form.avg_upload_speed, avg_download_speed: form.avg_download_speed, firmware_version: form.firmware_version }).select("id").single();
+      const { data: inserted, error } = await supabase.from("screens").insert({ name: form.name, branch: finalBranch || "", location: form.location, resolution: form.resolution, org_id: resolvedOrgId, team_id: form.team_id || null, uploaded_by: user?.id, serial_number: form.serial_number, ip_address: form.ip_address, connection_type: form.connection_type, avg_upload_speed: form.avg_upload_speed, avg_download_speed: form.avg_download_speed, firmware_version: form.firmware_version }).select("id").single();
       if (error) {
         toast.error(translatePlanLimitError(error, t));
         setSaving(false);
@@ -493,7 +499,7 @@ export default function ScreensPage() {
         // Log BEFORE delete (FK constraint will cascade or block - log first)
         await logScreenEvent({ screenId: deleteId, orgId: deleted.org_id, eventType: "system", eventCode: "screen.deleted", eventParams: { name: deleted.name }, eventTitle: "螢幕已刪除", eventDetail: `名稱：${deleted.name}` });
       }
-      const { error } = await (supabase as any).from("screens").delete().eq("id", deleteId);
+      const { error } = await supabase.from("screens").delete().eq("id", deleteId);
       if (error) toast.error(error.message);
       else {
         toast.success(t("screensDeleted"));
@@ -521,7 +527,7 @@ export default function ScreensPage() {
     if (groups.includes(newName)) { toast.error(t("screensGroupExists")); return; }
     // Update all screens with old group name
     const affected = screens.filter((s) => s.branch === renameTarget);
-    const { error } = await (supabase as any).from("screens").update({ branch: newName, updated_at: new Date().toISOString() }).eq("branch", renameTarget);
+    const { error } = await supabase.from("screens").update({ branch: newName, updated_at: new Date().toISOString() }).eq("branch", renameTarget);
     if (error) { toast.error(error.message); return; }
     setGroups((prev) => prev.map((g) => g === renameTarget ? newName : g).sort());
     if (groupFilter === renameTarget) setGroupFilter(newName);
@@ -539,7 +545,7 @@ export default function ScreensPage() {
     if (!deleteGroupTarget) return;
     const affected = screens.filter((s) => s.branch === deleteGroupTarget);
     // Set screens in this group to empty (ungrouped)
-    const { error } = await (supabase as any).from("screens").update({ branch: "", updated_at: new Date().toISOString() }).eq("branch", deleteGroupTarget);
+    const { error } = await supabase.from("screens").update({ branch: "", updated_at: new Date().toISOString() }).eq("branch", deleteGroupTarget);
     if (error) { toast.error(error.message); return; }
     setGroups((prev) => prev.filter((g) => g !== deleteGroupTarget));
     if (groupFilter === deleteGroupTarget) setGroupFilter("all");
@@ -1632,7 +1638,7 @@ export default function ScreensPage() {
                             {device.status === "online" ? t("iotOnline") : t("iotOffline")}
                           </span>
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => {
-                            const { error } = await (supabase as any).from("iot_devices").delete().eq("id", device.id);
+                            const { error } = await supabase.from("iot_devices").delete().eq("id", device.id);
                             if (error) { toast.error(error.message); return; }
                             setIotDevices((prev) => prev.filter((d) => d.id !== device.id));
                             toast.success(t("iotDeviceRemoved"));
@@ -1709,7 +1715,7 @@ export default function ScreensPage() {
               onClick={async () => {
                 if (!iotScreen) return;
                 setIotSaving(true);
-                const { data, error } = await (supabase as any).from("iot_devices").insert({
+                const { data, error } = await supabase.from("iot_devices").insert({
                   screen_id: iotScreen.id,
                   org_id: iotScreen.org_id || null,
                   name: newIotDevice.name.trim(),
@@ -1754,7 +1760,7 @@ export default function ScreensPage() {
       />
 
       <ScreenDetailDrawer
-        screen={detailScreen as any}
+        screen={detailScreen}
         open={detailScreen !== null}
         onOpenChange={(o) => { if (!o) setDetailScreen(null); }}
         connectedPlayer={detailScreen ? playerByScreen[detailScreen.id] : undefined}

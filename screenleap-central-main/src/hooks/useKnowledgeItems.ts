@@ -28,25 +28,32 @@ export function useKnowledgeItems() {
   const [loading, setLoading] = useState(true);
 
   const fetchItems = useCallback(async () => {
+    const orgId = activeOrgId || defaultOrgId;
+    if (!orgId) { setLoading(false); return; }
     const { data, error } = await supabase
       .from("knowledge_items")
       .select("*, knowledge_item_tags(tag_id, knowledge_tags(id, name, color))")
+      .eq("org_id", orgId)
       .order("created_at", { ascending: false });
 
     if (error) {
       console.error("Failed to fetch knowledge items:", error);
       toast.error("載入知識庫失敗");
     } else {
-      const mapped = (data ?? []).map((row: any) => ({
-        ...row,
-        tags: (row.knowledge_item_tags ?? [])
-          .map((rel: any) => rel.knowledge_tags)
-          .filter(Boolean),
-      })) as KnowledgeItem[];
+      type RawRow = { knowledge_item_tags?: { knowledge_tags: { id: string; name: string; color: string } | null }[] };
+      const mapped = (data ?? []).map((row) => {
+        const r = row as typeof row & RawRow;
+        return {
+          ...r,
+          tags: (r.knowledge_item_tags ?? [])
+            .map((rel) => rel.knowledge_tags)
+            .filter(Boolean),
+        };
+      }) as KnowledgeItem[];
       setItems(mapped);
     }
     setLoading(false);
-  }, []);
+  }, [activeOrgId, defaultOrgId]);
 
   useEffect(() => {
     if (user) fetchItems();

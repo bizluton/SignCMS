@@ -135,7 +135,7 @@ export function DelegationDialog({ open, onOpenChange }: Props) {
       return;
     }
     setSubmitting(true);
-    const { error } = await (supabase as any).from("delegation_grants").insert({
+    const { error } = await supabase.from("delegation_grants").insert({
       grantor_id: user.id,
       grantee_id: granteeId,
       grantee_scope: scope,
@@ -163,7 +163,7 @@ export function DelegationDialog({ open, onOpenChange }: Props) {
   };
 
   const handleRevoke = async (id: string, granteeName?: string) => {
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("delegation_grants")
       .update({ status: "revoked", revoked_by: user?.id, revoked_at: new Date().toISOString() })
       .eq("id", id);
@@ -256,7 +256,7 @@ export function DelegationDialog({ open, onOpenChange }: Props) {
                     );
                   }}
                 >
-                  {t(p.key as any)}
+                  {t(p.key as import("@/contexts/translations").TranslationKey)}
                 </Button>
               ))}
             </div>

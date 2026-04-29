@@ -34,11 +34,14 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Auth check: only the system admin can run this
+    // Auth check: only system admins can run this
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) return new Response(JSON.stringify({ error: "no auth" }), { status: 401, headers: corsHeaders });
     const { data: userData } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
-    if (userData?.user?.id !== "3fbb2f97-7268-4cac-a511-7cff6654a8f7") {
+    if (!userData?.user?.id) return new Response(JSON.stringify({ error: "forbidden" }), { status: 403, headers: corsHeaders });
+    const { data: sysAdminRow } = await supabase
+      .from("system_admins").select("id").eq("user_id", userData.user.id).maybeSingle();
+    if (!sysAdminRow) {
       return new Response(JSON.stringify({ error: "forbidden" }), { status: 403, headers: corsHeaders });
     }
 

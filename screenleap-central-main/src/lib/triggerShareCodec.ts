@@ -21,7 +21,7 @@ function fromBase64Url(s: string): Uint8Array {
 }
 
 async function gzip(data: Uint8Array): Promise<Uint8Array> {
-  // @ts-ignore - CompressionStream is supported in modern browsers
+  // @ts-expect-error - CompressionStream is supported in modern browsers but not in older TS lib typings
   const cs = new CompressionStream("gzip");
   const stream = new Blob([data as BlobPart]).stream().pipeThrough(cs);
   const buf = await new Response(stream).arrayBuffer();
@@ -29,7 +29,7 @@ async function gzip(data: Uint8Array): Promise<Uint8Array> {
 }
 
 async function gunzip(data: Uint8Array): Promise<Uint8Array> {
-  // @ts-ignore
+  // @ts-expect-error - DecompressionStream is supported in modern browsers but not in older TS lib typings
   const ds = new DecompressionStream("gzip");
   const stream = new Blob([data as BlobPart]).stream().pipeThrough(ds);
   const buf = await new Response(stream).arrayBuffer();
@@ -51,7 +51,7 @@ export async function encodeSharePayload(value: unknown): Promise<ShareEncodeRes
   const plain = btoa(unescape(encodeURIComponent(json)));
 
   // Try gzip if the browser supports CompressionStream.
-  if (typeof (globalThis as any).CompressionStream === "function") {
+  if (typeof (globalThis as Record<string, unknown>).CompressionStream === "function") {
     try {
       const gz = await gzip(utf8);
       const gzB64 = toBase64Url(gz);
@@ -96,7 +96,18 @@ export class PayloadTooLargeError extends Error {
   }
 }
 
-function extractTooLarge(err: any, data: any): PayloadTooLargeError | null {
+interface HttpErrorLike {
+  context?: { status?: number; body?: { code?: string; maxBytes?: number; receivedBytes?: number } };
+  status?: number;
+}
+
+interface TooLargeResponseData {
+  code?: string;
+  maxBytes?: number;
+  receivedBytes?: number;
+}
+
+function extractTooLarge(err: HttpErrorLike, data: TooLargeResponseData | null): PayloadTooLargeError | null {
   const status = err?.context?.status ?? err?.status;
   const code = data?.code ?? err?.context?.body?.code;
   if (status === 413 || code === "payload_too_large") {
@@ -145,7 +156,7 @@ export class VerifyTransientError extends Error {
 
 function isTransientError(err: unknown): boolean {
   if (!err) return false;
-  const anyErr = err as any;
+  const anyErr = err as { context?: { status?: number }; status?: number; name?: string; message?: string };
   // FunctionsHttpError carries a status; treat 5xx / 0 / undefined as transient.
   const status = anyErr?.context?.status ?? anyErr?.status;
   if (typeof status === "number") {
@@ -182,7 +193,7 @@ export async function verifySharePayload(payload: unknown, sig: string): Promise
     if (tooLarge) throw tooLarge;
     if (isTransientError(error)) {
       throw new VerifyTransientError(
-        `Verification service error: ${(error as any)?.message ?? "unknown"}`,
+        `Verification service error: ${(error as Error)?.message ?? "unknown"}`,
         error,
       );
     }

@@ -62,6 +62,7 @@ import {
   invalidateStudioSourceCache,
   type StudioIconKey,
 } from "@/lib/studioData";
+import { type TranslationKey } from "@/contexts/translations";
 import JSZip from "jszip";
 import { useProfiles } from "@/contexts/ProfilesContext";
 import { Users, User as UserIcon, Building2 } from "lucide-react";
@@ -75,6 +76,61 @@ import {
 } from "@/lib/referenceCheck";
 
 // ── Types ──────────────────────────────────────────────────────────
+
+interface WidgetConfig {
+  widgetType?: string;
+  text?: string;
+  speed?: string;
+  url?: string;
+  clockStyle?: string;
+  format?: string;
+  timezone?: string;
+  showDate?: boolean;
+  qrcodeContent?: string;
+  qrcodeSize?: number;
+  countdownTitle?: string;
+  targetDate?: string;
+  youtubeUrl?: string;
+  city?: string;
+  bgColor?: string;
+  textColor?: string;
+  fontSize?: string;
+  animation?: string;
+  [key: string]: unknown;
+}
+
+interface DbMediaItem {
+  id: string;
+  name: string;
+  original_name?: string | null;
+  type: string;
+  url?: string;
+  thumbnail?: string;
+  size_bytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  duration_seconds?: number | null;
+  mime_type?: string | null;
+  source_codec?: string | null;
+  source_container?: string | null;
+  created_at?: string;
+}
+
+interface DbWidgetItem {
+  id: string;
+  name: string;
+  url: string;
+  config?: WidgetConfig | null;
+  created_at?: string;
+}
+
+type PickerRaw = DbMediaItem | DbWidgetItem;
+
+interface PickerPayload {
+  kind: "media" | "widget";
+  raw: PickerRaw;
+}
+
 type AspectRatio = "16:9" | "9:16";
 
 interface Resolution {
@@ -125,9 +181,9 @@ function loadStudioSession(): Partial<StudioSession> | null {
       projectId: typeof p.projectId === "string" ? p.projectId : null,
       selectedZone: typeof p.selectedZone === "string" ? p.selectedZone : null,
       selectedOverlay: typeof p.selectedOverlay === "string" ? p.selectedOverlay : null,
-      layoutPanelOpen: typeof p.layoutPanelOpen === "boolean" ? p.layoutPanelOpen : undefined as any,
-      mediaLibraryOpen: typeof p.mediaLibraryOpen === "boolean" ? p.mediaLibraryOpen : undefined as any,
-      sidebarTab: typeof p.sidebarTab === "string" ? p.sidebarTab : undefined as any,
+      layoutPanelOpen: typeof p.layoutPanelOpen === "boolean" ? p.layoutPanelOpen : undefined,
+      mediaLibraryOpen: typeof p.mediaLibraryOpen === "boolean" ? p.mediaLibraryOpen : undefined,
+      sidebarTab: typeof p.sidebarTab === "string" ? p.sidebarTab : undefined,
     };
   } catch { return null; }
 }
@@ -162,17 +218,23 @@ function loadMyResPresets(): MyResPreset[] {
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
     return arr
-      .filter((p: any) => p && typeof p.id === "string" && typeof p.name === "string"
-        && Number.isFinite(p.w) && Number.isFinite(p.h))
-      .map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        w: Number(p.w),
-        h: Number(p.h),
-        rows: Number.isFinite(p.rows) ? Number(p.rows) : 1,
-        cols: Number.isFinite(p.cols) ? Number(p.cols) : 1,
-        applyGrid: !!p.applyGrid,
-      }));
+      .filter((p: unknown) => p !== null && typeof p === "object" && p !== null
+        && typeof (p as Record<string, unknown>).id === "string"
+        && typeof (p as Record<string, unknown>).name === "string"
+        && Number.isFinite((p as Record<string, unknown>).w)
+        && Number.isFinite((p as Record<string, unknown>).h))
+      .map((p: unknown) => {
+        const pr = p as Record<string, unknown>;
+        return ({
+        id: pr.id as string,
+        name: pr.name as string,
+        w: Number(pr.w),
+        h: Number(pr.h),
+        rows: Number.isFinite(pr.rows as number) ? Number(pr.rows) : 1,
+        cols: Number.isFinite(pr.cols as number) ? Number(pr.cols) : 1,
+        applyGrid: !!pr.applyGrid,
+      });
+      });
   } catch { return []; }
 }
 
@@ -186,11 +248,12 @@ function getDefaultResolution(aspect: AspectRatio): Resolution {
 }
 
 // 由專案的 zones JSONB 內嵌 _meta 取出解析度資訊（給專案卡片徽章用）
-function getProjectResolutionBadge(zones: any): { label: string; dims: string } | null {
+function getProjectResolutionBadge(zones: unknown): { label: string; dims: string } | null {
   if (!Array.isArray(zones)) return null;
-  const meta = zones.find((z: any) => z && z._meta && z.resolution);
+  const meta = zones.find((z: unknown) => z !== null && typeof z === "object" && (z as Record<string, unknown>)._meta && (z as Record<string, unknown>).resolution) as Record<string, unknown> | undefined;
   if (!meta?.resolution) return null;
-  const { id, width, height } = meta.resolution;
+  const res = meta.resolution as { id: string; width: number; height: number };
+  const { id, width, height } = res;
   const labelMap: Record<string, string> = { hd: "HD", fhd: "FHD", "uhd-4k": "4K", "uhd-8k": "8K", custom: "Custom" };
   const label = labelMap[id] || "—";
   return { label, dims: `${width}×${height}` };
@@ -259,11 +322,11 @@ function inferAspect(w: number, h: number): AspectRatio {
 
 interface MediaItem {
   id: string;
-  type: "image" | "video" | "widget";
+  type: "image" | "video" | "widget" | "audio";
   url: string;
   name: string;
   duration?: number; // seconds for carousel auto-advance
-  widgetConfig?: any;
+  widgetConfig?: WidgetConfig;
   /** 0-100, only used for video items. undefined = use default 100. */
   volume?: number;
   /** Mute the item's own audio. For videos: silences the video. When true the BGM track plays. */
@@ -284,7 +347,7 @@ interface ZoneContent {
   carouselTransition?: CarouselTransition;
   widgetId?: string;
   widgetName?: string;
-  widgetConfig?: any;
+  widgetConfig?: WidgetConfig;
   fitMode?: "cover-x" | "cover-y" | "contain" | "stretch"; // 媒體填滿方式
 }
 
@@ -316,6 +379,10 @@ interface DesignProject {
   overlays?: OverlayBlock[];
   created_at: string;
   updated_at: string;
+  team_id?: string | null;
+  collab_scope?: string | null;
+  org_id?: string | null;
+  created_by?: string | null;
 }
 
 interface LayoutPreset {
@@ -531,7 +598,7 @@ function MediaLibraryDock({
   dbWidgets: { id: string; name: string; url: string; created_at?: string }[];
   activeOrgId?: string;
   onMediaUploaded?: () => Promise<void> | void;
-  onAddItems: (items: { kind: "media" | "widget"; raw: any }[]) => void;
+  onAddItems: (items: PickerPayload[]) => void;
   selectedZoneLabel?: string | null;
   height?: number;
   onHeightChange?: (h: number) => void;
@@ -571,7 +638,7 @@ function MediaLibraryDock({
   }, [onHeightChange, variant]);
 
   const items = useMemo(() => {
-    const list: { id: string; kind: "media" | "widget"; name: string; searchName: string; type?: string; icon: React.ReactNode; thumbnail?: string; raw: any; createdAt?: string }[] = [];
+    const list: { id: string; kind: "media" | "widget"; name: string; searchName: string; type?: string; icon: React.ReactNode; thumbnail?: string; raw: PickerRaw; createdAt?: string }[] = [];
     dbMedia.forEach((m) => {
       // Audio is managed exclusively from the BGM track on the timeline.
       // Hide audio items here so users don't accidentally add them into a zone/overlay.
@@ -587,10 +654,10 @@ function MediaLibraryDock({
       });
     });
     dbWidgets.forEach((w) => {
-      let config: any = null;
+      let config: WidgetConfig | null = null;
       try {
         const raw = w.url?.startsWith("widget://") ? w.url.slice("widget://".length) : w.url;
-        if (raw?.startsWith("{")) config = JSON.parse(raw);
+        if (raw?.startsWith("{")) config = JSON.parse(raw) as WidgetConfig;
       } catch {}
       const WidgetIcon = config?.widgetType === "clock" ? Clock : config?.widgetType === "date" ? Calendar : config?.widgetType === "webpage" ? Globe : Code2;
       list.push({
@@ -675,7 +742,7 @@ function MediaLibraryDock({
     if (!renameTarget) return;
     const newName = renameValue.trim();
     if (!newName || newName === renameTarget.defaultName) { setRenameTarget(null); return; }
-    const { error } = await (supabase as any).from("media_items").update({ original_name: newName }).eq("id", renameTarget.id);
+    const { error } = await supabase.from("media_items").update({ original_name: newName }).eq("id", renameTarget.id);
     if (error) { toast.error(error.message); return; }
     toast.success(t("studioRenameSaved"));
     await onMediaUploaded?.();
@@ -738,7 +805,7 @@ function MediaLibraryDock({
     }
 
     // If clicked item is part of multi-selection, add ALL selected; else add just this one
-    let toAdd: { kind: "media" | "widget"; raw: any }[];
+    let toAdd: PickerPayload[];
     if (selectedIds.size > 1 && selectedIds.has(item.id)) {
       // Preserve filtered order
       toAdd = filtered.filter((i) => selectedIds.has(i.id)).map((i) => ({ kind: i.kind, raw: i.raw }));
@@ -833,7 +900,7 @@ function MediaLibraryDock({
     if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
     hoverTimerRef.current = window.setTimeout(() => {
       const rect = target.getBoundingClientRect();
-      const m: any = item.raw || {};
+      const m = item.raw as DbMediaItem;
       setHoverPreview({
         kind: item.kind,
         type: item.type,
@@ -942,7 +1009,7 @@ function MediaLibraryDock({
             <Button key={f} variant={filter === f ? "default" : "ghost"} size="sm"
               className="h-6 text-[10px] px-2 rounded-full shrink-0"
               onClick={() => setFilter(f)}>
-              {t(`pickerFilter_${f}` as any)}
+              {t(`pickerFilter_${f}` as TranslationKey)}
             </Button>
           ))}
         </div>
@@ -1058,7 +1125,7 @@ function MediaLibraryDock({
                     )}
                   </div>
                   {item.kind === "media" && (() => {
-                    const m: any = item.raw;
+                    const m = item.raw as DbMediaItem;
                     // Prefer numeric fields, fallback to legacy text strings.
                     const totalSec = Math.round(getMediaDurationSec(m));
                     const durStr = totalSec > 0 ? `${totalSec}s` : "";
@@ -1153,7 +1220,7 @@ function ZoneTimeline({
   onUpdateZoneContent: (zoneId: string, content: ZoneContent) => void;
   onUpdateOverlayContent: (overlayId: string, content: ZoneContent) => void;
   onAddItemsToTarget: (
-    items: { kind: "media" | "widget"; raw: any }[],
+    items: PickerPayload[],
     target: { type: "zone"; id: string } | { type: "overlay"; id: string },
   ) => void | Promise<void>;
   bgmItems: MediaItem[];
@@ -1268,7 +1335,7 @@ function ZoneTimeline({
       const dur = Math.round(getMediaDurationSec(m)) || 30;
       return {
         id: m.id,
-        type: "audio" as any,
+        type: "audio" as const,
         url: m.url || "",
         name: (m.original_name && m.original_name.trim()) || m.name,
         duration: dur,
@@ -1543,11 +1610,11 @@ function ZoneTimeline({
                 try {
                   const raw = e.dataTransfer.getData("application/x-studio-picker-item");
                   if (!raw) return;
-                  const parsed = JSON.parse(raw);
-                  const arr = Array.isArray(parsed) ? parsed : [parsed];
+                  const parsed = JSON.parse(raw) as unknown;
+                  const arr: PickerPayload[] = Array.isArray(parsed) ? parsed as PickerPayload[] : [parsed as PickerPayload];
                   // Only accept audio media on BGM track
                   const audioItems = arr.filter(
-                    (p: any) => p && p.kind === "media" && p.raw && p.raw.type === "audio",
+                    (p) => p && p.kind === "media" && p.raw && (p.raw as DbMediaItem).type === "audio",
                   );
                   if (arr.length > 0 && audioItems.length === 0) {
                     toast.error(t("studioTimelineBgmOnlyAudio"));
@@ -1557,12 +1624,12 @@ function ZoneTimeline({
                   e.preventDefault();
                   e.stopPropagation();
                   // Resolve to MediaItem and append
-                  const appended: MediaItem[] = audioItems.map((it: any) => {
-                    const m = it.raw;
+                  const appended: MediaItem[] = audioItems.map((it) => {
+                    const m = it.raw as DbMediaItem;
                     const dur = Math.round(getMediaDurationSec(m)) || 30;
                     return {
                       id: m.id,
-                      type: "audio" as any,
+                      type: "audio" as const,
                       url: m.url || "",
                       name: (m.original_name && m.original_name.trim()) || m.name,
                       duration: dur,
@@ -1788,9 +1855,9 @@ function ZoneTimeline({
                   try {
                     const raw = e.dataTransfer.getData("application/x-studio-picker-item");
                     if (!raw) return;
-                    const parsed = JSON.parse(raw);
-                    const arr = Array.isArray(parsed) ? parsed : [parsed];
-                    const valid = arr.filter((p: any) => p && (p.kind === "media" || p.kind === "widget"));
+                    const parsed = JSON.parse(raw) as unknown;
+                    const arr: PickerPayload[] = Array.isArray(parsed) ? parsed as PickerPayload[] : [parsed as PickerPayload];
+                    const valid = arr.filter((p) => p && (p.kind === "media" || p.kind === "widget"));
                     if (valid.length === 0) return;
                     e.preventDefault();
                     e.stopPropagation();
@@ -1930,7 +1997,7 @@ function ZoneTimeline({
                                   <VideoThumb
                                     src={item.url}
                                     name={item.name}
-                                    poster={(item as any).thumbnail || undefined}
+                                    poster={undefined}
                                     className="absolute inset-0 pointer-events-none"
                                     showPlayHint={false}
                                   />
@@ -2236,7 +2303,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
   const [pickerView, setPickerView] = useState<"grid" | "list">("grid");
 
   const pickerItems = useMemo(() => {
-    const items: { id: string; kind: "media" | "widget"; name: string; searchName: string; type?: string; icon: React.ReactNode; thumbnail?: string; raw: any; createdAt?: string }[] = [];
+    const items: { id: string; kind: "media" | "widget"; name: string; searchName: string; type?: string; icon: React.ReactNode; thumbnail?: string; raw: PickerRaw; createdAt?: string }[] = [];
     dbMedia.forEach((m) => {
       // Audio is managed exclusively from the BGM track on the timeline.
       if (m.type === "audio") return;
@@ -2252,10 +2319,10 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
       });
     });
     dbWidgets.forEach((w) => {
-      let config: any = null;
+      let config: WidgetConfig | null = null;
       try {
         const raw = w.url?.startsWith("widget://") ? w.url.slice("widget://".length) : w.url;
-        if (raw?.startsWith("{")) config = JSON.parse(raw);
+        if (raw?.startsWith("{")) config = JSON.parse(raw) as WidgetConfig;
       } catch {}
       const WidgetIcon = config?.widgetType === "clock" ? Clock : config?.widgetType === "date" ? Calendar : config?.widgetType === "webpage" ? Globe : Code2;
       items.push({
@@ -2368,7 +2435,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
       setRenameTarget(null);
       return;
     }
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("media_items")
       .update({ original_name: newName })
       .eq("id", renameTarget.id);
@@ -2393,7 +2460,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
     const mediaDetailMap = new Map<string, { id: string; name: string; original_name?: string | null; type: string; url: string; thumbnail: string; duration_seconds: number | null }>();
 
     if (mediaIds.length > 0) {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("media_items")
         .select("id, name, original_name, type, url, thumbnail, duration_seconds")
         .in("id", mediaIds);
@@ -2403,7 +2470,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
         return;
       }
 
-      (data || []).forEach((item: any) => mediaDetailMap.set(item.id, item));
+      (data || []).forEach((item) => mediaDetailMap.set(item.id, item));
     }
 
     const appendedItems: MediaItem[] = [];
@@ -2634,7 +2701,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
                     <Button key={f} variant={pickerFilter === f ? "default" : "ghost"} size="sm"
                       className="h-5 text-[9px] px-2 rounded-full shrink-0"
                       onClick={() => setPickerFilter(f)}>
-                      {t(`pickerFilter_${f}`)}
+                      {t(`pickerFilter_${f}` as TranslationKey)}
                     </Button>
                   ))}
                 </div>
@@ -2873,7 +2940,7 @@ function ZoneAnimatedWrapper({ animation, children }: { animation?: string; chil
 }
 
 // ── Widget Zone Preview ────────────────────────────────────────────
-function WidgetZonePreview({ config }: { config: any }) {
+function WidgetZonePreview({ config }: { config: WidgetConfig }) {
   const [now, setNow] = useState(new Date());
 
   useEffect(() => {
@@ -2886,10 +2953,10 @@ function WidgetZonePreview({ config }: { config: any }) {
 }
 
 // ── Widget Item Settings (timeline popover) ────────────────────────
-function WidgetItemSettings({ config, onChange }: { config: any; onChange: (next: any) => void }) {
+function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChange: (next: WidgetConfig) => void }) {
   const { t } = useLanguage();
   const wt = config?.widgetType as string | undefined;
-  const set = (patch: Record<string, any>) => onChange({ ...config, ...patch });
+  const set = (patch: Record<string, unknown>) => onChange({ ...config, ...patch });
 
   return (
     <div className="space-y-2 pt-2 border-t border-border">
@@ -3036,7 +3103,7 @@ function WidgetItemSettings({ config, onChange }: { config: any; onChange: (next
 }
 
 // ── Widget Zone Preview (continued original body) ──────────────────
-function WidgetZonePreviewBody({ config, now }: { config: any; now: Date }) {
+function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Date }) {
 
   if (!config) return null;
   const bg = config.bgColor || "#1a1a2e";
@@ -3209,11 +3276,12 @@ export default function ContentStudioPage() {
     seconds: 10,
     triggers: { gpio: false, remote: true, api: false },
   };
-  const normalizePageTransition = (t?: any): PageTransition => {
-    if (!t || typeof t !== "object") return { ...DEFAULT_PAGE_TRANSITION, triggers: { ...DEFAULT_PAGE_TRANSITION.triggers } };
-    const mode = t.mode === "fixed" || t.mode === "trigger" ? t.mode : "auto";
-    const seconds = typeof t.seconds === "number" && t.seconds > 0 ? Math.min(3600, t.seconds) : 10;
-    const tr = (t.triggers && typeof t.triggers === "object") ? t.triggers : {};
+  const normalizePageTransition = (raw?: unknown): PageTransition => {
+    if (!raw || typeof raw !== "object") return { ...DEFAULT_PAGE_TRANSITION, triggers: { ...DEFAULT_PAGE_TRANSITION.triggers } };
+    const rec = raw as Record<string, unknown>;
+    const mode = rec.mode === "fixed" || rec.mode === "trigger" ? rec.mode : "auto";
+    const seconds = typeof rec.seconds === "number" && rec.seconds > 0 ? Math.min(3600, rec.seconds) : 10;
+    const tr = (rec.triggers && typeof rec.triggers === "object") ? rec.triggers as Record<string, unknown> : {};
     return {
       mode,
       seconds,
@@ -3513,13 +3581,13 @@ export default function ContentStudioPage() {
   const [dbWidgets, setDbWidgets] = useState<{ id: string; name: string; url: string; created_at?: string }[]>([]);
 
   const loadMedia = useCallback(async () => {
-    let mediaQ = (supabase as any)
+    let mediaQ = supabase
       .from("media_items")
       .select("id, name, original_name, type, url, thumbnail, size_bytes, width, height, duration_seconds, mime_type, created_at")
       .neq("type", "widget")
       .order("created_at", { ascending: false });
 
-    let widgetQ = (supabase as any)
+    let widgetQ = supabase
       .from("media_items")
       .select("id, name, url, created_at")
       .eq("type", "widget")
@@ -3530,7 +3598,7 @@ export default function ContentStudioPage() {
       widgetQ = widgetQ.eq("org_id", activeOrgId);
     }
 
-    const [mediaRes, widgetRes]: any = await Promise.all([mediaQ, widgetQ]);
+    const [mediaRes, widgetRes] = await Promise.all([mediaQ, widgetQ]);
     if (mediaRes.error) toast.error(mediaRes.error.message);
     else setDbMedia(mediaRes.data || []);
     if (widgetRes.error) toast.error(widgetRes.error.message);
@@ -3545,15 +3613,15 @@ export default function ContentStudioPage() {
   // Load projects list
   const loadProjects = useCallback(async () => {
     setProjects([]);
-    let q = (supabase as any).from("design_projects").select("*").order("updated_at", { ascending: false });
+    let q = supabase.from("design_projects").select("*").order("updated_at", { ascending: false });
     if (activeOrgId) q = q.eq("org_id", activeOrgId);
     const { data } = await q;
-    const list = (data || []).map((d: any) => ({ ...d, zones: d.zones || [] }));
-    setProjects(list);
+    const list = (data || []).map((d) => ({ ...d, zones: d.zones || [] }));
+    setProjects(list as DesignProject[]);
     // Preload creator names for project cards
-    ensureProfiles(list.map((p: any) => p.created_by).filter(Boolean));
+    ensureProfiles(list.map((p) => p.created_by).filter(Boolean) as string[]);
     // Mark which projects have a pending delete request queued
-    const ids = list.map((p: any) => p.id).filter(Boolean);
+    const ids = list.map((p) => p.id).filter(Boolean) as string[];
     fetchPendingDeleteRequests(ids).then(setPendingDeleteIds).catch(() => undefined);
   }, [activeOrgId, ensureProfiles, STUDIO_DATA_VERSION]);
 
@@ -3562,7 +3630,7 @@ export default function ContentStudioPage() {
   // Load teams for save dialog
   useEffect(() => {
     (async () => {
-      let q = (supabase as any).from("teams").select("id, name, org_id").order("name");
+      let q = supabase.from("teams").select("id, name, org_id").order("name");
       if (activeOrgId) q = q.eq("org_id", activeOrgId);
       const { data } = await q;
       setTeams(data || []);
@@ -3796,7 +3864,7 @@ export default function ContentStudioPage() {
 
       setZones(merged);
       setSelectedZone(null);
-      toast.success(t("studioAspectAutoConverted") + ` → ${t(pick.nameKey as any)}`);
+      toast.success(t("studioAspectAutoConverted") + ` → ${t(pick.nameKey as TranslationKey)}`);
       return next;
     });
   }, [zones, t]);
@@ -3961,22 +4029,22 @@ export default function ContentStudioPage() {
 
   // Resolve picker items into MediaItem[] then append to a specific zone or overlay
   const addItemsToSpecificTarget = useCallback(async (
-    items: { kind: "media" | "widget"; raw: any }[],
+    items: PickerPayload[],
     target: { type: "zone"; id: string } | { type: "overlay"; id: string },
   ) => {
     const targetZone = target.type === "zone" ? zones.find((z) => z.id === target.id) : null;
     const targetOverlay = target.type === "overlay" ? overlays.find((o) => o.id === target.id) : null;
     if (!targetZone && !targetOverlay) return;
 
-    const mediaIds = items.filter((i) => i.kind === "media").map((i) => i.raw.id);
-    const detailMap = new Map<string, any>();
+    const mediaIds = items.filter((i) => i.kind === "media").map((i) => (i.raw as DbMediaItem).id);
+    const detailMap = new Map<string, { id: string; name: string; original_name: string; type: string; url: string; thumbnail: string; duration_seconds: number | null }>();
     if (mediaIds.length > 0) {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("media_items")
         .select("id, name, original_name, type, url, thumbnail, duration_seconds")
         .in("id", mediaIds);
       if (error) { toast.error(error.message); return; }
-      (data || []).forEach((m: any) => detailMap.set(m.id, m));
+      (data || []).forEach((m) => detailMap.set(m.id, m));
     }
 
     const appended: MediaItem[] = [];
@@ -4024,7 +4092,7 @@ export default function ContentStudioPage() {
   }, [zones, overlays, updateZoneContent, updateOverlayContent, t]);
 
   // Append to currently selected zone/overlay (kept for click-to-add path)
-  const addItemsToActiveTarget = useCallback(async (items: { kind: "media" | "widget"; raw: any }[]) => {
+  const addItemsToActiveTarget = useCallback(async (items: PickerPayload[]) => {
     const targetZone = zones.find((z) => z.id === selectedZone);
     const targetOverlay = !targetZone ? overlays.find((o) => o.id === selectedOverlay) : null;
     if (targetZone) return addItemsToSpecificTarget(items, { type: "zone", id: targetZone.id });
@@ -4032,13 +4100,13 @@ export default function ContentStudioPage() {
   }, [zones, overlays, selectedZone, selectedOverlay, addItemsToSpecificTarget]);
 
   // Drop handlers reading the studio picker payload (supports single OR array payloads)
-  const parsePickerDropPayload = useCallback((e: React.DragEvent): { kind: "media" | "widget"; raw: any }[] | null => {
+  const parsePickerDropPayload = useCallback((e: React.DragEvent): PickerPayload[] | null => {
     try {
       const raw = e.dataTransfer.getData("application/x-studio-picker-item");
       if (!raw) return null;
-      const parsed = JSON.parse(raw);
-      const arr = Array.isArray(parsed) ? parsed : [parsed];
-      const valid = arr.filter((p: any) => p && (p.kind === "media" || p.kind === "widget"));
+      const parsed = JSON.parse(raw) as unknown;
+      const arr: PickerPayload[] = Array.isArray(parsed) ? parsed as PickerPayload[] : [parsed as PickerPayload];
+      const valid = arr.filter((p) => p && (p.kind === "media" || p.kind === "widget"));
       return valid.length ? valid : null;
     } catch { return null; }
   }, []);
@@ -4145,16 +4213,17 @@ export default function ContentStudioPage() {
     const saveOrgId = activeOrgId || defaultOrgId || null;
     const teamIdToSave = projectTeamId && projectTeamId !== "none" ? projectTeamId : null;
     const collabToSave = projectCollab === "team" && !teamIdToSave ? "creator" : projectCollab;
-    const projectData: any = { name: name || currentProject?.name || "Untitled", aspect, zones: zonesData, created_by: user?.id, org_id: saveOrgId, team_id: teamIdToSave, collab_scope: collabToSave, updated_at: new Date().toISOString() };
+    const projectName_ = name || currentProject?.name || "Untitled";
+    const updatedAt = new Date().toISOString();
     let ok = false;
     try {
       if (currentProject) {
-        await (supabase as any).from("design_projects").update({ name: projectData.name, aspect, zones: zonesData, team_id: teamIdToSave, collab_scope: collabToSave, updated_at: projectData.updated_at }).eq("id", currentProject.id);
-        setCurrentProject({ ...currentProject, ...projectData, zones: zones, overlays });
+        await supabase.from("design_projects").update({ name: projectName_, aspect, zones: zonesData, team_id: teamIdToSave, collab_scope: collabToSave, updated_at: updatedAt }).eq("id", currentProject.id);
+        setCurrentProject({ ...currentProject, name: projectName_, aspect, zones: zones, overlays, updated_at: updatedAt });
         toast.success(t("studioProjectSaved"));
         ok = true;
       } else {
-        const { data } = await (supabase as any).from("design_projects").insert(projectData).select().single();
+        const { data } = await supabase.from("design_projects").insert({ name: projectName_, aspect, zones: zonesData, created_by: user?.id ?? null, org_id: saveOrgId, team_id: teamIdToSave, collab_scope: collabToSave, updated_at: updatedAt }).select().single();
         if (data) { setCurrentProject({ ...data, zones, overlays }); toast.success(t("studioProjectSaved")); ok = true; }
       }
       loadProjects();
@@ -4171,8 +4240,8 @@ export default function ContentStudioPage() {
     const loadedAspect = project.aspect as AspectRatio;
     setAspect(loadedAspect);
     // Hydrate team / collab so the settings dialog reflects the loaded project.
-    const loadedTeamId = (project as any).team_id;
-    const loadedCollab = (project as any).collab_scope;
+    const loadedTeamId = project.team_id;
+    const loadedCollab = project.collab_scope;
     setProjectTeamId(loadedTeamId ? String(loadedTeamId) : "none");
     setProjectCollab(
       loadedCollab === "team" || loadedCollab === "org" || loadedCollab === "creator"
@@ -4180,35 +4249,36 @@ export default function ContentStudioPage() {
         : "creator"
     );
     setProjectName(project.name || "");
-    const allData = project.zones || [];
-    const metaEntry = allData.find((z: any) => (z as any)._meta) as any;
-    const regularZones = allData.filter((z: any) => !(z as any)._overlay && !(z as any)._meta);
-    const overlayData = allData.filter((z: any) => (z as any)._overlay).map((o: any) => { const { _overlay, ...rest } = o; return rest as OverlayBlock; });
+    const allData: Array<Record<string, unknown>> = Array.isArray(project.zones) ? project.zones as Array<Record<string, unknown>> : [];
+    const metaEntry = allData.find((z) => z._meta) as Record<string, unknown> | undefined;
+    const regularZones = allData.filter((z) => !z._overlay && !z._meta) as unknown as Zone[];
+    const overlayData = allData.filter((z) => z._overlay).map((o) => { const { _overlay, ...rest } = o; return rest as unknown as OverlayBlock; });
 
     // 還原解析度，未存則用該 aspect 預設；若儲存的 id 是 custom 則保留 custom 標籤（即使尺寸恰好等於預設）
-    if (metaEntry?.resolution?.width && metaEntry?.resolution?.height) {
-      const r = metaEntry.resolution;
+    const metaRes = metaEntry?.resolution as { id?: string; width?: number; height?: number } | undefined;
+    if (metaRes?.width && metaRes?.height) {
+      const r = metaRes;
       if (r.id === "custom") {
         setResolution({ id: "custom", labelKey: "studioResCustom", width: r.width, height: r.height });
       } else {
         const matched = RESOLUTION_PRESETS[loadedAspect].find((p) => p.width === r.width && p.height === r.height);
-        setResolution(matched || { id: "custom", labelKey: "studioResCustom", width: r.width, height: r.height });
+        setResolution(matched || { id: "custom", labelKey: "studioResCustom", width: r.width ?? 1920, height: r.height ?? 1080 });
       }
     } else {
       setResolution(getDefaultResolution(loadedAspect));
     }
 
     // Restore multi-page snapshot if present; fall back to legacy single-page projects.
-    const savedPages: any[] = Array.isArray(metaEntry?.pages) ? metaEntry.pages : [];
+    const savedPages: Array<Record<string, unknown>> = Array.isArray(metaEntry?.pages) ? metaEntry.pages as Array<Record<string, unknown>> : [];
     if (savedPages.length > 0) {
-      const restored: StudioPage[] = savedPages.map((p: any, i: number) => ({
+      const restored: StudioPage[] = savedPages.map((p, i) => ({
         id: typeof p.id === "string" ? p.id : makePageId(),
         name: typeof p.name === "string" && p.name ? p.name : `版型 ${i + 1}`,
-        zones: Array.isArray(p.zones) ? p.zones : [],
-        overlays: Array.isArray(p.overlays) ? p.overlays : [],
+        zones: Array.isArray(p.zones) ? p.zones as Zone[] : [],
+        overlays: Array.isArray(p.overlays) ? p.overlays as OverlayBlock[] : [],
       }));
       setPages(restored);
-      const wantId = typeof metaEntry?.activePageId === "string" ? metaEntry.activePageId : restored[0].id;
+      const wantId = typeof metaEntry?.activePageId === "string" ? metaEntry.activePageId as string : restored[0].id;
       const active = restored.find((p) => p.id === wantId) || restored[0];
       setActivePageId(active.id);
       setZones(active.zones);
@@ -4223,8 +4293,8 @@ export default function ContentStudioPage() {
     }
 
     // Restore BGM track from _meta (graceful defaults for legacy projects)
-    const bgmMeta = metaEntry?.bgm;
-    setBgmItems(Array.isArray(bgmMeta?.items) ? bgmMeta.items : []);
+    const bgmMeta = metaEntry?.bgm as { items?: MediaItem[]; volume?: number; audioSource?: string } | undefined;
+    setBgmItems(Array.isArray(bgmMeta?.items) ? bgmMeta!.items! : []);
     setBgmVolume(typeof bgmMeta?.volume === "number" ? Math.max(0, Math.min(100, bgmMeta.volume)) : 30);
     setBgmAudioSource(typeof bgmMeta?.audioSource === "string" && bgmMeta.audioSource ? bgmMeta.audioSource : "bgm");
 
@@ -4257,19 +4327,19 @@ export default function ContentStudioPage() {
     handleLoad(target);
     // Restore the selected zone/overlay if it still exists in the loaded canvas.
     setTimeout(() => {
-      const allZoneEntries = (target.zones || []) as any[];
+      const allZoneEntries: Array<Record<string, unknown>> = Array.isArray(target.zones) ? target.zones as Array<Record<string, unknown>> : [];
       const regularZoneIds = new Set(
-        allZoneEntries.filter((z) => !z._overlay && !z._meta).map((z) => z.id)
+        allZoneEntries.filter((z) => !z._overlay && !z._meta).map((z) => z.id as string)
       );
       const overlayIds = new Set(
-        allZoneEntries.filter((z) => z._overlay).map((z) => z.id)
+        allZoneEntries.filter((z) => z._overlay).map((z) => z.id as string)
       );
       // Multi-page projects keep zones inside _meta.pages, so check there too.
-      const meta = allZoneEntries.find((z) => z?._meta) as any;
+      const meta = allZoneEntries.find((z) => z._meta) as Record<string, unknown> | undefined;
       if (Array.isArray(meta?.pages)) {
-        for (const pg of meta.pages) {
-          (pg.zones || []).forEach((z: any) => z?.id && regularZoneIds.add(z.id));
-          (pg.overlays || []).forEach((o: any) => o?.id && overlayIds.add(o.id));
+        for (const pg of meta!.pages as Array<{ zones?: Array<{ id?: string }>; overlays?: Array<{ id?: string }> }>) {
+          (pg.zones || []).forEach((z) => z?.id && regularZoneIds.add(z.id));
+          (pg.overlays || []).forEach((o) => o?.id && overlayIds.add(o.id));
         }
       }
       if (saved.selectedZone && regularZoneIds.has(saved.selectedZone)) {
@@ -4320,7 +4390,7 @@ export default function ContentStudioPage() {
     if (!deleteConfirm) return;
     const { id } = deleteConfirm;
     setDeleteConfirm(null);
-    await (supabase as any).from("design_projects").delete().eq("id", id);
+    await supabase.from("design_projects").delete().eq("id", id);
     if (currentProject?.id === id) { setCurrentProject(null); }
     loadProjects();
     toast.success(t("studioProjectDeleted"));
@@ -4347,8 +4417,8 @@ export default function ContentStudioPage() {
       await unassignProjectReference(item);
       toast.success(t("studioDeleteUnassignSuccess"));
       await refreshDeleteConfirmRefs(deleteConfirm.id);
-    } catch (err: any) {
-      toast.error(t("studioDeleteUnassignError"), { description: err?.message });
+    } catch (err: unknown) {
+      toast.error(t("studioDeleteUnassignError"), { description: err instanceof Error ? err.message : undefined });
       setDeleteConfirm((prev) => (prev ? { ...prev, busyKey: null } : prev));
     }
   }, [deleteConfirm, refreshDeleteConfirmRefs, t]);
@@ -4358,7 +4428,7 @@ export default function ContentStudioPage() {
     const project = projects.find((p) => p.id === deleteConfirm.id);
     const res = await queueDesignProjectDelete({
       projectId: deleteConfirm.id,
-      orgId: (project as any)?.org_id ?? activeOrgId ?? null,
+      orgId: project?.org_id ?? activeOrgId ?? null,
       userId: user.id,
     });
     if ("error" in res) {
@@ -4382,49 +4452,51 @@ export default function ContentStudioPage() {
   }, [deleteConfirm]);
 
   // Export project as ZIP (JSON manifest + referenced media files)
-  const handleExport = useCallback(async (project: any) => {
+  const handleExport = useCallback(async (project: DesignProject) => {
     const exportToast = toast.loading(t("studioExportingProject"));
     try {
       // Re-fetch latest version to be safe
-      const { data: fresh } = await (supabase as any)
+      const { data: fresh } = await supabase
         .from("design_projects")
         .select("*")
         .eq("id", project.id)
         .single();
-      const proj = fresh || project;
-      const zonesData = Array.isArray(proj.zones) ? proj.zones : [];
+      const proj: DesignProject = fresh ? { ...fresh, zones: (fresh.zones as Zone[] | null) ?? [] } : project;
+      const zonesData: Array<Record<string, unknown>> = Array.isArray(proj.zones) ? proj.zones as Array<Record<string, unknown>> : [];
 
       // Collect all referenced media ids from zones / overlays / mediaItems / bgm
       const mediaIds = new Set<string>();
-      const walkContent = (content: any) => {
-        if (!content) return;
-        if (Array.isArray(content.mediaItems)) {
-          for (const m of content.mediaItems) if (m?.id) mediaIds.add(String(m.id));
+      const walkContent = (content: unknown) => {
+        if (!content || typeof content !== "object") return;
+        const c = content as Record<string, unknown>;
+        if (Array.isArray(c.mediaItems)) {
+          for (const m of c.mediaItems as Array<{ id?: unknown }>) if (m?.id) mediaIds.add(String(m.id));
         }
       };
       for (const z of zonesData) {
         walkContent(z?.content);
-        if (Array.isArray(z?.overlays)) for (const o of z.overlays) walkContent(o?.content);
+        if (Array.isArray(z?.overlays)) for (const o of z.overlays as Array<{ content?: unknown }>) walkContent(o?.content);
       }
       // Top-level overlays / bgm (if stored on project)
-      const topOverlays = (proj as any).overlays;
-      if (Array.isArray(topOverlays)) for (const o of topOverlays) walkContent(o?.content);
-      const bgm = (proj as any).bgmItems;
-      if (Array.isArray(bgm)) for (const b of bgm) if (b?.id) mediaIds.add(String(b.id));
+      const topOverlays = (proj as unknown as Record<string, unknown>).overlays;
+      if (Array.isArray(topOverlays)) for (const o of topOverlays as Array<{ content?: unknown }>) walkContent(o?.content);
+      const bgm = (proj as unknown as Record<string, unknown>).bgmItems;
+      if (Array.isArray(bgm)) for (const b of bgm as Array<{ id?: unknown }>) if (b?.id) mediaIds.add(String(b.id));
 
       // Fetch media metadata
-      let mediaRows: any[] = [];
+      type MediaRow = { id: string; name: string; original_name: string | null; type: string; mime_type: string; url: string; size_bytes: number; width: number | null; height: number | null; duration_seconds: number | null };
+      let mediaRows: MediaRow[] = [];
       if (mediaIds.size > 0) {
-        const { data } = await (supabase as any)
+        const { data } = await supabase
           .from("media_items")
           .select("id, name, original_name, type, mime_type, url, size_bytes, width, height, duration_seconds")
           .in("id", Array.from(mediaIds));
-        mediaRows = data || [];
+        mediaRows = (data || []) as MediaRow[];
       }
 
       const zip = new JSZip();
       const assetsFolder = zip.folder("assets")!;
-      const manifestMedia: any[] = [];
+      const manifestMedia: Array<Record<string, unknown>> = [];
 
       const sanitize = (s: string) => (s || "file").replace(/[^\w\-.]+/g, "_").slice(0, 80);
       const usedNames = new Set<string>();
@@ -4463,7 +4535,7 @@ export default function ContentStudioPage() {
           if (blob) {
             const baseName = sanitize(m.original_name || m.name || `media_${m.id}`);
             const hasExt = /\.[A-Za-z0-9]{2,5}$/.test(baseName);
-            let fileName = hasExt ? baseName : (extFromMime ? `${baseName}.${extFromMime}` : baseName);
+            const fileName = hasExt ? baseName : (extFromMime ? `${baseName}.${extFromMime}` : baseName);
             // Prefix with id to guarantee uniqueness
             let candidate = `${m.id}_${fileName}`;
             let n = 1;
@@ -4976,7 +5048,7 @@ export default function ContentStudioPage() {
             <SelectContent>
               {RESOLUTION_PRESETS[aspect].map((r) => (
                 <SelectItem key={r.id} value={r.id} className="text-xs">
-                  <span className="font-medium">{t(r.labelKey as any)}</span>
+                  <span className="font-medium">{t(r.labelKey as TranslationKey)}</span>
                   <span className="text-muted-foreground ml-2">{r.width}×{r.height}</span>
                 </SelectItem>
               ))}
@@ -5351,14 +5423,14 @@ export default function ContentStudioPage() {
                         <button
                           key={lp.id}
                           onClick={() => applyLayout(lp)}
-                          title={t(lp.nameKey as any)}
+                          title={t(lp.nameKey as TranslationKey)}
                           className="flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card hover:bg-accent hover:border-primary/50 transition-colors text-left group"
                         >
                           <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border group-hover:ring-primary/40 transition-all ${aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
                             <LayoutThumb zones={lp.zones} aspect={aspect} />
                           </div>
                           <div className="flex items-center justify-between gap-1">
-                            <p className="text-[11px] font-medium text-foreground truncate">{t(lp.nameKey as any)}</p>
+                            <p className="text-[11px] font-medium text-foreground truncate">{t(lp.nameKey as TranslationKey)}</p>
                             <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0">{lp.zones.length}</Badge>
                           </div>
                         </button>
@@ -5374,7 +5446,7 @@ export default function ContentStudioPage() {
                 <button key={tpl.id} onClick={() => applyTemplate(tpl)} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent transition-colors text-left group">
                   <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
                   <div>
-                    <p className="text-sm font-medium text-foreground">{t(tpl.nameKey as any)}</p>
+                    <p className="text-sm font-medium text-foreground">{t(tpl.nameKey as TranslationKey)}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
                       <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
@@ -5393,14 +5465,13 @@ export default function ContentStudioPage() {
                 </div>
               ) : projects.map((p) => {
                 const resBadge = getProjectResolutionBadge(p.zones);
-                const pAny = p as any;
-                const teamName = pAny.team_id
-                  ? (() => { const tm = teams.find((tt) => tt.id === pAny.team_id); return tm ? (tm.name === "Default" ? t("teamNoTeamLabel") : tm.name) : t("teamNoTeamLabel"); })()
+                const teamName = p.team_id
+                  ? (() => { const tm = teams.find((tt) => tt.id === p.team_id); return tm ? (tm.name === "Default" ? t("teamNoTeamLabel") : tm.name) : t("teamNoTeamLabel"); })()
                   : t("teamNoTeamLabel");
-                const collab = (pAny.collab_scope as "creator" | "team" | "org") || "creator";
+                const collab = (p.collab_scope as "creator" | "team" | "org" | null | undefined) || "creator";
                 const collabLabel = collab === "org" ? t("studioCollabOrg") : collab === "team" ? t("studioCollabTeam") : t("studioCollabCreator");
                 const CollabIcon = collab === "org" ? Building2 : collab === "team" ? Users : UserIcon;
-                const creatorName = getDisplayName(pAny.created_by, "—");
+                const creatorName = getDisplayName(p.created_by ?? null, "—");
                 void profilesVersion;
                 return (
                 <div key={p.id} className={`flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent transition-colors group ${currentProject?.id === p.id ? "border-primary" : "border-border"}`}>
@@ -5998,13 +6069,13 @@ export default function ContentStudioPage() {
                       </p>
                       <div className={`grid gap-2 ${aspect === "9:16" ? "grid-cols-3" : "grid-cols-2"}`}>
                         {filtered.map((lp) => (
-                          <button key={lp.id} onClick={() => { applyLayout(lp); setMobilePanelOpen(false); }} title={t(lp.nameKey as any)}
+                          <button key={lp.id} onClick={() => { applyLayout(lp); setMobilePanelOpen(false); }} title={t(lp.nameKey as TranslationKey)}
                             className="flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left">
                             <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border ${aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
                               <LayoutThumb zones={lp.zones} aspect={aspect} />
                             </div>
                             <div className="flex items-center justify-between gap-1">
-                              <p className="text-[11px] font-medium text-foreground truncate">{t(lp.nameKey as any)}</p>
+                              <p className="text-[11px] font-medium text-foreground truncate">{t(lp.nameKey as TranslationKey)}</p>
                               <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0">{lp.zones.length}</Badge>
                             </div>
                           </button>
@@ -6020,7 +6091,7 @@ export default function ContentStudioPage() {
                     className="w-full flex items-center gap-3 p-3 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left">
                     <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-foreground truncate">{t(tpl.nameKey as any)}</p>
+                      <p className="text-sm font-medium text-foreground truncate">{t(tpl.nameKey as TranslationKey)}</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
                         <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
@@ -6123,7 +6194,7 @@ export default function ContentStudioPage() {
                     <SelectContent>
                       {RESOLUTION_PRESETS[aspect].map((r) => (
                         <SelectItem key={r.id} value={r.id} className="text-xs">
-                          <span className="font-medium">{t(r.labelKey as any)}</span>
+                          <span className="font-medium">{t(r.labelKey as TranslationKey)}</span>
                           <span className="text-muted-foreground ml-2">{r.width}×{r.height}</span>
                         </SelectItem>
                       ))}
@@ -6679,7 +6750,7 @@ export default function ContentStudioPage() {
                       <span className="text-sm">{row.label}</span>
                       <Switch
                         checked={!!projectTransition.triggers[row.k]}
-                        onCheckedChange={(v) => updateProjectTransition({ triggers: { [row.k]: !!v } as any })}
+                        onCheckedChange={(v) => updateProjectTransition({ triggers: { [row.k]: !!v } as Partial<PageTransition["triggers"]> })}
                       />
                     </div>
                   ))}
@@ -6723,7 +6794,7 @@ export default function ContentStudioPage() {
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">{t("studioCollab")}</label>
-              <Select value={projectCollab} onValueChange={(v) => setProjectCollab(v as any)}>
+              <Select value={projectCollab} onValueChange={(v) => setProjectCollab(v as "creator" | "team" | "org")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="creator"><span className="inline-flex items-center gap-2"><UserIcon className="w-3.5 h-3.5" />{t("studioCollabCreator")}</span></SelectItem>

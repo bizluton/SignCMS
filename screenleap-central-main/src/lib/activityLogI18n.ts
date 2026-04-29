@@ -258,12 +258,14 @@ export function localizeDetail(detail: string | null | undefined, lang: Lang): s
   if (!detail) return "";
   const trimmed = detail.trim();
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return detail;
-  let parsed: any;
+  let parsed: unknown;
   try { parsed = JSON.parse(trimmed); } catch { return detail; }
-  if (!parsed || typeof parsed !== "object" || typeof parsed.tpl !== "string") return detail;
-  const tpl = DETAIL_TPL[parsed.tpl];
+  if (!parsed || typeof parsed !== "object") return detail;
+  const p = parsed as Record<string, unknown>;
+  if (typeof p.tpl !== "string") return detail;
+  const tpl = DETAIL_TPL[p.tpl];
   if (!tpl) return detail;
-  const params = { ...(parsed.params || {}) };
+  const params: Record<string, unknown> = { ...((p.params as Record<string, unknown>) || {}) };
   // Auto-derive {orgClause} from {org} for templates that use it.
   if (typeof params.org === "string") {
     params.orgClause = orgClause(params.org, lang);
@@ -272,8 +274,9 @@ export function localizeDetail(detail: string | null | undefined, lang: Lang): s
   }
   // Auto-localize plan tier params for plan_tier_change / plan_tier_set
   for (const key of ["from", "to", "tier"]) {
-    if (typeof params[key] === "string" && PLAN_TIER[params[key]]) {
-      params[key] = localizePlanTier(params[key], lang);
+    const val = params[key];
+    if (typeof val === "string" && PLAN_TIER[val]) {
+      params[key] = localizePlanTier(val, lang);
     }
   }
   return fmt(pick(tpl, lang, tpl.zh), params);

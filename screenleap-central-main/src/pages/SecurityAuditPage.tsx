@@ -61,7 +61,7 @@ export default function SecurityAuditPage() {
   const runAudit = async () => {
     setRunning(true);
     try {
-      const { data, error } = await (supabase as any).rpc("audit_rls_security_regressions");
+      const { data, error } = await (supabase as unknown as { rpc: (fn: string) => Promise<{ data: unknown; error: unknown }> }).rpc("audit_rls_security_regressions");
       if (error) throw error;
       if (data?.error) {
         toast.error(`Audit denied: ${data.error}`);
@@ -74,8 +74,8 @@ export default function SecurityAuditPage() {
       } else {
         toast.warning(`Found ${count} regression${count === 1 ? "" : "s"}`);
       }
-    } catch (e: any) {
-      toast.error(`Audit failed: ${e.message ?? String(e)}`);
+    } catch (e: unknown) {
+      toast.error(`Audit failed: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setRunning(false);
     }

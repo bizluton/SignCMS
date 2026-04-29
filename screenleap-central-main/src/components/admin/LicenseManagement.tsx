@@ -115,7 +115,7 @@ export default function LicenseManagement() {
     if (!genOrgId) { toast.error("請選擇授權組織"); return; }
     setSaving(true);
     const count = Math.min(parseInt(genCount) || 1, 50);
-    const { data, error } = await (supabase.rpc as any)("generate_license_codes", {
+    const { data, error } = await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>)("generate_license_codes", {
       _plan_name: genPlanName,
       _extend_days: parseInt(genExtendDays) || 365,
       _assigned_org_id: genOrgId,
@@ -124,8 +124,8 @@ export default function LicenseManagement() {
     });
     if (error) {
       toast.error(error.message);
-    } else if (data && (data as any).success === false) {
-      toast.error(ERROR_MAP[(data as any).error] || (data as any).error);
+    } else if (data && data.success === false) {
+      toast.error(ERROR_MAP[data.error as string] || data.error as string);
     } else {
       toast.success(`已產生 ${count} 組授權碼`);
       fetchData();
@@ -147,7 +147,7 @@ export default function LicenseManagement() {
   };
 
   const updateOrgPlanTier = async (orgId: string, tier: PlanTier) => {
-    const { error } = await (supabase as any).from("organizations")
+    const { error } = await supabase.from("organizations")
       .update({ plan_tier: tier })
       .eq("id", orgId);
     if (error) toast.error(t("planChangeFailed"));
@@ -161,9 +161,9 @@ export default function LicenseManagement() {
 
   const deleteCode = async (id: string, code: string) => {
     if (!confirm(`確定要刪除授權碼 ${code} 嗎？`)) return;
-    const { data, error } = await (supabase.rpc as any)("delete_license_code", { _id: id });
+    const { data, error } = await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>)("delete_license_code", { _id: id });
     if (error) toast.error(error.message);
-    else if (data && (data as any).success === false) toast.error(ERROR_MAP[(data as any).error] || (data as any).error);
+    else if (data && data.success === false) toast.error(ERROR_MAP[data.error as string] || data.error as string);
     else { toast.success("已刪除授權碼"); fetchData(); }
   };
 

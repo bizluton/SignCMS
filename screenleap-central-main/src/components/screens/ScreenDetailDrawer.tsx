@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
@@ -58,7 +58,7 @@ export function ScreenDetailDrawer({
     }
     let cancelled = false;
     (async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("screen_alerts")
         .select("id")
         .eq("screen_id", screen.id)
@@ -78,7 +78,7 @@ export function ScreenDetailDrawer({
   const handleRecheck = async () => {
     setRechecking(true);
     // Re-fetch the latest screen row to refresh status
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("screens")
       .select("online, updated_at")
       .eq("id", screen.id)
@@ -101,7 +101,7 @@ export function ScreenDetailDrawer({
     }
     if (!user) return;
     setAcking(true);
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("screen_alerts")
       .update({
         status: "acknowledged",
@@ -130,8 +130,8 @@ export function ScreenDetailDrawer({
       toast.success(t("screenDetailReconnectOk"));
       setActiveAlertId(null);
       onChanged?.();
-    } catch (err: any) {
-      toast.error(`${t("screenDetailReconnectFailed")}: ${err?.message ?? err}`);
+    } catch (err: unknown) {
+      toast.error(`${t("screenDetailReconnectFailed")}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setReconnecting(false);
     }
@@ -254,7 +254,7 @@ export function ScreenDetailDrawer({
 
 function DetailRow({
   icon: Icon, label, value, mono,
-}: { icon: any; label: string; value: string; mono?: boolean }) {
+}: { icon: React.ComponentType<{ className?: string }>; label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex items-center gap-3 text-sm">
       <Icon className="w-4 h-4 text-muted-foreground shrink-0" />

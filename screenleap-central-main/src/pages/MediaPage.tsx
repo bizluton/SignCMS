@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useUserOrgs } from "@/hooks/useUserOrgs";
@@ -121,7 +121,7 @@ interface MediaItemRow {
 interface ProjectItem {
   id: string;
   name: string;
-  zones?: any;
+  zones?: unknown;
 }
 
 const getDisplayName = (item: Pick<MediaItemRow, "name" | "original_name">) => item.original_name?.trim() || item.name;
@@ -154,7 +154,7 @@ interface WidgetConfig {
   animation?: WidgetAnimation;
 }
 
-const WIDGET_ICONS: Record<WidgetSubType, any> = {
+const WIDGET_ICONS: Record<WidgetSubType, React.ComponentType<{ className?: string }>> = {
   date: Calendar, clock: Clock, webpage: Globe, marquee: Type, qrcode: QrCode, countdown: Timer, youtube: Youtube, weather: CloudSun,
 };
 
@@ -505,7 +505,7 @@ const MediaPage = () => {
   const fetchTrashAudit = useCallback(async () => {
     setTrashAuditLoading(true);
     setTrashAuditError(null);
-    let q = (supabase as any)
+    let q = supabase
       .from("activity_logs")
       .select("id, created_at, user_id, org_id, action_code, target_id, target_name, detail, action_params")
       .in("action_code", ["media.restore_soft_deleted", "media.purge_soft_deleted_item"])
@@ -550,7 +550,7 @@ const MediaPage = () => {
 
   const fetchTrash = useCallback(async () => {
     setTrashLoading(true);
-    let q = (supabase as any)
+    let q = supabase
       .from("media_items")
       .select("id, name, original_name, type, thumbnail, size_bytes, deleted_at, org_id")
       .not("deleted_at", "is", null)
@@ -582,7 +582,7 @@ const MediaPage = () => {
     if (!trashOpen) return;
     let cancelled = false;
     const loadRetention = async () => {
-      const { data } = await (supabase as any)
+      const { data } = await supabase
         .from("schedule_cleanup_settings")
         .select("media_retention_days")
         .eq("id", 1)
@@ -661,14 +661,15 @@ const MediaPage = () => {
     const results: BulkResultItem[] = [];
     const succeededIds: string[] = [];
     for (const id of ids) {
-      const { data, error } = await (supabase as any).rpc(rpcName, { _media_id: id });
-      const success = !error && (data as any)?.success !== false;
+      const { data, error } = await supabase.rpc(rpcName as "restore_soft_deleted_media", { _media_id: id });
+      const rpcResult = data as { success?: boolean; error?: string } | null;
+      const success = !error && rpcResult?.success !== false;
       const name = nameById.get(id) || id.slice(0, 8);
       if (success) {
         succeededIds.push(id);
         results.push({ id, name, ok: true });
       } else {
-        const errMsg = error?.message || (data as any)?.error || "unknown_error";
+        const errMsg = error?.message || rpcResult?.error || "unknown_error";
         results.push({ id, name, ok: false, error: errMsg });
       }
     }
@@ -692,7 +693,7 @@ const MediaPage = () => {
   const fetchAllRef = useRef<() => void>(() => {});
   const handleRestore = useCallback(async (id: string) => {
     setTrashBusyId(id);
-    const { data, error } = await (supabase as any).rpc("restore_soft_deleted_media", { _media_id: id });
+    const { data, error } = await supabase.rpc("restore_soft_deleted_media", { _media_id: id });
     setTrashBusyId(null);
     if (error) {
       toast.error(error.message);
@@ -710,7 +711,7 @@ const MediaPage = () => {
 
   const handlePurgeNow = useCallback(async (id: string) => {
     setTrashBusyId(id);
-    const { data, error } = await (supabase as any).rpc("purge_soft_deleted_media_item", { _media_id: id });
+    const { data, error } = await supabase.rpc("purge_soft_deleted_media_item", { _media_id: id });
     setTrashBusyId(null);
     setPurgeConfirmId(null);
     if (error) {
@@ -782,12 +783,12 @@ const MediaPage = () => {
   // Fetch media, projects and org license in parallel for fastest first paint
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    let mediaQ = (supabase as any)
+    let mediaQ = supabase
       .from("media_items")
       .select("id, name, original_name, type, url, thumbnail, size_bytes, width, height, duration_seconds, created_at, design_project_id, is_system, org_id, md5, mime_type, uploaded_by")
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
-    let projectsQ = (supabase as any)
+    let projectsQ = supabase
       .from("design_projects")
       .select("id, name, org_id, zones")
       .order("name", { ascending: true });
@@ -797,18 +798,18 @@ const MediaPage = () => {
     }
     const licenseQ = activeOrgId
       ? supabase.from("organizations").select("license_plan, license_expires_at").eq("id", activeOrgId).single()
-      : Promise.resolve({ data: null } as any);
+      : Promise.resolve({ data: null, error: null });
 
     // Load teammates: every user_id sharing at least one team with current user
     const teammatesQ = user?.id
       ? (async () => {
-          const { data: myTeams } = await (supabase as any)
+          const { data: myTeams } = await supabase
             .from("team_members").select("team_id").eq("user_id", user.id);
-          const teamIds = (myTeams || []).map((r: any) => r.team_id);
+          const teamIds = (myTeams || []).map((r) => r.team_id);
           if (teamIds.length === 0) return { data: [] as { user_id: string }[] };
-          const { data: members } = await (supabase as any)
+          const { data: members } = await supabase
             .from("team_members").select("user_id").in("team_id", teamIds);
-          return { data: members || [] };
+          return { data: (members || []) as { user_id: string }[] };
         })()
       : Promise.resolve({ data: [] as { user_id: string }[] });
 
@@ -824,9 +825,9 @@ const MediaPage = () => {
     if (projectsRes.error) toast.error(projectsRes.error.message);
     else setProjects((projectsRes.data || []) as ProjectItem[]);
 
-    if (licenseRes && (licenseRes as any).data) setOrgLicense((licenseRes as any).data);
+    if (licenseRes && licenseRes.data) setOrgLicense(licenseRes.data as { license_plan: string; license_expires_at: string });
 
-    const ids = new Set<string>(((teammatesRes as any).data || []).map((r: any) => r.user_id));
+    const ids = new Set<string>((teammatesRes.data || []).map((r) => r.user_id));
     if (user?.id) ids.add(user.id);
     setTeammateIds(ids);
 
@@ -908,19 +909,20 @@ const MediaPage = () => {
    */
   const mediaUsageMap = useMemo(() => {
     const map = new Map<string, { id: string; name: string }[]>();
-    const collectIds = (node: any, out: Set<string>) => {
+    const collectIds = (node: unknown, out: Set<string>) => {
       if (!node || typeof node !== "object") return;
       if (Array.isArray(node)) { node.forEach((n) => collectIds(n, out)); return; }
-      if (Array.isArray(node.mediaItems)) {
-        for (const m of node.mediaItems) if (m && typeof m === "object" && m.id) out.add(String(m.id));
+      const obj = node as Record<string, unknown>;
+      if (Array.isArray(obj.mediaItems)) {
+        for (const m of obj.mediaItems) if (m && typeof m === "object" && (m as Record<string, unknown>).id) out.add(String((m as Record<string, unknown>).id));
       }
-      if (Array.isArray(node.bgmItems)) {
-        for (const b of node.bgmItems) if (b && typeof b === "object" && b.id) out.add(String(b.id));
+      if (Array.isArray(obj.bgmItems)) {
+        for (const b of obj.bgmItems) if (b && typeof b === "object" && (b as Record<string, unknown>).id) out.add(String((b as Record<string, unknown>).id));
       }
-      if (Array.isArray(node.overlays)) {
-        for (const o of node.overlays) collectIds(o?.content, out);
+      if (Array.isArray(obj.overlays)) {
+        for (const o of obj.overlays) collectIds((o as Record<string, unknown>)?.content, out);
       }
-      if (node.content) collectIds(node.content, out);
+      if (obj.content) collectIds(obj.content, out);
     };
     for (const p of projects) {
       const ids = new Set<string>();
@@ -944,8 +946,8 @@ const MediaPage = () => {
     if (ids.length === 0) { setMediaScheduleMap(new Map()); return; }
     let cancelled = false;
     (async () => {
-      const { data, error } = await (supabase as any)
-        .from("schedule_items")
+      const fromTable = (table: string) => supabase.from(table as Parameters<typeof supabase.from>[0]);
+      const { data, error } = await fromTable("schedule_items")
         .select("media_id, schedules:schedule_id(id, name)")
         .in("media_id", ids);
       if (cancelled || error || !Array.isArray(data)) return;
@@ -1145,7 +1147,7 @@ const MediaPage = () => {
       const md5 = await computeFileMd5(workingFile);
 
       // Pre-check duplicate within the same org BEFORE uploading
-      const dup = await (supabase as any)
+      const dup = await supabase
         .from("media_items")
         .select("id, original_name")
         .eq("org_id", uploadOrgId)
@@ -1251,7 +1253,7 @@ const MediaPage = () => {
     // Soft-delete: mark as trashed instead of hard-deleting. Items remain
     // restorable for 7 days from the trash dialog. Physical storage files are
     // kept intact until the trash entry is restored or purged.
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("media_items")
       .update({ deleted_at: new Date().toISOString() })
       .eq("id", deleteId)
@@ -1321,7 +1323,7 @@ const MediaPage = () => {
     }
 
     // Soft-delete bulk: move items to trash instead of hard-deleting them.
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("media_items")
       .update({ deleted_at: new Date().toISOString() })
       .in("id", deletableIds)
@@ -1396,7 +1398,7 @@ const MediaPage = () => {
     };
     const widgetOrgId = activeOrgId || defaultOrgId;
     if (!widgetOrgId) { toast.error(t("teamSelectOrg")); return; }
-    const { error } = await (supabase as any).from("media_items").insert({
+    const { error } = await supabase.from("media_items").insert({
       name: widgetForm.name.trim(), type: "widget",
       url: "widget://" + JSON.stringify(config),
       thumbnail: "",
@@ -3086,11 +3088,11 @@ function PreviewInfoPanel({ item, usedInProjects, usedInSchedules, t, uploaderPr
               resolveInfo(`${fps} fps`);
               return;
             }
-            (video as any).requestVideoFrameCallback(countFrames);
+            (video as HTMLVideoElement & { requestVideoFrameCallback: (cb: (now: number, meta: unknown) => void) => void }).requestVideoFrameCallback(countFrames);
           };
           video.playbackRate = 4;
           video.play().then(() => {
-            (video as any).requestVideoFrameCallback(countFrames);
+            (video as HTMLVideoElement & { requestVideoFrameCallback: (cb: (now: number, meta: unknown) => void) => void }).requestVideoFrameCallback(countFrames);
           }).catch(() => resolveInfo(null));
           // Timeout fallback
           setTimeout(() => resolveInfo(null), 5000);

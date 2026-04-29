@@ -64,7 +64,7 @@ export default function DelegationLogPanel({ highlightId }: { highlightId?: stri
 
   const refresh = async () => {
     if (!user) return;
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("delegation_grants")
       .select("*")
       .order("created_at", { ascending: false })
@@ -91,8 +91,9 @@ export default function DelegationLogPanel({ highlightId }: { highlightId?: stri
       body: { grant_id: grantId },
     });
     setRevokingId(null);
-    if (error || (data as any)?.error) {
-      toast.error(t("delegationLogEndAccessFailed") + (error?.message || (data as any)?.error || ""));
+    const dataErr = (data as Record<string, unknown> | null)?.error;
+    if (error || dataErr) {
+      toast.error(t("delegationLogEndAccessFailed") + (error?.message || String(dataErr ?? "")));
       return;
     }
     toast.success(t("delegationLogEndAccessSuccess"));

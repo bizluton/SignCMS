@@ -265,7 +265,7 @@ const CustomerServicePage = () => {
     const { data } = await supabase.from("chat_session_tags").select("session_id, tag_id");
     if (data) {
       const map: Record<string, string[]> = {};
-      data.forEach((st: any) => {
+      data.forEach((st) => {
         if (!map[st.session_id]) map[st.session_id] = [];
         map[st.session_id].push(st.tag_id);
       });
@@ -284,13 +284,13 @@ const CustomerServicePage = () => {
       .order("created_at", { ascending: false });
     if (data) {
       // Get author names
-      const userIds = [...new Set(data.map((n: any) => n.created_by))];
+      const userIds = [...new Set(data.map((n) => n.created_by))];
       const { data: profiles } = await supabase
         .from("profiles")
         .select("user_id, display_name")
         .in("user_id", userIds);
-      const profileMap = new Map((profiles || []).map((p: any) => [p.user_id, p.display_name]));
-      setSessionNotes(data.map((n: any) => ({ ...n, author_name: profileMap.get(n.created_by) || "未知" })));
+      const profileMap = new Map((profiles || []).map((p) => [p.user_id, p.display_name]));
+      setSessionNotes(data.map((n) => ({ ...n, author_name: profileMap.get(n.created_by) || "未知" })));
     }
   }, []);
 
@@ -483,7 +483,7 @@ const CustomerServicePage = () => {
         .select("session_id, rating, feedback")
         .in("session_id", sessionIds);
       const ratingMap = new Map(
-        (ratings || []).map((r: any) => [r.session_id, { rating: r.rating, feedback: r.feedback }])
+        (ratings || []).map((r) => [r.session_id, { rating: r.rating, feedback: r.feedback }])
       );
 
       // Get last message and unread count for each session
@@ -574,7 +574,7 @@ const CustomerServicePage = () => {
             // Play sound for new customer messages
             if (soundEnabled && data.length > prevMessageCountRef.current) {
               const newMsgs = data.slice(prevMessageCountRef.current);
-              if (newMsgs.some((m: any) => m.sender_type === 'customer')) {
+              if (newMsgs.some((m) => m.sender_type === 'customer')) {
                 playNotificationSound();
               }
             }
@@ -638,7 +638,7 @@ const CustomerServicePage = () => {
           table: "customer_chat_messages",
         },
         (payload) => {
-          const msg = payload.new as any;
+          const msg = payload.new as Record<string, unknown>;
           // Play sound for new customer messages in other sessions
           if (msg.sender_type === "customer" && msg.session_id !== selectedSession && soundEnabled) {
             playNotificationSound();

@@ -198,9 +198,8 @@ export default function PublishingCenterPage() {
           .replace("{size}", (res.sizeBytes / (1024 * 1024)).toFixed(2)),
         { id: tId }
       );
-    } catch (err: any) {
-      // User cancelled the directory picker.
-      if (err?.name === "AbortError") {
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") {
         toast.info(t("publishFolderCancelled"), { id: tId });
       } else {
         console.error("Folder export failed", err);
@@ -213,11 +212,15 @@ export default function PublishingCenterPage() {
 
   // Fetch data
   const fetchData = useCallback(async () => {
+    type RawSched = { id: string; name: string; org_id: string | null; screens: { name: string } | null };
+    type RawScreen = { id: string; name: string; branch: string; online: boolean; org_id: string | null; timezone?: string | null };
+    type RawChannel = { id: string; name: string; org_id: string | null; color: string; enabled: boolean; sort_order: number; team_id: string | null; collab_scope: string };
+    type RawProject = { id: string; name: string; org_id: string | null; aspect: string; created_by: string | null; team_id: string | null; collab_scope: string };
     setLoading(true);
-    let schedQ = (supabase as any).from("schedules").select("id, name, org_id, screen_id, screens:screen_id(name)").order("name");
-    let screenQ = (supabase as any).from("screens").select("id, name, branch, online, org_id").order("branch, name");
-    let channelQ = (supabase as any).from("channels").select("id, name, org_id, color, enabled, sort_order, team_id, collab_scope").order("sort_order", { ascending: true }).order("created_at", { ascending: true });
-    let projectQ = (supabase as any).from("design_projects").select("id, name, org_id, aspect, created_by, team_id, collab_scope").order("name");
+    let schedQ = supabase.from("schedules").select("id, name, org_id, screen_id, screens:screen_id(name)").order("name");
+    let screenQ = supabase.from("screens").select("id, name, branch, online, org_id").order("branch").order("name");
+    let channelQ = supabase.from("channels").select("id, name, org_id, color, enabled, sort_order, team_id, collab_scope").order("sort_order", { ascending: true }).order("created_at", { ascending: true });
+    let projectQ = supabase.from("design_projects").select("id, name, org_id, aspect, created_by, team_id, collab_scope").order("name");
     if (activeOrgId) {
       schedQ = schedQ.eq("org_id", activeOrgId);
       screenQ = screenQ.eq("org_id", activeOrgId);
@@ -227,43 +230,43 @@ export default function PublishingCenterPage() {
     const [schedRes, screenRes, recordRes, channelRes, projectRes] = await Promise.all([
       schedQ,
       screenQ,
-      (supabase as any).from("publish_records").select("*").order("created_at", { ascending: false }).limit(50),
+      supabase.from("publish_records").select("*").order("created_at", { ascending: false }).limit(50),
       channelQ,
       projectQ,
     ]);
 
-    const { data: itemCounts } = await (supabase as any).from("schedule_items").select("schedule_id");
+    const { data: itemCounts } = await supabase.from("schedule_items").select("schedule_id");
     const countMap = new Map<string, number>();
-    (itemCounts || []).forEach((i: any) => {
+    (itemCounts || []).forEach((i) => {
       countMap.set(i.schedule_id, (countMap.get(i.schedule_id) || 0) + 1);
     });
 
-    setSchedules((schedRes.data || []).map((s: any) => ({
+    setSchedules(((schedRes.data || []) as RawSched[]).map((s) => ({
       id: s.id,
       name: s.name,
       org_id: s.org_id || null,
       screen_name: s.screens?.name || "-",
       items_count: countMap.get(s.id) || 0,
     })));
-    setScreens((screenRes.data || []).map((s: any) => ({ ...s, org_id: s.org_id || null })) as ScreenOption[]);
+    setScreens(((screenRes.data || []) as RawScreen[]).map((s) => ({ ...s, org_id: s.org_id || null })) as ScreenOption[]);
     setRecords((recordRes.data || []) as PublishRecord[]);
-    const rawChannels = (channelRes.data || []) as any[];
-    const rawProjects = (projectRes.data || []) as any[];
+    const rawChannels = (channelRes.data || []) as RawChannel[];
+    const rawProjects = (projectRes.data || []) as RawProject[];
     const creatorIds = Array.from(new Set(rawProjects.map((p) => p.created_by).filter(Boolean) as string[]));
-    let creatorMap = new Map<string, string>();
-    let teamMap = new Map<string, string>();
+    const creatorMap = new Map<string, string>();
+    const teamMap = new Map<string, string>();
     // Resolve team names from project.team_id and channel.team_id together
     const allTeamIds = Array.from(new Set([
       ...rawProjects.map((p) => p.team_id).filter(Boolean) as string[],
       ...rawChannels.map((c) => c.team_id).filter(Boolean) as string[],
     ]));
-    let projectTeamNames = new Map<string, string>();
+    const projectTeamNames = new Map<string, string>();
     if (allTeamIds.length > 0) {
-      const { data: ptData } = await (supabase as any)
+      const { data: ptData } = await supabase
         .from("teams").select("id, name").in("id", allTeamIds);
-      (ptData || []).forEach((tm: any) => projectTeamNames.set(tm.id, tm.name));
+      (ptData || []).forEach((tm) => projectTeamNames.set(tm.id, tm.name));
     }
-    setChannels(rawChannels.map((c: any) => ({
+    setChannels(rawChannels.map((c) => ({
       id: c.id,
       name: c.name,
       org_id: c.org_id || null,
@@ -275,27 +278,27 @@ export default function PublishingCenterPage() {
     })) as ChannelOption[]);
     if (creatorIds.length > 0) {
       const [profRes, memRes] = await Promise.all([
-        (supabase as any).from("profiles").select("user_id, display_name").in("user_id", creatorIds),
-        (supabase as any).from("team_members").select("user_id, team_id").in("user_id", creatorIds),
+        supabase.from("profiles").select("user_id, display_name").in("user_id", creatorIds),
+        supabase.from("team_members").select("user_id, team_id").in("user_id", creatorIds),
       ]);
-      (profRes.data || []).forEach((p: any) => {
+      (profRes.data || []).forEach((p) => {
         creatorMap.set(p.user_id, p.display_name || "");
       });
       // Fetch teams referenced by these memberships
-      const teamIds = Array.from(new Set((memRes.data || []).map((m: any) => m.team_id).filter(Boolean)));
-      let teamsById = new Map<string, { name: string; org_id: string }>();
+      const teamIds = Array.from(new Set((memRes.data || []).map((m) => m.team_id).filter(Boolean)));
+      const teamsById = new Map<string, { name: string; org_id: string }>();
       if (teamIds.length > 0) {
-        const { data: teamsData } = await (supabase as any)
+        const { data: teamsData } = await supabase
           .from("teams")
           .select("id, name, org_id")
           .in("id", teamIds);
-        (teamsData || []).forEach((t: any) => {
+        (teamsData || []).forEach((t) => {
           teamsById.set(t.id, { name: t.name, org_id: t.org_id });
         });
       }
       // For each user, list of teams (with org)
       const userTeams = new Map<string, Array<{ name: string; org_id: string }>>();
-      (memRes.data || []).forEach((m: any) => {
+      (memRes.data || []).forEach((m) => {
         const team = teamsById.get(m.team_id);
         if (!team) return;
         const arr = userTeams.get(m.user_id) || [];
@@ -309,7 +312,7 @@ export default function PublishingCenterPage() {
         if (match) teamMap.set(`${p.id}`, match.name);
       });
     }
-    setDesignProjects(rawProjects.map((p: any) => ({
+    setDesignProjects(rawProjects.map((p) => ({
       id: p.id,
       name: p.name,
       org_id: p.org_id || null,
@@ -497,7 +500,7 @@ export default function PublishingCenterPage() {
       }));
     });
 
-    const { error } = await (supabase as any).from("publish_records").insert(inserts);
+    const { error } = await supabase.from("publish_records").insert(inserts);
     if (error) {
       toast.error(error.message);
     } else {
@@ -562,7 +565,7 @@ export default function PublishingCenterPage() {
       published_by: user?.id,
     }));
 
-    const { error } = await (supabase as any).from("publish_records").insert(inserts);
+    const { error } = await supabase.from("publish_records").insert(inserts);
     if (error) {
       toast.error(error.message);
     } else {
@@ -584,7 +587,7 @@ export default function PublishingCenterPage() {
   const handleRestoreNormal = async () => {
     setRestoring(true);
     // Update all emergency records to "restored"
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("publish_records")
       .update({ status: "restored" })
       .eq("status", "emergency");

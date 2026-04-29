@@ -48,7 +48,7 @@ const QueuePage = () => {
     } catch { setCurrentNumber(1); }
     try {
       const saved = localStorage.getItem(k("signboard-queue-records"));
-      if (saved) setRecords(JSON.parse(saved).map((r: any) => ({ ...r, calledAt: new Date(r.calledAt) })));
+      if (saved) setRecords((JSON.parse(saved) as Array<Record<string, unknown>>).map((r) => ({ ...r, calledAt: new Date(r.calledAt as string) } as QueueRecord)));
       else setRecords([]);
     } catch { setRecords([]); }
   }, []);

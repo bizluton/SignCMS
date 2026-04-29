@@ -24,7 +24,7 @@ export function CSAgentCards() {
         supabase.from("customer_chat_sessions").select("id", { count: "exact", head: true }).gte("created_at", todayStart.toISOString()),
       ]);
 
-      const sessionIds = (openSessionsRes.data || []).map((s: any) => s.id);
+      const sessionIds = (openSessionsRes.data || []).map((s) => s.id);
       if (sessionIds.length > 0) {
         const { count } = await supabase
           .from("customer_chat_messages")
