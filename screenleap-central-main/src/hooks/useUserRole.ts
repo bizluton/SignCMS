@@ -25,7 +25,7 @@ export function useUserRole() {
     const fetchRole = async () => {
       setLoading(true);
       try {
-        const [{ data: rolesData, error: rolesError }, { data: csData, error: csError }] = await Promise.all([
+        const [{ data: rolesData, error: rolesError }, { data: csData, error: csError }, { data: sysAdminData }] = await Promise.all([
           supabase
             .from("user_roles")
             .select("role")
@@ -36,6 +36,11 @@ export function useUserRole() {
             .eq("user_id", user.id)
             .eq("status", "active")
             .maybeSingle(),
+          supabase
+            .from("system_admins")
+            .select("user_id")
+            .eq("user_id", user.id)
+            .maybeSingle(),
         ]);
 
         if (cancelled) return;
@@ -43,7 +48,8 @@ export function useUserRole() {
         if (csError) throw csError;
 
         const roles = rolesData?.map((r) => r.role) ?? [];
-        const csAgent = !!csData;
+        // System admins automatically inherit CS agent permissions
+        const csAgent = !!csData || !!sysAdminData;
         const admin = roles.includes("admin");
         const orgAdmin = roles.includes("org_admin");
 
