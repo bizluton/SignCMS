@@ -131,7 +131,7 @@ export function ProfilesProvider({ children }: { children: ReactNode }) {
     userId: string,
     patch: { display_name?: string | null; avatar_url?: string | null }
   ) => {
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("profiles")
       .update(patch)
       .eq("user_id", userId);

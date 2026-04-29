@@ -71,7 +71,7 @@ export async function logActivity(params: LogActivityParams) {
       }
     }
 
-    await (supabase as any).from("activity_logs").insert({
+    await supabase.from("activity_logs").insert({
       user_id: user.id,
       action: params.action,
       action_code: params.action,

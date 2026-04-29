@@ -60,6 +60,133 @@ export interface ReferenceReport {
   hasAny: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Internal row-shape interfaces for joined query results
+// ---------------------------------------------------------------------------
+
+/** Shape of a `channels` row when selected with `.select("id, name")`. */
+interface ChannelNameRow {
+  id: string;
+  name: string | null;
+}
+
+/**
+ * Shape of a `channel_allowed_projects` row selected with
+ * `.select("id, channel_id, channels(name)")`.
+ */
+interface ChannelAllowedProjectRow {
+  id: string;
+  channel_id: string;
+  channels: { name: string | null } | null;
+}
+
+/**
+ * Shape of a `channel_blocks` row selected with
+ * `.select("id, channel_id, channels(name)")`.
+ */
+interface ChannelBlockJoinRow {
+  id: string;
+  channel_id: string;
+  channels: { name: string | null } | null;
+}
+
+/** Shape of a `media_items` row selected with `.select("id, name")`. */
+interface MediaNameRow {
+  id: string;
+  name: string | null;
+}
+
+/**
+ * Shape of a `schedule_items` row selected with
+ * `.select("schedule_id, schedules:schedule_id(name)")`.
+ * `schedule_items` is not in the generated types, so this is used with
+ * `(supabase as unknown as SupabaseAny)`.
+ */
+interface ScheduleItemRow {
+  schedule_id: string;
+  schedules: { name: string | null } | null;
+}
+
+/** Shape returned by `design_project_delete_requests` upsert `.select("id").single()`. */
+interface DeleteRequestIdRow {
+  id: string;
+}
+
+/** Shape returned by `design_project_delete_requests` `.select("design_project_id")`. */
+interface DesignProjectDeletePendingRow {
+  design_project_id: string;
+}
+
+/** Shape returned by `channel_delete_requests` `.select("channel_id")`. */
+interface ChannelDeletePendingRow {
+  channel_id: string;
+}
+
+/**
+ * Shape of a `screen_channel_subscriptions` row selected with
+ * `.select("id, screen_id, screens:screen_id(name)")`.
+ */
+interface ScreenChannelSubRow {
+  id: string;
+  screen_id: string;
+  screens: { name: string | null } | null;
+}
+
+/** Shape of a `publish_records` row selected with `.select("id, screen_name, created_at")`. */
+interface PublishRecordRow {
+  id: string;
+  screen_name: string | null;
+  created_at: string;
+}
+
+/**
+ * Shape of a `channel_bgm_items` row selected with
+ * `.select("id, media_id, media_items:media_id(name)")`.
+ */
+interface ChannelBgmItemRow {
+  id: string;
+  media_id: string;
+  media_items: { name: string | null } | null;
+}
+
+/**
+ * Shape of a `channel_allowed_projects` row selected with
+ * `.select("id, design_projects:design_project_id(name)")`.
+ */
+interface ChannelAllowedProjectNameRow {
+  id: string;
+  design_projects: { name: string | null } | null;
+}
+
+/** Shape of a `channel_blocks` row selected with `.select("id, name")`. */
+interface ChannelBlockNameRow {
+  id: string;
+  name: string | null;
+}
+
+/**
+ * Shape of a `screen_channel_switch_triggers` row selected with
+ * `.select("id, screen_id, trigger_type, screens:screen_id(name)")`.
+ */
+interface ScreenChannelSwitchTriggerRow {
+  id: string;
+  screen_id: string | null;
+  trigger_type: string | null;
+  screens: { name: string | null } | null;
+}
+
+/**
+ * Minimal Supabase client interface used only for tables absent from the
+ * generated types (e.g. `schedule_items`, `schedules`).
+ */
+interface SupabaseAny {
+  from: (table: string) => ReturnType<typeof supabase.from>;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 const dedupe = (arr: (string | null | undefined)[]): string[] => {
   const out: string[] = [];
   for (const v of arr) {
@@ -75,6 +202,10 @@ const buildReport = (groups: ReferenceGroup[]): ReferenceReport => {
   return { groups: filtered, total, hasAny: total > 0 };
 };
 
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 /**
  * Check whether a design project is referenced anywhere that should block deletion:
  * channel default project, channel allowed list, channel scheduled blocks,
@@ -85,22 +216,22 @@ export async function checkDesignProjectReferences(
   limitPerSource = 10,
 ): Promise<ReferenceReport> {
   const [mediaRes, defaultChRes, allowedChRes, blockChRes] = await Promise.all([
-    (supabase as any)
+    supabase
       .from("media_items")
       .select("id, name")
       .eq("design_project_id", projectId)
       .limit(limitPerSource),
-    (supabase as any)
+    supabase
       .from("channels")
       .select("id, name")
       .eq("default_design_project_id", projectId)
       .limit(limitPerSource),
-    (supabase as any)
+    supabase
       .from("channel_allowed_projects")
       .select("id, channel_id, channels(name)")
       .eq("design_project_id", projectId)
       .limit(limitPerSource),
-    (supabase as any)
+    supabase
       .from("channel_blocks")
       .select("id, channel_id, channels(name)")
       .eq("design_project_id", projectId)
@@ -108,21 +239,21 @@ export async function checkDesignProjectReferences(
   ]);
 
   const channelItems: ReferenceItem[] = [];
-  for (const c of (defaultChRes?.data ?? []) as any[]) {
+  for (const c of (defaultChRes?.data ?? []) as ChannelNameRow[]) {
     if (c?.name) channelItems.push({ name: `${c.name} (default)`, unassign: { source: "channel_default", channelId: c.id } });
   }
-  for (const r of (allowedChRes?.data ?? []) as any[]) {
+  for (const r of (allowedChRes?.data ?? []) as ChannelAllowedProjectRow[]) {
     const name = r?.channels?.name;
     if (name) channelItems.push({ name: `${name} (allowed)`, unassign: { source: "channel_allowed_projects", rowId: r.id } });
   }
-  for (const r of (blockChRes?.data ?? []) as any[]) {
+  for (const r of (blockChRes?.data ?? []) as ChannelBlockJoinRow[]) {
     const name = r?.channels?.name;
     if (name) channelItems.push({ name: `${name} (block)`, unassign: { source: "channel_blocks", rowId: r.id } });
   }
 
-  const mediaItems: ReferenceItem[] = ((mediaRes?.data ?? []) as any[])
+  const mediaItems: ReferenceItem[] = ((mediaRes?.data ?? []) as MediaNameRow[])
     .filter((m) => m?.name)
-    .map((m) => ({ name: m.name, unassign: { source: "media_items", mediaId: m.id } as const }));
+    .map((m) => ({ name: m.name as string, unassign: { source: "media_items", mediaId: m.id } as const }));
 
   return buildReport([
     {
@@ -148,43 +279,43 @@ export async function unassignProjectReference(item: ReferenceItem): Promise<voi
   const u = item.unassign;
   if (!u) throw new Error("Reference has no unassign target");
   if (u.source === "channel_default") {
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("channels")
       .update({ default_design_project_id: null })
       .eq("id", u.channelId);
     if (error) throw error;
   } else if (u.source === "channel_allowed_projects") {
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("channel_allowed_projects")
       .delete()
       .eq("id", u.rowId);
     if (error) throw error;
   } else if (u.source === "channel_blocks") {
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("channel_blocks")
       .delete()
       .eq("id", u.rowId);
     if (error) throw error;
   } else if (u.source === "media_items") {
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("media_items")
       .update({ design_project_id: null })
       .eq("id", u.mediaId);
     if (error) throw error;
   } else if (u.source === "screen_channel_subscriptions") {
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("screen_channel_subscriptions")
       .delete()
       .eq("id", u.rowId);
     if (error) throw error;
   } else if (u.source === "channel_bgm_items") {
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("channel_bgm_items")
       .delete()
       .eq("id", u.rowId);
     if (error) throw error;
   } else if (u.source === "screen_channel_switch_triggers") {
-    const { error } = await (supabase as any)
+    const { error } = await supabase
       .from("screen_channel_switch_triggers")
       .delete()
       .eq("id", u.rowId);
@@ -202,7 +333,7 @@ export async function queueDesignProjectDelete(args: {
   userId: string;
   reason?: string;
 }): Promise<{ id: string } | { error: string }> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("design_project_delete_requests")
     .upsert(
       {
@@ -217,11 +348,11 @@ export async function queueDesignProjectDelete(args: {
     .select("id")
     .single();
   if (error) return { error: error.message };
-  return { id: (data as any).id };
+  return { id: (data as DeleteRequestIdRow).id };
 }
 
 export async function cancelDesignProjectDelete(projectId: string): Promise<void> {
-  await (supabase as any)
+  await supabase
     .from("design_project_delete_requests")
     .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
     .eq("design_project_id", projectId)
@@ -233,12 +364,12 @@ export async function fetchPendingDeleteRequests(
 ): Promise<Set<string>> {
   const out = new Set<string>();
   if (projectIds.length === 0) return out;
-  const { data } = await (supabase as any)
+  const { data } = await supabase
     .from("design_project_delete_requests")
     .select("design_project_id")
     .in("design_project_id", projectIds)
     .eq("status", "pending");
-  for (const row of (data ?? []) as any[]) {
+  for (const row of (data ?? []) as DesignProjectDeletePendingRow[]) {
     if (row?.design_project_id) out.add(row.design_project_id);
   }
   return out;
@@ -255,12 +386,13 @@ export async function checkMediaReferences(
   mediaId: string,
   projectRefs: MediaProjectRef[],
 ): Promise<ReferenceReport> {
-  const { data: scheduleItems } = await (supabase as any)
+  // `schedule_items` is not in the generated DB types; use the escape hatch.
+  const { data: scheduleItems } = await (supabase as unknown as SupabaseAny)
     .from("schedule_items")
     .select("schedule_id, schedules:schedule_id(name)")
     .eq("media_id", mediaId);
 
-  const schedules = dedupe(((scheduleItems ?? []) as any[]).map((si) => si?.schedules?.name));
+  const schedules = dedupe(((scheduleItems ?? []) as ScheduleItemRow[]).map((si) => si?.schedules?.name));
   const projects = dedupe(projectRefs.map((p) => p?.name));
 
   return buildReport([
@@ -280,13 +412,14 @@ export async function checkMediaReferencesBatch(
   const result = new Map<string, ReferenceReport>();
   if (mediaIds.length === 0) return result;
 
-  const { data: scheduleHits } = await (supabase as any)
+  // `schedule_items` is not in the generated DB types; use the escape hatch.
+  const { data: scheduleHits } = await (supabase as unknown as SupabaseAny)
     .from("schedule_items")
     .select("media_id, schedules:schedule_id(name)")
     .in("media_id", mediaIds);
 
   const schedulesByMedia = new Map<string, string[]>();
-  for (const row of (scheduleHits ?? []) as any[]) {
+  for (const row of (scheduleHits ?? []) as (ScheduleItemRow & { media_id: string })[]) {
     const mid = row?.media_id;
     const name = row?.schedules?.name;
     if (!mid || !name) continue;
@@ -315,7 +448,7 @@ export async function checkMediaReferencesBatch(
  */
 export function formatReferenceReport(
   report: ReferenceReport,
-  t: (key: any) => string,
+  t: (key: ReferenceGroup["labelKey"]) => string,
 ): string {
   return report.groups.map((g) => `${t(g.labelKey)}: ${g.names.join(", ")}`).join("\n");
 }
@@ -339,67 +472,67 @@ export async function checkChannelReferences(
   limitPerSource = 25,
 ): Promise<ReferenceReport> {
   const [subRes, pubRes, bgmRes, allowedRes, blockRes, trgRes] = await Promise.all([
-    (supabase as any)
+    supabase
       .from("screen_channel_subscriptions")
       .select("id, screen_id, screens:screen_id(name)")
       .eq("channel_id", channelId)
       .limit(limitPerSource),
-    (supabase as any)
+    supabase
       .from("publish_records")
       .select("id, screen_name, created_at")
       .eq("channel_id", channelId)
       .order("created_at", { ascending: false })
       .limit(limitPerSource),
-    (supabase as any)
+    supabase
       .from("channel_bgm_items")
       .select("id, media_id, media_items:media_id(name)")
       .eq("channel_id", channelId)
       .limit(limitPerSource),
-    (supabase as any)
+    supabase
       .from("channel_allowed_projects")
       .select("id, design_projects:design_project_id(name)")
       .eq("channel_id", channelId)
       .limit(limitPerSource),
-    (supabase as any)
+    supabase
       .from("channel_blocks")
       .select("id, name")
       .eq("channel_id", channelId)
       .limit(limitPerSource),
-    (supabase as any)
+    supabase
       .from("screen_channel_switch_triggers")
       .select("id, screen_id, trigger_type, screens:screen_id(name)")
       .eq("target_channel_id", channelId)
       .limit(limitPerSource),
   ]);
 
-  const subItems: ReferenceItem[] = ((subRes?.data ?? []) as any[])
+  const subItems: ReferenceItem[] = ((subRes?.data ?? []) as ScreenChannelSubRow[])
     .filter((r) => r?.screens?.name)
     .map((r) => ({
-      name: r.screens.name as string,
+      name: r.screens!.name as string,
       link: `/screens?focus=${r.screen_id}`,
       unassign: { source: "screen_channel_subscriptions", rowId: r.id } as const,
     }));
-  const pubItems: ReferenceItem[] = ((pubRes?.data ?? []) as any[])
+  const pubItems: ReferenceItem[] = ((pubRes?.data ?? []) as PublishRecordRow[])
     .filter((r) => r?.screen_name)
     .map((r) => ({ name: r.screen_name as string, link: `/publishing` }));
-  const bgmItems: ReferenceItem[] = ((bgmRes?.data ?? []) as any[])
+  const bgmItems: ReferenceItem[] = ((bgmRes?.data ?? []) as ChannelBgmItemRow[])
     .filter((r) => r?.media_items?.name)
     .map((r) => ({
-      name: r.media_items.name as string,
+      name: r.media_items!.name as string,
       link: `/media?focus=${r.media_id}`,
       unassign: { source: "channel_bgm_items", rowId: r.id } as const,
     }));
-  const allowedItems: ReferenceItem[] = ((allowedRes?.data ?? []) as any[])
+  const allowedItems: ReferenceItem[] = ((allowedRes?.data ?? []) as ChannelAllowedProjectNameRow[])
     .filter((r) => r?.design_projects?.name)
     .map((r) => ({
-      name: r.design_projects.name as string,
+      name: r.design_projects!.name as string,
       link: `/studio`,
       unassign: { source: "channel_allowed_projects", rowId: r.id } as const,
     }));
-  const blockItems: ReferenceItem[] = ((blockRes?.data ?? []) as any[])
+  const blockItems: ReferenceItem[] = ((blockRes?.data ?? []) as ChannelBlockNameRow[])
     .filter((r) => r?.name && (r.name as string).length > 0)
     .map((r) => ({ name: r.name as string, unassign: { source: "channel_blocks", rowId: r.id } as const }));
-  const trgItems: ReferenceItem[] = ((trgRes?.data ?? []) as any[]).map((r) => {
+  const trgItems: ReferenceItem[] = ((trgRes?.data ?? []) as ScreenChannelSwitchTriggerRow[]).map((r) => {
     const screen = r?.screens?.name ?? "—";
     return {
       name: `${screen} (${r?.trigger_type ?? "?"})`,
@@ -433,7 +566,7 @@ export async function queueChannelDelete(args: {
   userId: string;
   reason?: string;
 }): Promise<{ id: string } | { error: string }> {
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("channel_delete_requests")
     .upsert(
       {
@@ -448,11 +581,11 @@ export async function queueChannelDelete(args: {
     .select("id")
     .single();
   if (error) return { error: error.message };
-  return { id: (data as any).id };
+  return { id: (data as DeleteRequestIdRow).id };
 }
 
 export async function cancelChannelDelete(channelId: string): Promise<void> {
-  await (supabase as any)
+  await supabase
     .from("channel_delete_requests")
     .update({ status: "cancelled", cancelled_at: new Date().toISOString() })
     .eq("channel_id", channelId)
@@ -464,12 +597,12 @@ export async function fetchPendingChannelDeleteRequests(
 ): Promise<Set<string>> {
   const out = new Set<string>();
   if (channelIds.length === 0) return out;
-  const { data } = await (supabase as any)
+  const { data } = await supabase
     .from("channel_delete_requests")
     .select("channel_id")
     .in("channel_id", channelIds)
     .eq("status", "pending");
-  for (const row of (data ?? []) as any[]) {
+  for (const row of (data ?? []) as ChannelDeletePendingRow[]) {
     if (row?.channel_id) out.add(row.channel_id);
   }
   return out;

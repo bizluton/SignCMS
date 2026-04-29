@@ -18,24 +18,27 @@ function nextResponse(table: string): { data: unknown; error: unknown } {
   return queue.shift()!;
 }
 
+type MockResponse = { data: unknown; error: unknown };
+type MockChain = Record<string, (...args: unknown[]) => unknown>;
+
 function makeQuery(table: string) {
-  const chain: any = {
+  const chain: MockChain = {
     select(..._a: unknown[]) { mocks.fromCalls.push({ table, method: "select", args: _a }); return chain; },
     eq(..._a: unknown[]) { mocks.fromCalls.push({ table, method: "eq", args: _a }); return chain; },
     in(..._a: unknown[]) { mocks.fromCalls.push({ table, method: "in", args: _a }); return chain; },
     insert(rows: unknown) {
       mocks.fromCalls.push({ table, method: "insert", args: [rows] });
       const promise = Promise.resolve(nextResponse(table));
-      const insertChain: any = {
+      const insertChain: MockChain = {
         select: () => insertChain,
         single: () => Promise.resolve(nextResponse(table)),
-        then: (res: any, rej: any) => promise.then(res, rej),
+        then: (res: (v: MockResponse) => unknown, rej: (e: unknown) => unknown) => promise.then(res, rej),
       };
       return insertChain;
     },
     update(values: unknown) {
       mocks.fromCalls.push({ table, method: "update", args: [values] });
-      const updateChain: any = {
+      const updateChain: MockChain = {
         eq: () => Promise.resolve(nextResponse(table)),
         in: () => Promise.resolve(nextResponse(table)),
       };
@@ -43,7 +46,7 @@ function makeQuery(table: string) {
     },
     delete() {
       mocks.fromCalls.push({ table, method: "delete", args: [] });
-      const deleteChain: any = {
+      const deleteChain: MockChain = {
         eq: () => Promise.resolve(nextResponse(table)),
       };
       return deleteChain;
@@ -164,13 +167,14 @@ describe("useKnowledgeItems", () => {
 
     const insertItem = fromCalls.find((c) => c.table === "knowledge_items" && c.method === "insert");
     expect(insertItem).toBeDefined();
-    expect((insertItem!.args[0] as any).title).toBe("Hello");
-    expect((insertItem!.args[0] as any).org_id).toBe("org-1");
-    expect((insertItem!.args[0] as any).created_by).toBe("user-1");
+    const insertedRow = insertItem!.args[0] as Record<string, unknown>;
+    expect(insertedRow.title).toBe("Hello");
+    expect(insertedRow.org_id).toBe("org-1");
+    expect(insertedRow.created_by).toBe("user-1");
 
     const insertTags = fromCalls.find((c) => c.table === "knowledge_item_tags" && c.method === "insert");
     expect(insertTags).toBeDefined();
-    expect((insertTags!.args[0] as any[]).map((r) => r.tag_id)).toEqual(["t1", "t2"]);
+    expect((insertTags!.args[0] as Array<{ tag_id: string }>).map((r) => r.tag_id)).toEqual(["t1", "t2"]);
 
     expect(toastMock.success).toHaveBeenCalledWith("知識點已新增");
   });

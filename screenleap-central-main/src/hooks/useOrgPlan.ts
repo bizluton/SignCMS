@@ -62,13 +62,13 @@ export function useOrgPlan() {
     }
     setLoading(true);
     const [{ data: org }, { data: media }, { count: screenCount }] = await Promise.all([
-      (supabase as any).from("organizations").select("plan_tier").eq("id", activeOrgId).single(),
-      (supabase as any).from("media_items").select("size_bytes").eq("org_id", activeOrgId).is("deleted_at", null),
-      (supabase as any).from("screens").select("id", { count: "exact", head: true }).eq("org_id", activeOrgId),
+      supabase.from("organizations").select("plan_tier").eq("id", activeOrgId).single(),
+      supabase.from("media_items").select("size_bytes").eq("org_id", activeOrgId).is("deleted_at", null),
+      supabase.from("screens").select("id", { count: "exact", head: true }).eq("org_id", activeOrgId),
     ]);
     setTier((org?.plan_tier as PlanTier) ?? "evaluation");
     const totalBytes = (media || []).reduce(
-      (sum: number, m: any) => sum + (Number(m.size_bytes) || 0),
+      (sum: number, m: { size_bytes?: unknown }) => sum + (Number(m.size_bytes) || 0),
       0
     );
     setUsage({ mediaBytes: totalBytes, screens: screenCount ?? 0 });

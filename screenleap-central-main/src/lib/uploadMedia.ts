@@ -168,7 +168,7 @@ export async function uploadMediaFile(
 
   // MD5 dedup pre-check (within org)
   const md5 = await computeFileMd5(workingFile);
-  const dup: any = await (supabase as any)
+  const dup = await supabase
     .from("media_items")
     .select("id, original_name")
     .eq("org_id", options.orgId)

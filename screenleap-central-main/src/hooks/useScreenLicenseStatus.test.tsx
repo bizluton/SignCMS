@@ -14,7 +14,7 @@ vi.mock("@/integrations/supabase/client", () => ({
     channel: (name: string) => {
       const entry: ChannelHandlers = { handlers: [], subscribed: false };
       channels.set(name, entry);
-      const obj: any = {
+      const obj: { on: typeof obj.on; subscribe: () => typeof obj } = {
         on: (_evt: string, _opts: unknown, cb: RealtimeCb) => {
           entry.handlers.push(cb);
           return obj;

@@ -36,10 +36,10 @@ export function useOrgLicense() {
         .single();
 
       if (data) {
-        const expiresAt = new Date((data as any).license_expires_at);
+        const expiresAt = new Date(data.license_expires_at ?? "");
         const daysLeft = Math.ceil((expiresAt.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
         setLicense({
-          plan: (data as any).license_plan,
+          plan: data.license_plan ?? "",
           expiresAt,
           daysLeft,
           expired: daysLeft <= 0,

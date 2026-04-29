@@ -23,7 +23,7 @@ export async function logScreenEvent(params: LogScreenEventParams) {
   try {
     if (!params.screenId || !params.orgId) return;
     const { data: { user } } = await supabase.auth.getUser();
-    await (supabase as any).from("screen_logs").insert({
+    await supabase.from("screen_logs").insert({
       screen_id: params.screenId,
       org_id: params.orgId,
       event_type: params.eventType,
@@ -56,7 +56,7 @@ export async function logScreenEvents(rows: Array<LogScreenEventParams>) {
       event_detail: r.eventDetail || "",
       created_by: user?.id || null,
     }));
-    await (supabase as any).from("screen_logs").insert(payload);
+    await supabase.from("screen_logs").insert(payload);
   } catch {
     // silent
   }

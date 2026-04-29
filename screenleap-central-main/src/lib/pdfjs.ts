@@ -3,8 +3,8 @@ import * as pdfjsLib from "pdfjs-dist";
 // @ts-ignore
 import PdfWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
-if (typeof window !== "undefined" && !(pdfjsLib as any).GlobalWorkerOptions.workerSrc) {
-  (pdfjsLib as any).GlobalWorkerOptions.workerSrc = PdfWorker;
+if (typeof window !== "undefined" && !pdfjsLib.GlobalWorkerOptions.workerSrc) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = PdfWorker;
 }
 
 export const pdfjs = pdfjsLib;

@@ -17,7 +17,7 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-export async function saveLastFolderHandle(handle: any): Promise<void> {
+export async function saveLastFolderHandle(handle: FileSystemDirectoryHandle): Promise<void> {
   try {
     const db = await openDb();
     await new Promise<void>((res, rej) => {
@@ -31,7 +31,7 @@ export async function saveLastFolderHandle(handle: any): Promise<void> {
   }
 }
 
-export async function loadLastFolderHandle(): Promise<any | null> {
+export async function loadLastFolderHandle(): Promise<FileSystemDirectoryHandle | null> {
   try {
     const db = await openDb();
     return await new Promise((res, rej) => {

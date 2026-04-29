@@ -9,6 +9,30 @@ import { isCatalogWidgetId } from "@/hooks/useWidgets";
  *  ids like `cat-widget-…` or `text-…` and must be skipped. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+interface WidgetMediaEntry {
+  id: string; name: string; original_name: string; type: string;
+  mime_type: string; size_bytes: number;
+  width: null; height: null; duration_seconds: null;
+  assetPath: string | null; widgetConfig?: unknown;
+}
+interface DesignRow {
+  id: string; name: string; aspect: string;
+  zones: Array<{ content?: ZoneContent; overlays?: Array<{ content?: ZoneContent }>; bgm?: { items?: Array<{ id?: unknown }> } }>;
+  updated_at: string; created_at: string;
+}
+interface ZoneContent { mediaItems?: Array<{ id?: unknown; type?: string }> }
+interface MediaRow {
+  id: string; name: string; original_name: string | null; type: string;
+  mime_type: string | null; url: string | null; size_bytes: number;
+  width: number | null; height: number | null; duration_seconds: number | null;
+  transcode_status: string | null;
+}
+interface ItemRow { media_id: string | null; design_project_id: string | null; item_type: string; duration: number; sort_order: number; }
+interface BgmRow { media_id: string | null; sort_order: number; }
+type WindowWithFSA = Window & {
+  showDirectoryPicker?: (opts?: { mode?: string }) => Promise<FileSystemDirectoryHandle>;
+};
+
 /**
  * Build virtual `media` manifest entries for widget items so the Local Player
  * can render them offline. System widgets resolve from the local constants;
@@ -16,9 +40,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * Returned entries follow the same shape as real media rows but with
  * `mime_type: "application/x-widget"` and an embedded `widgetConfig`.
  */
-async function buildWidgetMediaEntries(widgetIds: Set<string>): Promise<any[]> {
+async function buildWidgetMediaEntries(widgetIds: Set<string>): Promise<WidgetMediaEntry[]> {
   if (widgetIds.size === 0) return [];
-  const out: any[] = [];
+  const out: WidgetMediaEntry[] = [];
   const catalogUuids: string[] = [];
   for (const id of widgetIds) {
     if (isSystemWidgetId(id)) {
@@ -37,7 +61,7 @@ async function buildWidgetMediaEntries(widgetIds: Set<string>): Promise<any[]> {
     }
   }
   if (catalogUuids.length > 0) {
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("widgets")
       .select("id, name, name_i18n, config")
       .in("id", catalogUuids);
@@ -63,7 +87,7 @@ function isWidgetId(id: string | null | undefined): boolean {
  * and return them in the same shape as `schedule_bgm_items` rows so they can
  * be merged into `manifest.bgm` for the Local Player.
  */
-function collectDesignBgm(designRows: any[]): { media_id: string; sort_order: number }[] {
+function collectDesignBgm(designRows: DesignRow[]): { media_id: string; sort_order: number }[] {
   const seen = new Set<string>();
   const out: { media_id: string; sort_order: number }[] = [];
   let order = 1000; // sort after schedule-level BGM
@@ -143,19 +167,19 @@ export interface ExportScheduleFolderResult {
 }
 
 export function isFolderExportSupported(): boolean {
-  return typeof window !== "undefined" && typeof (window as any).showDirectoryPicker === "function";
+  return typeof window !== "undefined" && typeof (window as WindowWithFSA).showDirectoryPicker === "function";
 }
 
 export async function exportScheduleToZip(input: ExportScheduleInput): Promise<ExportScheduleResult> {
   const { scheduleId, fallbackName, orgId, userId, source = "schedules", skipDownload, skipLog } = input;
 
-  const { data: schedRow } = await (supabase as any)
+  const { data: schedRow } = await supabase
     .from("schedules").select("*").eq("id", scheduleId).single();
-  const { data: itemRows } = await (supabase as any)
+  const { data: itemRows } = await supabase
     .from("schedule_items")
     .select("id, media_id, design_project_id, item_type, sort_order, duration")
     .eq("schedule_id", scheduleId).order("sort_order");
-  const { data: bgmRows } = await (supabase as any)
+  const { data: bgmRows } = await supabase
     .from("schedule_bgm_items")
     .select("id, media_id, sort_order")
     .eq("schedule_id", scheduleId).order("sort_order");
@@ -173,14 +197,14 @@ export async function exportScheduleToZip(input: ExportScheduleInput): Promise<E
   }
   for (const b of bgmRows || []) if (b.media_id) mediaIds.add(String(b.media_id));
 
-  let designRows: any[] = [];
+  let designRows: DesignRow[] = [];
   if (designIds.size > 0) {
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("design_projects")
       .select("id, name, aspect, zones, updated_at, created_at")
       .in("id", Array.from(designIds));
-    designRows = data || [];
-    const walk = (content: any) => {
+    designRows = (data || []) as DesignRow[];
+    const walk = (content: ZoneContent | null | undefined) => {
       if (!content) return;
       if (Array.isArray(content.mediaItems)) {
         for (const m of content.mediaItems) {
@@ -211,18 +235,18 @@ export async function exportScheduleToZip(input: ExportScheduleInput): Promise<E
     }
   }
 
-  let mediaRows: any[] = [];
+  let mediaRows: MediaRow[] = [];
   if (mediaIds.size > 0) {
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("media_items")
       .select("id, name, original_name, type, mime_type, url, size_bytes, width, height, duration_seconds, transcode_status")
       .in("id", Array.from(mediaIds));
-    mediaRows = data || [];
+    mediaRows = (data || []) as MediaRow[];
   }
 
   const zip = new JSZip();
   const assetsFolder = zip.folder("assets")!;
-  const manifestMedia: any[] = [];
+  const manifestMedia: WidgetMediaEntry[] = [];
   const usedNames = new Set<string>();
   const warnings: { mediaId: string; reason: string }[] = [];
 
@@ -314,7 +338,7 @@ export async function exportScheduleToZip(input: ExportScheduleInput): Promise<E
       status: schedRow?.status ?? null,
       bgm_volume: schedRow?.bgm_volume ?? 50,
     },
-    items: (itemRows || []).map((i: any) => ({
+    items: (itemRows || []).map((i: ItemRow) => ({
       media_id: i.media_id,
       design_project_id: i.design_project_id,
       item_type: i.item_type,
@@ -322,7 +346,7 @@ export async function exportScheduleToZip(input: ExportScheduleInput): Promise<E
       sort_order: i.sort_order,
     })),
     bgm: [
-      ...(bgmRows || []).map((b: any) => ({
+      ...(bgmRows || []).map((b: BgmRow) => ({
         media_id: b.media_id, sort_order: b.sort_order,
       })),
       ...collectDesignBgm(designRows),
@@ -365,7 +389,7 @@ export async function exportScheduleToZip(input: ExportScheduleInput): Promise<E
   const mediaCount = manifestMedia.length;
   if (!skipLog) try {
     const actionKey = source === "usb" ? "export_schedule_usb" : "export_schedule";
-    const { data: logRow } = await (supabase as any).from("activity_logs").insert({
+    const { data: logRow } = await supabase.from("activity_logs").insert({
       user_id: userId,
       action: actionKey,
       action_code: actionKey,
@@ -407,16 +431,16 @@ export async function exportScheduleToFolder(input: ExportScheduleInput): Promis
   const { scheduleId, fallbackName, orgId, userId } = input;
 
   // Ask user to pick a destination directory (e.g. USB root).
-  const dirHandle: any = await (window as any).showDirectoryPicker({ mode: "readwrite" });
+  const dirHandle: FileSystemDirectoryHandle = await (window as WindowWithFSA).showDirectoryPicker!({ mode: "readwrite" });
 
   // Fetch the same data as the ZIP exporter.
-  const { data: schedRow } = await (supabase as any)
+  const { data: schedRow } = await supabase
     .from("schedules").select("*").eq("id", scheduleId).single();
-  const { data: itemRows } = await (supabase as any)
+  const { data: itemRows } = await supabase
     .from("schedule_items")
     .select("id, media_id, design_project_id, item_type, sort_order, duration")
     .eq("schedule_id", scheduleId).order("sort_order");
-  const { data: bgmRows } = await (supabase as any)
+  const { data: bgmRows } = await supabase
     .from("schedule_bgm_items")
     .select("id, media_id, sort_order")
     .eq("schedule_id", scheduleId).order("sort_order");
@@ -434,14 +458,14 @@ export async function exportScheduleToFolder(input: ExportScheduleInput): Promis
   }
   for (const b of bgmRows || []) if (b.media_id) mediaIds.add(String(b.media_id));
 
-  let designRows: any[] = [];
+  let designRows: DesignRow[] = [];
   if (designIds.size > 0) {
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("design_projects")
       .select("id, name, aspect, zones, updated_at, created_at")
       .in("id", Array.from(designIds));
-    designRows = data || [];
-    const walk = (content: any) => {
+    designRows = (data || []) as DesignRow[];
+    const walk = (content: ZoneContent | null | undefined) => {
       if (!content) return;
       if (Array.isArray(content.mediaItems)) {
         for (const m of content.mediaItems) {
@@ -467,23 +491,23 @@ export async function exportScheduleToFolder(input: ExportScheduleInput): Promis
     }
   }
 
-  let mediaRows: any[] = [];
+  let mediaRows: MediaRow[] = [];
   if (mediaIds.size > 0) {
-    const { data } = await (supabase as any)
+    const { data } = await supabase
       .from("media_items")
       .select("id, name, original_name, type, mime_type, url, size_bytes, width, height, duration_seconds, transcode_status")
       .in("id", Array.from(mediaIds));
-    mediaRows = data || [];
+    mediaRows = (data || []) as MediaRow[];
   }
 
   const scheduleName = schedRow?.name ?? fallbackName ?? "schedule";
   const rootName = sanitizeName(scheduleName);
 
   // Create (or reuse) a subfolder named after the schedule, then `assets/`.
-  const rootDir: any = await dirHandle.getDirectoryHandle(rootName, { create: true });
-  const assetsDir: any = await rootDir.getDirectoryHandle("assets", { create: true });
+  const rootDir: FileSystemDirectoryHandle = await dirHandle.getDirectoryHandle(rootName, { create: true });
+  const assetsDir: FileSystemDirectoryHandle = await rootDir.getDirectoryHandle("assets", { create: true });
 
-  const manifestMedia: any[] = [];
+  const manifestMedia: WidgetMediaEntry[] = [];
   const usedNames = new Set<string>();
   let totalBytes = 0;
   let fileCount = 0;
@@ -528,7 +552,7 @@ export async function exportScheduleToFolder(input: ExportScheduleInput): Promis
           let n = 1;
           while (usedNames.has(candidate)) { candidate = `${m.id}_${n}_${fileName}`; n++; }
           usedNames.add(candidate);
-          const fileHandle: any = await assetsDir.getFileHandle(candidate, { create: true });
+          const fileHandle: FileSystemFileHandle = await assetsDir.getFileHandle(candidate, { create: true });
           const writable = await fileHandle.createWritable();
           await writable.write(blob);
           await writable.close();
@@ -576,7 +600,7 @@ export async function exportScheduleToFolder(input: ExportScheduleInput): Promis
       status: schedRow?.status ?? null,
       bgm_volume: schedRow?.bgm_volume ?? 50,
     },
-    items: (itemRows || []).map((i: any) => ({
+    items: (itemRows || []).map((i: ItemRow) => ({
       media_id: i.media_id,
       design_project_id: i.design_project_id,
       item_type: i.item_type,
@@ -584,7 +608,7 @@ export async function exportScheduleToFolder(input: ExportScheduleInput): Promis
       sort_order: i.sort_order,
     })),
     bgm: [
-      ...(bgmRows || []).map((b: any) => ({
+      ...(bgmRows || []).map((b: BgmRow) => ({
         media_id: b.media_id, sort_order: b.sort_order,
       })),
       ...collectDesignBgm(designRows),
@@ -596,7 +620,7 @@ export async function exportScheduleToFolder(input: ExportScheduleInput): Promis
     media: manifestMedia,
   };
   const manifestText = JSON.stringify(manifest, null, 2);
-  const manifestHandle: any = await rootDir.getFileHandle("schedule.json", { create: true });
+  const manifestHandle: FileSystemFileHandle = await rootDir.getFileHandle("schedule.json", { create: true });
   const mw = await manifestHandle.createWritable();
   await mw.write(new Blob([manifestText], { type: "application/json" }));
   await mw.close();
@@ -617,7 +641,7 @@ export async function exportScheduleToFolder(input: ExportScheduleInput): Promis
 
   // Activity log only — no in-memory blob to remember (data is on disk).
   try {
-    await (supabase as any).from("activity_logs").insert({
+    await supabase.from("activity_logs").insert({
       user_id: userId,
       action: "export_schedule_usb_folder",
       action_code: "export_schedule_usb_folder",

@@ -40,12 +40,16 @@ export function useKnowledgeItems() {
       console.error("Failed to fetch knowledge items:", error);
       toast.error("載入知識庫失敗");
     } else {
-      const mapped = (data ?? []).map((row: any) => ({
-        ...row,
-        tags: (row.knowledge_item_tags ?? [])
-          .map((rel: any) => rel.knowledge_tags)
-          .filter(Boolean),
-      })) as KnowledgeItem[];
+      type RawRow = { knowledge_item_tags?: { knowledge_tags: { id: string; name: string; color: string } | null }[] };
+      const mapped = (data ?? []).map((row) => {
+        const r = row as typeof row & RawRow;
+        return {
+          ...r,
+          tags: (r.knowledge_item_tags ?? [])
+            .map((rel) => rel.knowledge_tags)
+            .filter(Boolean),
+        };
+      }) as KnowledgeItem[];
       setItems(mapped);
     }
     setLoading(false);

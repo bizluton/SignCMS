@@ -27,7 +27,7 @@ export function useChannels(orgId: string | null) {
       return;
     }
     setLoading(true);
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("channels")
       .select("*")
       .eq("org_id", orgId)
@@ -75,7 +75,7 @@ export function useChannelBlocks(channelId: string | null) {
       return;
     }
     setLoading(true);
-    const { data, error } = await (supabase as any)
+    const { data, error } = await supabase
       .from("channel_blocks")
       .select("*")
       .eq("channel_id", channelId)
@@ -127,7 +127,7 @@ export function useChannelScheduleIntervals(
       return;
     }
     setLoading(true);
-    const { data, error } = await (supabase as any).rpc("get_channel_schedule_intervals", {
+    const { data, error } = await supabase.rpc("get_channel_schedule_intervals", {
       _channel_id: channelId,
       _tz: tz || "UTC",
       _from: fromIso,
