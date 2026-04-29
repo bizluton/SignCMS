@@ -1,5 +1,4 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.99.3";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,27 +6,94 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-serve(async (req) => {
+const MODEL = "claude-haiku-4-5-20251001";
+const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
+const MAX_TOKENS = 1024;
+
+/**
+ * Converts Anthropic's SSE stream to OpenAI-compatible SSE format
+ * so the existing frontend (knowledgeChat.ts) needs no changes.
+ *
+ * Anthropic delta events:
+ *   event: content_block_delta
+ *   data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"..."}}
+ *
+ * OpenAI delta events (what frontend expects):
+ *   data: {"choices":[{"delta":{"content":"..."}}]}
+ *   data: [DONE]
+ */
+function anthropicToOpenAIStream(anthropicBody: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  return new ReadableStream({
+    async start(controller) {
+      const reader = anthropicBody.getReader();
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          let newlineIdx: number;
+          while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+            const line = buffer.slice(0, newlineIdx).replace(/\r$/, "");
+            buffer = buffer.slice(newlineIdx + 1);
+
+            if (!line.startsWith("data: ")) continue;
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr) continue;
+
+            let event: any;
+            try { event = JSON.parse(jsonStr); } catch { continue; }
+
+            if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+              const chunk = JSON.stringify({ choices: [{ delta: { content: event.delta.text } }] });
+              controller.enqueue(encoder.encode(`data: ${chunk}\n\n`));
+            } else if (event.type === "message_stop" || event.delta?.stop_reason) {
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            }
+          }
+        }
+        // Emit DONE if stream ended without a message_stop event
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      } catch (err) {
+        controller.error(err);
+      } finally {
+        reader.releaseLock();
+        controller.close();
+      }
+    },
+  });
+}
+
+Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
-    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
 
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY || !SUPABASE_SERVICE_ROLE_KEY) {
-      throw new Error("Supabase config missing");
+  try {
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+
+    if (!ANTHROPIC_API_KEY) {
+      console.error("ANTHROPIC_API_KEY is not configured");
+      return json({ error: "AI 服務尚未設定，請聯繫管理員" }, 500);
     }
 
     // Authenticate user
     const authHeader = req.headers.get("authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return json({ error: "Unauthorized" }, 401);
     }
 
     const anonClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -36,16 +102,10 @@ serve(async (req) => {
     const token = authHeader.replace("Bearer ", "");
     const { data: claimsData, error: claimsError } = await anonClient.auth.getClaims(token);
     if (claimsError || !claimsData?.claims) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return json({ error: "Unauthorized" }, 401);
     }
 
     const { messages } = await req.json();
-
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
 
     // Fetch knowledge base content for context
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -58,10 +118,7 @@ serve(async (req) => {
     let knowledgeContext = "";
     if (knowledgeItems && knowledgeItems.length > 0) {
       knowledgeContext = knowledgeItems
-        .map(
-          (item: any) =>
-            `【${item.title}】(${item.sub_category})\n${item.description}`
-        )
+        .map((item: any) => `【${item.title}】(${item.sub_category})\n${item.description}`)
         .join("\n\n");
     }
 
@@ -78,54 +135,47 @@ serve(async (req) => {
 
 ${knowledgeContext || "（目前知識庫尚無內容）"}`;
 
-    const response = await fetch(
-      "https://ai.gateway.lovable.dev/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "google/gemini-3-flash-preview",
-          messages: [
-            { role: "system", content: systemPrompt },
-            ...messages,
-          ],
-          stream: true,
-        }),
-      }
-    );
+    // Call Anthropic Messages API with streaming
+    const response = await fetch(ANTHROPIC_API, {
+      method: "POST",
+      headers: {
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: MAX_TOKENS,
+        system: systemPrompt,
+        messages,
+        stream: true,
+      }),
+    });
 
     if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      console.error("Anthropic API error:", response.status, body.slice(0, 300));
       if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: "請求過於頻繁，請稍後再試" }),
-          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return json({ error: "請求過於頻繁，請稍後再試" }, 429);
       }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "AI 額度不足，請聯繫管理員" }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+      if (response.status === 402 || response.status === 403) {
+        return json({ error: "AI 額度不足，請聯繫管理員" }, 402);
       }
-      const t = await response.text();
-      console.error("AI gateway error:", response.status, t);
-      return new Response(
-        JSON.stringify({ error: "AI 服務暫時無法使用" }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return json({ error: "AI 服務暫時無法使用" }, 500);
     }
 
-    return new Response(response.body, {
-      headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
+    // Convert Anthropic SSE → OpenAI SSE so frontend needs no changes
+    const openaiStream = anthropicToOpenAIStream(response.body!);
+
+    return new Response(openaiStream, {
+      headers: {
+        ...corsHeaders,
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+      },
     });
   } catch (e) {
     console.error("knowledge-chat error:", e);
-    return new Response(
-      JSON.stringify({ error: "伺服器錯誤，請稍後再試" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    return json({ error: "伺服器錯誤，請稍後再試" }, 500);
   }
 });

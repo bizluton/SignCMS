@@ -174,8 +174,8 @@ Deno.serve(async (req) => {
     }
 
     // Build signup URL with invitation token
-    const projectUrl = Deno.env.get('SITE_URL') || `https://${Deno.env.get('SUPABASE_URL')?.replace('https://', '').replace('.supabase.co', '.lovableproject.com')}` || 'https://signcms.lovable.app'
-    const signupUrl = `${projectUrl}/auth?invite=${invitation.token}`
+    const projectUrl = Deno.env.get('SITE_URL') || 'https://staging.signcms.net'
+    const signupUrl = `${projectUrl}/#/auth?invite=${invitation.token}`
 
     // Render email
     const html = await renderAsync(

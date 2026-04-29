@@ -79,8 +79,8 @@ Deno.serve(async (req) => {
 
     const { data: orgList } = await supabase.from('organizations').select('name').order('created_at', { ascending: true }).limit(1)
     const orgName = orgList?.[0]?.name ?? ''
-    const projectUrl = Deno.env.get('SITE_URL') || 'https://trial-signcms.lovable.app'
-    const signupUrl = `${projectUrl}/auth?cs_agent=${insertedAgent.id}${orgName ? `&org_name=${encodeURIComponent(orgName)}` : ''}`
+    const projectUrl = Deno.env.get('SITE_URL') || 'https://staging.signcms.net'
+    const signupUrl = `${projectUrl}/#/auth?cs_agent=${insertedAgent.id}${orgName ? `&org_name=${encodeURIComponent(orgName)}` : ''}`
 
     const messageId = crypto.randomUUID()
     const unsubscribeToken = await getOrCreateUnsubscribeToken(supabase, email)

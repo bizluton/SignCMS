@@ -132,8 +132,8 @@ Deno.serve(async (req) => {
     }
 
     // Build signup URL
-    const projectUrl = Deno.env.get('SITE_URL') || 'https://trial-signcms.lovable.app'
-    const signupUrl = `${projectUrl}/auth?cs_agent=${cs_agent_id}${orgName ? `&org_name=${encodeURIComponent(orgName)}` : ''}`
+    const projectUrl = Deno.env.get('SITE_URL') || 'https://staging.signcms.net'
+    const signupUrl = `${projectUrl}/#/auth?cs_agent=${cs_agent_id}${orgName ? `&org_name=${encodeURIComponent(orgName)}` : ''}`
 
     // Render email
     const html = await renderAsync(
