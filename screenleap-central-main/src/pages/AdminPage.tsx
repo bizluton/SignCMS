@@ -111,7 +111,7 @@ export default function AdminPage() {
 
     // Load system admin user_ids set for row-level "protected" badge
     const { data: sysAdminRows } = await supabase.rpc("list_system_admins");
-    const sysIds = new Set<string>(((sysAdminRows as any[]) || []).map((r) => r.user_id));
+    const sysIds = new Set<string>(((sysAdminRows as { user_id: string }[]) || []).map((r) => r.user_id));
     setSystemAdminIds(sysIds);
 
     // If activeOrgId is set, filter to that org only
@@ -185,8 +185,8 @@ export default function AdminPage() {
       toast.success(t("adminDeleteUserSuccess"));
       logActivity({ action: "delete_user", category: "admin", targetName: deleteDialog.display_name || "", targetId: deleteDialog.user_id });
       fetchUsers();
-    } catch (error: any) {
-      toast.error(`${t("adminDeleteUserFailed")}：${error.message}`);
+    } catch (error: unknown) {
+      toast.error(`${t("adminDeleteUserFailed")}：${error instanceof Error ? error.message : String(error)}`);
     }
     setSaving(false);
     setDeleteDialog(null);
@@ -219,8 +219,8 @@ export default function AdminPage() {
       });
       setResetDialog(null);
       setTempPassword("");
-    } catch (e: any) {
-      toast.error(`${t("adminResetPasswordFailed")}：${e.message}`);
+    } catch (e: unknown) {
+      toast.error(`${t("adminResetPasswordFailed")}：${e instanceof Error ? e.message : String(e)}`);
     }
     setSaving(false);
   };
