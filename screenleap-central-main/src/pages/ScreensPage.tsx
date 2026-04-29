@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Monitor, Plus, Pencil, Trash2, Search, MapPin, Loader2, FolderPlus, Layers, MoreHorizontal, Settings, RotateCw, Power, RefreshCw, Eye, Moon, Play, Brush, FileText, Radio, Wifi, Cable, ArrowUpDown, SlidersHorizontal, X, WifiOff, Zap, TerminalSquare, ShieldOff } from "lucide-react";
 import { Tv } from "lucide-react";
+import type { ScreenDetailScreen } from "@/components/screens/ScreenDetailDrawer";
 import { ScreenChannelDialog } from "@/components/screens/ScreenChannelDialog";
 import { ConnectionInfo } from "@/components/screens/ConnectionInfo";
 import { isScreenUnlicensed } from "@/lib/screenConnectionVisibility";
@@ -192,7 +193,7 @@ export default function ScreensPage() {
     if (!iotScreen) return;
     const fetchIotDevices = async () => {
       setIotLoading(true);
-      const { data, error } = await (supabase as any).from("iot_devices").select("*").eq("screen_id", iotScreen.id).order("created_at", { ascending: true });
+      const { data, error } = await supabase.from("iot_devices").select("*").eq("screen_id", iotScreen.id).order("created_at", { ascending: true });
       if (error) toast.error(error.message);
       else setIotDevices(data || []);
       setIotLoading(false);
@@ -205,8 +206,8 @@ export default function ScreensPage() {
     if (!settingsScreen) return;
     const fetchOptions = async () => {
       const [mediaRes, designRes] = await Promise.all([
-        (supabase as any).from("media_items").select("id, name, type").in("type", ["image", "video"]).is("deleted_at", null).order("created_at", { ascending: false }),
-        (supabase as any).from("design_projects").select("id, name").order("created_at", { ascending: false }),
+        supabase.from("media_items").select("id, name, type").in("type", ["image", "video"]).is("deleted_at", null).order("created_at", { ascending: false }),
+        supabase.from("design_projects").select("id, name").order("created_at", { ascending: false }),
       ]);
       setMediaOptions(mediaRes.data || []);
       setDesignOptions(designRes.data || []);
@@ -218,7 +219,7 @@ export default function ScreensPage() {
 
   const fetchScreens = async () => {
     setLoading(true);
-    let query = (supabase as any).from("screens").select("id, name, branch, location, resolution, online, org_id, team_id, serial_number, ip_address, connection_type, avg_upload_speed, avg_download_speed, firmware_version, updated_at").order("created_at", { ascending: true });
+    let query = supabase.from("screens").select("id, name, branch, location, resolution, online, org_id, team_id, serial_number, ip_address, connection_type, avg_upload_speed, avg_download_speed, firmware_version, updated_at").order("created_at", { ascending: true });
     if (activeOrgId) query = query.eq("org_id", activeOrgId);
     const { data, error } = await query;
     if (error) { toast.error(error.message); }
@@ -239,26 +240,26 @@ export default function ScreensPage() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      let query = (supabase as any)
+      let query = supabase
         .from("screen_alerts")
         .select("screen_id")
         .eq("status", "active");
       if (activeOrgId) query = query.eq("org_id", activeOrgId);
       const { data } = await query;
       if (cancelled) return;
-      setAlertedScreenIds(new Set((data || []).map((r: any) => r.screen_id)));
+      setAlertedScreenIds(new Set((data || []).map((r) => r.screen_id)));
     })();
     return () => { cancelled = true; };
   }, [activeOrgId, screens.length]);
 
   // Live status: subscribe to realtime updates on screens (online + updated_at)
   useEffect(() => {
-    const channel = (supabase as any)
+    const channel = supabase
       .channel("screens-live-status")
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "screens" },
-        (payload: any) => {
+        (payload: { new: Record<string, unknown> }) => {
           const next = payload.new as Screen;
           if (!next?.id) return;
           if (activeOrgId && next.org_id !== activeOrgId) return;
@@ -269,7 +270,7 @@ export default function ScreensPage() {
       )
       .subscribe();
     return () => {
-      (supabase as any).removeChannel(channel);
+      supabase.removeChannel(channel);
     };
   }, [activeOrgId]);
 
@@ -279,7 +280,7 @@ export default function ScreensPage() {
     if (ids.length === 0) { setLicenseStatusByScreen({}); return; }
     const results = await Promise.all(
       ids.map(async (id) => {
-        const { data } = await (supabase as any).rpc("check_screen_license_status", { _screen_id: id });
+        const { data } = await supabase.rpc("check_screen_license_status", { _screen_id: id });
         return [id, data] as const;
       }),
     );
@@ -294,7 +295,7 @@ export default function ScreensPage() {
   }, [screens.map((s) => s.id).join(","), refreshLicenseStatuses]);
   // Realtime: any device_license change → refresh statuses for currently shown screens.
   useEffect(() => {
-    const channel = (supabase as any)
+    const channel = supabase
       .channel("screens-license-watch")
       .on(
         "postgres_changes",
@@ -305,7 +306,7 @@ export default function ScreensPage() {
       )
       .subscribe();
     return () => {
-      (supabase as any).removeChannel(channel);
+      supabase.removeChannel(channel);
     };
   }, [screens.map((s) => s.id).join(","), refreshLicenseStatuses]);
 

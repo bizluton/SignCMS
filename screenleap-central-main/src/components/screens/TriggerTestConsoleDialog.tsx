@@ -39,7 +39,7 @@ interface PresetRunResult {
   error?: string;
 }
 
-const newId = () => (crypto as any)?.randomUUID?.() ?? `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+const newId = () => (crypto as { randomUUID?: () => string })?.randomUUID?.() ?? `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
 function DiagRow({
   label,
@@ -75,10 +75,10 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
   const [triggerKey, setTriggerKey] = useState("");
   const [payloadText, setPayloadText] = useState('{\n  "value": 1\n}');
   const [running, setRunning] = useState(false);
-  const [resolved, setResolved] = useState<any[]>([]);
-  const [matched, setMatched] = useState<any[]>([]);
-  const [logs, setLogs] = useState<any[]>([]);
-  const [response, setResponse] = useState<any>(null);
+  const [resolved, setResolved] = useState<Record<string, unknown>[]>([]);
+  const [matched, setMatched] = useState<Record<string, unknown>[]>([]);
+  const [logs, setLogs] = useState<Record<string, unknown>[]>([]);
+  const [response, setResponse] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [shareExpiry, setShareExpiry] = useState<string>(""); // datetime-local value
   const [linkExpired, setLinkExpired] = useState<{ at: string } | null>(null);
@@ -136,14 +136,14 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
       return false;
     }
     try {
-      const decoded: any = await decodeSharePayload(decodeURIComponent(m[1]));
-      let data: any;
+      const decoded: unknown = await decodeSharePayload(decodeURIComponent(m[1]));
+      let data: Record<string, unknown>;
       let isReadOnly = false;
       const isEnvelope =
         decoded && typeof decoded === "object" && "data" in decoded && "sig" in decoded;
-      // Build a diagnostics snapshot of what we parsed, regardless of outcome.
-      const sigVal = isEnvelope ? (decoded as any).sig : undefined;
-      const dataPart: any = isEnvelope ? (decoded as any).data : decoded;
+      const decodedObj = decoded as Record<string, unknown>;
+      const sigVal = isEnvelope ? decodedObj.sig : undefined;
+      const dataPart: Record<string, unknown> | null = isEnvelope ? decodedObj.data as Record<string, unknown> : decoded as Record<string, unknown>;
       const expRaw =
         dataPart && typeof dataPart === "object" && typeof dataPart.expiresAt === "number"
           ? dataPart.expiresAt
@@ -185,7 +185,7 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
             },
           });
         }
-        data = decoded;
+        data = decodedObj;
         isReadOnly = true;
       } else {
         // Verify with retry/backoff on transient (network/5xx) errors only.
@@ -202,7 +202,7 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
                   ? "正在驗證簽章…"
                   : `第 ${attempt}/${MAX_ATTEMPTS} 次重試簽章驗證… (cid=${cid})`,
             });
-            ok = await verifySharePayload(decoded.data, decoded.sig);
+            ok = await verifySharePayload(decodedObj.data, decodedObj.sig as string);
             lastTransient = null;
             break;
           } catch (e) {
@@ -231,11 +231,11 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
         if (ok === null) {
           logger.log("verify_failed_after_retry", "Gave up after retries", {
             attempts: MAX_ATTEMPTS,
-            lastError: (lastTransient as any)?.message ?? null,
+            lastError: lastTransient instanceof Error ? lastTransient.message : null,
           });
           setVerification({
             status: "error",
-            reason: `驗證服務多次重試後仍無法連線 (${(lastTransient as any)?.message ?? "network error"}) (cid=${cid})`,
+            reason: `驗證服務多次重試後仍無法連線 (${lastTransient instanceof Error ? lastTransient.message : "network error"}) (cid=${cid})`,
           });
           if (!silent) {
             toast.error("無法驗證分享連結", {
@@ -246,7 +246,7 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
         }
         if (!ok) {
           logger.log("invalid_signature", "Server reported HMAC mismatch", {
-            sigLen: typeof decoded.sig === "string" ? decoded.sig.length : null,
+            sigLen: typeof decodedObj.sig === "string" ? decodedObj.sig.length : null,
           });
           setVerification({
             status: "invalid",
@@ -264,8 +264,8 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
           }
           return false;
         }
-        logger.log("valid", "Signature verified", { sigLen: decoded.sig?.length ?? 0 });
-        data = decoded.data;
+        logger.log("valid", "Signature verified", { sigLen: typeof decodedObj.sig === "string" ? decodedObj.sig.length : 0 });
+        data = decodedObj.data as Record<string, unknown>;
       }
       setReadOnly(isReadOnly);
       const expAt =
@@ -287,7 +287,7 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
       }
       setLinkExpired(null);
       if (Array.isArray(data.presets) && data.presets.length > 0) {
-        const incoming: Preset[] = data.presets.map((p: any, i: number) => ({
+        const incoming: Preset[] = (data.presets as Record<string, unknown>[]).map((p, i: number) => ({
           id: p.id ?? newId(),
           name: p.name ?? `Preset ${i + 1}`,
           orgId: p.orgId ?? "",
@@ -321,7 +321,7 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
       }
       setError(null);
       return true;
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (e instanceof PayloadTooLargeError) {
         logger.log("payload_too_large", "Server returned 413", {
           receivedBytes: e.receivedBytes,
@@ -337,10 +337,11 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
           });
         }
       } else {
-        logger.log("decode_failed", "Decode/parse error", { error: e?.message ?? String(e) });
-        setVerification({ status: "error", reason: `${e?.message ?? String(e)} (cid=${cid})` });
+        const msg = e instanceof Error ? e.message : String(e);
+        logger.log("decode_failed", "Decode/parse error", { error: msg });
+        setVerification({ status: "error", reason: `${msg} (cid=${cid})` });
         if (!silent) {
-          toast.error("無法解析連結：" + (e?.message ?? String(e)), {
+          toast.error("無法解析連結：" + msg, {
             description: `Debug ID: ${cid}`,
           });
         }
@@ -444,13 +445,13 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
       let sig: string;
       try {
         sig = await signSharePayload(data);
-      } catch (e: any) {
+      } catch (e: unknown) {
         if (e instanceof PayloadTooLargeError) {
           toast.error("分享內容過大，無法簽署", {
             description: `Payload ${e.receivedBytes ?? "?"} bytes 超過伺服器上限 ${e.maxBytes ?? "?"} bytes。請減少 preset 數量或縮減 payload 內容後再試。`,
           });
         } else {
-          toast.error("無法取得簽章：" + (e?.message ?? String(e)));
+          toast.error("無法取得簽章：" + (e instanceof Error ? e.message : String(e)));
         }
         return;
       }
@@ -470,8 +471,8 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
       toast.success(expiresAt
         ? `已複製已簽署連結 (${bundle.length} presets・${sizeNote}・${new Date(expiresAt).toLocaleString()} 過期)`
         : `已複製已簽署連結 (${bundle.length} presets・${sizeNote})`);
-    } catch (e: any) {
-      toast.error("複製失敗: " + (e?.message ?? String(e)));
+    } catch (e: unknown) {
+      toast.error("複製失敗: " + (e instanceof Error ? e.message : String(e)));
     }
   };
 
@@ -510,21 +511,23 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
         },
       });
       if (fnError) throw fnError;
-      setResponse(data);
-      setMatched(data?.matched_rules ?? data?.matched ?? []);
+      setResponse(data as Record<string, unknown>);
+      const responseData = data as Record<string, unknown> | null;
+      const matchedRules = responseData?.matched_rules ?? responseData?.matched ?? [];
+      setMatched(Array.isArray(matchedRules) ? matchedRules as Record<string, unknown>[] : []);
 
       // Fetch latest logs
-      const { data: logRows } = await (supabase as any)
+      const { data: logRows } = await (supabase as unknown as { from: (t: string) => unknown } & typeof supabase)
         .from("smart_trigger_logs")
         .select("*")
         .eq("org_id", orgId.trim())
         .eq("trigger_key", triggerKey.trim())
         .order("created_at", { ascending: false })
         .limit(10);
-      setLogs(logRows ?? []);
+      setLogs((logRows as Record<string, unknown>[] | null) ?? []);
       toast.success("測試完成");
-    } catch (e: any) {
-      const msg = e?.message ?? String(e);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
       toast.error("測試失敗: " + msg);
     } finally {
