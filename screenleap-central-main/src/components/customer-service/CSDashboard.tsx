@@ -96,7 +96,7 @@ const CSDashboard = () => {
         .order("created_at", { ascending: true });
 
       const firstReplyMap = new Map<string, string>();
-      (agentMsgs || []).forEach((m: any) => {
+      (agentMsgs || []).forEach((m) => {
         if (!firstReplyMap.has(m.session_id)) firstReplyMap.set(m.session_id, m.created_at);
       });
 
@@ -124,7 +124,7 @@ const CSDashboard = () => {
     ).data || [] : [];
 
     const firstReplyPerAgentSession = new Map<string, Map<string, string>>();
-    allAgentMsgs.forEach((m: any) => {
+    allAgentMsgs.forEach((m) => {
       const name = m.sender_name || t("csDashUnknownAgent");
       if (!agentMap.has(name)) agentMap.set(name, { replyCount: 0, sessions: new Set(), totalResponseMs: 0, responseCount: 0 });
       const agent = agentMap.get(name)!;
@@ -151,7 +151,7 @@ const CSDashboard = () => {
       .in("session_id", sessionIds);
 
     const sessionRatingMap = new Map<string, number>();
-    (ratingsWithSession || []).forEach((r: any) => sessionRatingMap.set(r.session_id, r.rating));
+    (ratingsWithSession || []).forEach((r) => sessionRatingMap.set(r.session_id, r.rating));
 
     const agentPerformance: AgentPerf[] = Array.from(agentMap.entries()).map(([name, data]) => {
       let ratingSum = 0, ratingCount = 0;
