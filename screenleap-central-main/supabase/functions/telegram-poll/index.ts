@@ -1,36 +1,31 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const GATEWAY_URL = 'https://connector-gateway.lovable.dev/telegram';
 const MAX_RUNTIME_MS = 55_000;
 const MIN_REMAINING_MS = 5_000;
 const ATTACHMENT_BUCKET = 'chat-attachments';
 
-const buildTelegramHeaders = (lovableApiKey: string, telegramApiKey: string) => ({
-  'Authorization': `Bearer ${lovableApiKey}`,
-  'X-Connection-Api-Key': telegramApiKey,
-});
+function telegramApi(botToken: string, method: string): string {
+  return `https://api.telegram.org/bot${botToken}/${method}`;
+}
+
+function telegramFileUrl(botToken: string, filePath: string): string {
+  return `https://api.telegram.org/file/bot${botToken}/${filePath}`;
+}
 
 Deno.serve(async () => {
   const startTime = Date.now();
 
-  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-  if (!LOVABLE_API_KEY) throw new Error('LOVABLE_API_KEY not configured');
-
-  const TELEGRAM_API_KEY = Deno.env.get('TELEGRAM_API_KEY');
-  if (!TELEGRAM_API_KEY) throw new Error('TELEGRAM_API_KEY not configured');
+  const TELEGRAM_BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN');
+  if (!TELEGRAM_BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN not configured');
 
   const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
   const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-  const telegramHeaders = buildTelegramHeaders(LOVABLE_API_KEY, TELEGRAM_API_KEY);
 
   const uploadTelegramFile = async (fileId: string, kind: 'image' | 'file') => {
-    const fileResponse = await fetch(`${GATEWAY_URL}/getFile`, {
+    const fileResponse = await fetch(telegramApi(TELEGRAM_BOT_TOKEN, 'getFile'), {
       method: 'POST',
-      headers: {
-        ...telegramHeaders,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ file_id: fileId }),
     });
 
@@ -40,9 +35,7 @@ Deno.serve(async () => {
     }
 
     const filePath = fileData.result.file_path as string;
-    const downloadResponse = await fetch(`${GATEWAY_URL}/file/${filePath}`, {
-      headers: telegramHeaders,
-    });
+    const downloadResponse = await fetch(telegramFileUrl(TELEGRAM_BOT_TOKEN, filePath));
 
     if (!downloadResponse.ok) {
       throw new Error(`File download failed [${downloadResponse.status}]`);
@@ -56,14 +49,9 @@ Deno.serve(async () => {
 
     const { error: uploadError } = await supabase.storage
       .from(ATTACHMENT_BUCKET)
-      .upload(storagePath, fileBytes, {
-        contentType,
-        upsert: false,
-      });
+      .upload(storagePath, fileBytes, { contentType, upsert: false });
 
-    if (uploadError) {
-      throw uploadError;
-    }
+    if (uploadError) throw uploadError;
 
     const { data } = supabase.storage.from(ATTACHMENT_BUCKET).getPublicUrl(storagePath);
     return data.publicUrl;
@@ -91,12 +79,9 @@ Deno.serve(async () => {
     const timeout = Math.min(50, Math.floor(remainingMs / 1000) - 5);
     if (timeout < 1) break;
 
-    const response = await fetch(`${GATEWAY_URL}/getUpdates`, {
+    const response = await fetch(telegramApi(TELEGRAM_BOT_TOKEN, 'getUpdates'), {
       method: 'POST',
-      headers: {
-        ...telegramHeaders,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         offset: currentOffset,
         timeout,
@@ -109,11 +94,11 @@ Deno.serve(async () => {
     try {
       data = JSON.parse(responseText);
     } catch {
-      console.error('Non-JSON response from gateway:', responseText.substring(0, 200));
+      console.error('Non-JSON response from Telegram:', responseText.substring(0, 200));
       continue;
     }
     if (!response.ok) {
-      console.error('Gateway error:', response.status, responseText.substring(0, 200));
+      console.error('Telegram API error:', response.status, responseText.substring(0, 200));
       continue;
     }
 

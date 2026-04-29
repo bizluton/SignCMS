@@ -1,26 +1,22 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const GATEWAY_URL = 'https://connector-gateway.lovable.dev/telegram';
+function telegramApi(botToken: string, method: string): string {
+  return `https://api.telegram.org/bot${botToken}/${method}`;
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
-  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-  if (!LOVABLE_API_KEY) {
-    return new Response(JSON.stringify({ error: 'LOVABLE_API_KEY not configured' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-  }
-
-  const TELEGRAM_API_KEY = Deno.env.get('TELEGRAM_API_KEY');
-  if (!TELEGRAM_API_KEY) {
-    return new Response(JSON.stringify({ error: 'TELEGRAM_API_KEY not configured' }), {
+  const TELEGRAM_BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN');
+  if (!TELEGRAM_BOT_TOKEN) {
+    return new Response(JSON.stringify({ error: 'TELEGRAM_BOT_TOKEN not configured' }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
@@ -96,7 +92,6 @@ Deno.serve(async (req) => {
     const senderName = profile?.display_name || userEmail.split('@')[0] || 'User';
     const senderType = isAuthorizedAgent ? 'agent' : 'customer';
 
-    // Save message to DB with attachment info
     const insertData: Record<string, unknown> = {
       session_id,
       sender_type: senderType,
@@ -130,16 +125,11 @@ Deno.serve(async (req) => {
       }
 
       if (chatId) {
-        // If there's an image attachment, send it as a photo
         if (attachment_url && attachment_type === 'image') {
           const tgCaption = `💬 <b>${senderName}</b>`;
-          const photoResp = await fetch(`${GATEWAY_URL}/sendPhoto`, {
+          const photoResp = await fetch(telegramApi(TELEGRAM_BOT_TOKEN, 'sendPhoto'), {
             method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-              'X-Connection-Api-Key': TELEGRAM_API_KEY,
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: chatId,
               photo: attachment_url,
@@ -151,15 +141,10 @@ Deno.serve(async (req) => {
             console.error('Telegram sendPhoto error:', await photoResp.text());
           }
         } else if (attachment_url && attachment_type === 'file') {
-          // Send as document
           const tgCaption = `💬 <b>${senderName}</b>`;
-          const docResp = await fetch(`${GATEWAY_URL}/sendDocument`, {
+          const docResp = await fetch(telegramApi(TELEGRAM_BOT_TOKEN, 'sendDocument'), {
             method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-              'X-Connection-Api-Key': TELEGRAM_API_KEY,
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: chatId,
               document: attachment_url,
@@ -172,16 +157,11 @@ Deno.serve(async (req) => {
           }
         }
 
-        // Always send the text message too (unless it's just the auto label)
         if (!content.startsWith('[圖片]') && !content.startsWith('[檔案]')) {
           const telegramText = `💬 <b>${senderName}</b>:\n${content}`;
-          const tgResponse = await fetch(`${GATEWAY_URL}/sendMessage`, {
+          const tgResponse = await fetch(telegramApi(TELEGRAM_BOT_TOKEN, 'sendMessage'), {
             method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-              'X-Connection-Api-Key': TELEGRAM_API_KEY,
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               chat_id: chatId,
               text: telegramText,
