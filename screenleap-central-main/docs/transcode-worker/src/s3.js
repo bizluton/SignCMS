@@ -1,5 +1,5 @@
 // 上傳檔案到 S3 相容物件儲存（AWS S3 / Cloudflare R2 / MinIO 等）
-// 自架 worker 直接用 AWS SigV4，不經過 Lovable gateway
+// 自架 worker 直接用 AWS SigV4
 //
 // 行為：
 //   - 檔案 < MULTIPART_THRESHOLD：單一 PUT
