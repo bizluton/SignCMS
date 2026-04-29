@@ -3860,7 +3860,7 @@ export default function ContentStudioPage() {
 
       setZones(merged);
       setSelectedZone(null);
-      toast.success(t("studioAspectAutoConverted") + ` → ${t(pick.nameKey as any)}`);
+      toast.success(t("studioAspectAutoConverted") + ` → ${t(pick.nameKey as TranslationKey)}`);
       return next;
     });
   }, [zones, t]);
@@ -4025,22 +4025,22 @@ export default function ContentStudioPage() {
 
   // Resolve picker items into MediaItem[] then append to a specific zone or overlay
   const addItemsToSpecificTarget = useCallback(async (
-    items: { kind: "media" | "widget"; raw: any }[],
+    items: PickerPayload[],
     target: { type: "zone"; id: string } | { type: "overlay"; id: string },
   ) => {
     const targetZone = target.type === "zone" ? zones.find((z) => z.id === target.id) : null;
     const targetOverlay = target.type === "overlay" ? overlays.find((o) => o.id === target.id) : null;
     if (!targetZone && !targetOverlay) return;
 
-    const mediaIds = items.filter((i) => i.kind === "media").map((i) => i.raw.id);
-    const detailMap = new Map<string, any>();
+    const mediaIds = items.filter((i) => i.kind === "media").map((i) => (i.raw as DbMediaItem).id);
+    const detailMap = new Map<string, { id: string; name: string; original_name: string; type: string; url: string; thumbnail: string; duration_seconds: number | null }>();
     if (mediaIds.length > 0) {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("media_items")
         .select("id, name, original_name, type, url, thumbnail, duration_seconds")
         .in("id", mediaIds);
       if (error) { toast.error(error.message); return; }
-      (data || []).forEach((m: any) => detailMap.set(m.id, m));
+      (data || []).forEach((m) => detailMap.set(m.id, m));
     }
 
     const appended: MediaItem[] = [];
@@ -4088,7 +4088,7 @@ export default function ContentStudioPage() {
   }, [zones, overlays, updateZoneContent, updateOverlayContent, t]);
 
   // Append to currently selected zone/overlay (kept for click-to-add path)
-  const addItemsToActiveTarget = useCallback(async (items: { kind: "media" | "widget"; raw: any }[]) => {
+  const addItemsToActiveTarget = useCallback(async (items: PickerPayload[]) => {
     const targetZone = zones.find((z) => z.id === selectedZone);
     const targetOverlay = !targetZone ? overlays.find((o) => o.id === selectedOverlay) : null;
     if (targetZone) return addItemsToSpecificTarget(items, { type: "zone", id: targetZone.id });

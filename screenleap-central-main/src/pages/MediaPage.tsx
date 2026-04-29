@@ -3088,11 +3088,11 @@ function PreviewInfoPanel({ item, usedInProjects, usedInSchedules, t, uploaderPr
               resolveInfo(`${fps} fps`);
               return;
             }
-            (video as any).requestVideoFrameCallback(countFrames);
+            (video as HTMLVideoElement & { requestVideoFrameCallback: (cb: (now: number, meta: unknown) => void) => void }).requestVideoFrameCallback(countFrames);
           };
           video.playbackRate = 4;
           video.play().then(() => {
-            (video as any).requestVideoFrameCallback(countFrames);
+            (video as HTMLVideoElement & { requestVideoFrameCallback: (cb: (now: number, meta: unknown) => void) => void }).requestVideoFrameCallback(countFrames);
           }).catch(() => resolveInfo(null));
           // Timeout fallback
           setTimeout(() => resolveInfo(null), 5000);
