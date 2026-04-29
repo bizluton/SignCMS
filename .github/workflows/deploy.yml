@@ -106,35 +106,7 @@ jobs:
           port: ${{ secrets.SERVER_PORT || 22 }}
           script: |
             bash /opt/signcms/staging/scripts/deploy.sh "edge"
-            cat > /etc/nginx/sites-available/signcms-staging << 'NGINXEOF'
-server {
-    listen 80;
-    server_name staging.signcms.net;
-    return 301 https://$host$request_uri;
-}
-server {
-    listen 443 ssl;
-    server_name staging.signcms.net;
-    ssl_certificate     /etc/letsencrypt/live/staging.signcms.net/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/staging.signcms.net/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-    root /var/www/signcms-staging;
-    index index.html;
-    location / {
-        try_files $uri $uri/ /index.html;
-    }
-    location /api/ {
-        proxy_pass http://127.0.0.1:3001;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_buffering off;
-    }
-    location /health {
-        proxy_pass http://127.0.0.1:3001/health;
-    }
-}
-NGINXEOF
+            printf 'server {\n    listen 80;\n    server_name staging.signcms.net;\n    return 301 https://$host$request_uri;\n}\nserver {\n    listen 443 ssl;\n    server_name staging.signcms.net;\n    ssl_certificate     /etc/letsencrypt/live/staging.signcms.net/fullchain.pem;\n    ssl_certificate_key /etc/letsencrypt/live/staging.signcms.net/privkey.pem;\n    include /etc/letsencrypt/options-ssl-nginx.conf;\n    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;\n    root /var/www/signcms-staging;\n    index index.html;\n    location / {\n        try_files $uri $uri/ /index.html;\n    }\n    location /api/ {\n        proxy_pass http://127.0.0.1:3001;\n        proxy_set_header Host $host;\n        proxy_set_header X-Real-IP $remote_addr;\n        proxy_buffering off;\n    }\n    location /health {\n        proxy_pass http://127.0.0.1:3001/health;\n    }\n}\n' > /etc/nginx/sites-available/signcms-staging
             ln -sf /etc/nginx/sites-available/signcms-staging /etc/nginx/sites-enabled/signcms-staging
             rm -f /etc/nginx/sites-enabled/default
             nginx -t && systemctl reload nginx
