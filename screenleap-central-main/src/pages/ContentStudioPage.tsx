@@ -62,6 +62,7 @@ import {
   invalidateStudioSourceCache,
   type StudioIconKey,
 } from "@/lib/studioData";
+import { type TranslationKey } from "@/contexts/translations";
 import JSZip from "jszip";
 import { useProfiles } from "@/contexts/ProfilesContext";
 import { Users, User as UserIcon, Building2 } from "lucide-react";
@@ -75,6 +76,61 @@ import {
 } from "@/lib/referenceCheck";
 
 // ── Types ──────────────────────────────────────────────────────────
+
+interface WidgetConfig {
+  widgetType?: string;
+  text?: string;
+  speed?: string;
+  url?: string;
+  clockStyle?: string;
+  format?: string;
+  timezone?: string;
+  showDate?: boolean;
+  qrcodeContent?: string;
+  qrcodeSize?: number;
+  countdownTitle?: string;
+  targetDate?: string;
+  youtubeUrl?: string;
+  city?: string;
+  bgColor?: string;
+  textColor?: string;
+  fontSize?: string;
+  animation?: string;
+  [key: string]: unknown;
+}
+
+interface DbMediaItem {
+  id: string;
+  name: string;
+  original_name?: string | null;
+  type: string;
+  url?: string;
+  thumbnail?: string;
+  size_bytes?: number | null;
+  width?: number | null;
+  height?: number | null;
+  duration_seconds?: number | null;
+  mime_type?: string | null;
+  source_codec?: string | null;
+  source_container?: string | null;
+  created_at?: string;
+}
+
+interface DbWidgetItem {
+  id: string;
+  name: string;
+  url: string;
+  config?: WidgetConfig | null;
+  created_at?: string;
+}
+
+type PickerRaw = DbMediaItem | DbWidgetItem;
+
+interface PickerPayload {
+  kind: "media" | "widget";
+  raw: PickerRaw;
+}
+
 type AspectRatio = "16:9" | "9:16";
 
 interface Resolution {
@@ -125,9 +181,9 @@ function loadStudioSession(): Partial<StudioSession> | null {
       projectId: typeof p.projectId === "string" ? p.projectId : null,
       selectedZone: typeof p.selectedZone === "string" ? p.selectedZone : null,
       selectedOverlay: typeof p.selectedOverlay === "string" ? p.selectedOverlay : null,
-      layoutPanelOpen: typeof p.layoutPanelOpen === "boolean" ? p.layoutPanelOpen : undefined as any,
-      mediaLibraryOpen: typeof p.mediaLibraryOpen === "boolean" ? p.mediaLibraryOpen : undefined as any,
-      sidebarTab: typeof p.sidebarTab === "string" ? p.sidebarTab : undefined as any,
+      layoutPanelOpen: typeof p.layoutPanelOpen === "boolean" ? p.layoutPanelOpen : undefined,
+      mediaLibraryOpen: typeof p.mediaLibraryOpen === "boolean" ? p.mediaLibraryOpen : undefined,
+      sidebarTab: typeof p.sidebarTab === "string" ? p.sidebarTab : undefined,
     };
   } catch { return null; }
 }
@@ -162,17 +218,23 @@ function loadMyResPresets(): MyResPreset[] {
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
     return arr
-      .filter((p: any) => p && typeof p.id === "string" && typeof p.name === "string"
-        && Number.isFinite(p.w) && Number.isFinite(p.h))
-      .map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        w: Number(p.w),
-        h: Number(p.h),
-        rows: Number.isFinite(p.rows) ? Number(p.rows) : 1,
-        cols: Number.isFinite(p.cols) ? Number(p.cols) : 1,
-        applyGrid: !!p.applyGrid,
-      }));
+      .filter((p: unknown) => p !== null && typeof p === "object" && p !== null
+        && typeof (p as Record<string, unknown>).id === "string"
+        && typeof (p as Record<string, unknown>).name === "string"
+        && Number.isFinite((p as Record<string, unknown>).w)
+        && Number.isFinite((p as Record<string, unknown>).h))
+      .map((p: unknown) => {
+        const pr = p as Record<string, unknown>;
+        return ({
+        id: pr.id as string,
+        name: pr.name as string,
+        w: Number(pr.w),
+        h: Number(pr.h),
+        rows: Number.isFinite(pr.rows as number) ? Number(pr.rows) : 1,
+        cols: Number.isFinite(pr.cols as number) ? Number(pr.cols) : 1,
+        applyGrid: !!pr.applyGrid,
+      });
+      });
   } catch { return []; }
 }
 
@@ -186,11 +248,12 @@ function getDefaultResolution(aspect: AspectRatio): Resolution {
 }
 
 // 由專案的 zones JSONB 內嵌 _meta 取出解析度資訊（給專案卡片徽章用）
-function getProjectResolutionBadge(zones: any): { label: string; dims: string } | null {
+function getProjectResolutionBadge(zones: unknown): { label: string; dims: string } | null {
   if (!Array.isArray(zones)) return null;
-  const meta = zones.find((z: any) => z && z._meta && z.resolution);
+  const meta = zones.find((z: unknown) => z !== null && typeof z === "object" && (z as Record<string, unknown>)._meta && (z as Record<string, unknown>).resolution) as Record<string, unknown> | undefined;
   if (!meta?.resolution) return null;
-  const { id, width, height } = meta.resolution;
+  const res = meta.resolution as { id: string; width: number; height: number };
+  const { id, width, height } = res;
   const labelMap: Record<string, string> = { hd: "HD", fhd: "FHD", "uhd-4k": "4K", "uhd-8k": "8K", custom: "Custom" };
   const label = labelMap[id] || "—";
   return { label, dims: `${width}×${height}` };
@@ -259,11 +322,11 @@ function inferAspect(w: number, h: number): AspectRatio {
 
 interface MediaItem {
   id: string;
-  type: "image" | "video" | "widget";
+  type: "image" | "video" | "widget" | "audio";
   url: string;
   name: string;
   duration?: number; // seconds for carousel auto-advance
-  widgetConfig?: any;
+  widgetConfig?: WidgetConfig;
   /** 0-100, only used for video items. undefined = use default 100. */
   volume?: number;
   /** Mute the item's own audio. For videos: silences the video. When true the BGM track plays. */
@@ -284,7 +347,7 @@ interface ZoneContent {
   carouselTransition?: CarouselTransition;
   widgetId?: string;
   widgetName?: string;
-  widgetConfig?: any;
+  widgetConfig?: WidgetConfig;
   fitMode?: "cover-x" | "cover-y" | "contain" | "stretch"; // 媒體填滿方式
 }
 
@@ -531,7 +594,7 @@ function MediaLibraryDock({
   dbWidgets: { id: string; name: string; url: string; created_at?: string }[];
   activeOrgId?: string;
   onMediaUploaded?: () => Promise<void> | void;
-  onAddItems: (items: { kind: "media" | "widget"; raw: any }[]) => void;
+  onAddItems: (items: PickerPayload[]) => void;
   selectedZoneLabel?: string | null;
   height?: number;
   onHeightChange?: (h: number) => void;
@@ -571,7 +634,7 @@ function MediaLibraryDock({
   }, [onHeightChange, variant]);
 
   const items = useMemo(() => {
-    const list: { id: string; kind: "media" | "widget"; name: string; searchName: string; type?: string; icon: React.ReactNode; thumbnail?: string; raw: any; createdAt?: string }[] = [];
+    const list: { id: string; kind: "media" | "widget"; name: string; searchName: string; type?: string; icon: React.ReactNode; thumbnail?: string; raw: PickerRaw; createdAt?: string }[] = [];
     dbMedia.forEach((m) => {
       // Audio is managed exclusively from the BGM track on the timeline.
       // Hide audio items here so users don't accidentally add them into a zone/overlay.
@@ -587,10 +650,10 @@ function MediaLibraryDock({
       });
     });
     dbWidgets.forEach((w) => {
-      let config: any = null;
+      let config: WidgetConfig | null = null;
       try {
         const raw = w.url?.startsWith("widget://") ? w.url.slice("widget://".length) : w.url;
-        if (raw?.startsWith("{")) config = JSON.parse(raw);
+        if (raw?.startsWith("{")) config = JSON.parse(raw) as WidgetConfig;
       } catch {}
       const WidgetIcon = config?.widgetType === "clock" ? Clock : config?.widgetType === "date" ? Calendar : config?.widgetType === "webpage" ? Globe : Code2;
       list.push({
@@ -675,7 +738,7 @@ function MediaLibraryDock({
     if (!renameTarget) return;
     const newName = renameValue.trim();
     if (!newName || newName === renameTarget.defaultName) { setRenameTarget(null); return; }
-    const { error } = await (supabase as any).from("media_items").update({ original_name: newName }).eq("id", renameTarget.id);
+    const { error } = await supabase.from("media_items").update({ original_name: newName }).eq("id", renameTarget.id);
     if (error) { toast.error(error.message); return; }
     toast.success(t("studioRenameSaved"));
     await onMediaUploaded?.();
@@ -738,7 +801,7 @@ function MediaLibraryDock({
     }
 
     // If clicked item is part of multi-selection, add ALL selected; else add just this one
-    let toAdd: { kind: "media" | "widget"; raw: any }[];
+    let toAdd: PickerPayload[];
     if (selectedIds.size > 1 && selectedIds.has(item.id)) {
       // Preserve filtered order
       toAdd = filtered.filter((i) => selectedIds.has(i.id)).map((i) => ({ kind: i.kind, raw: i.raw }));
@@ -833,7 +896,7 @@ function MediaLibraryDock({
     if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
     hoverTimerRef.current = window.setTimeout(() => {
       const rect = target.getBoundingClientRect();
-      const m: any = item.raw || {};
+      const m = item.raw as DbMediaItem;
       setHoverPreview({
         kind: item.kind,
         type: item.type,
@@ -942,7 +1005,7 @@ function MediaLibraryDock({
             <Button key={f} variant={filter === f ? "default" : "ghost"} size="sm"
               className="h-6 text-[10px] px-2 rounded-full shrink-0"
               onClick={() => setFilter(f)}>
-              {t(`pickerFilter_${f}` as any)}
+              {t(`pickerFilter_${f}` as TranslationKey)}
             </Button>
           ))}
         </div>
@@ -1058,7 +1121,7 @@ function MediaLibraryDock({
                     )}
                   </div>
                   {item.kind === "media" && (() => {
-                    const m: any = item.raw;
+                    const m = item.raw as DbMediaItem;
                     // Prefer numeric fields, fallback to legacy text strings.
                     const totalSec = Math.round(getMediaDurationSec(m));
                     const durStr = totalSec > 0 ? `${totalSec}s` : "";
@@ -1153,7 +1216,7 @@ function ZoneTimeline({
   onUpdateZoneContent: (zoneId: string, content: ZoneContent) => void;
   onUpdateOverlayContent: (overlayId: string, content: ZoneContent) => void;
   onAddItemsToTarget: (
-    items: { kind: "media" | "widget"; raw: any }[],
+    items: PickerPayload[],
     target: { type: "zone"; id: string } | { type: "overlay"; id: string },
   ) => void | Promise<void>;
   bgmItems: MediaItem[];

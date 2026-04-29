@@ -146,8 +146,8 @@ export default function SystemLogsPage() {
 
   const fetchDeviceLogs = async () => {
     setDeviceLoading(true);
-    let logsQ = (supabase as any).from("screen_logs").select("id, screen_id, org_id, event_type, event_title, event_detail, event_code, event_params, created_at, created_by").order("created_at", { ascending: false }).limit(1000);
-    let screensQ = (supabase as any).from("screens").select("id, name");
+    let logsQ = supabase.from("screen_logs").select("id, screen_id, org_id, event_type, event_title, event_detail, event_code, event_params, created_at, created_by").order("created_at", { ascending: false }).limit(1000);
+    let screensQ = supabase.from("screens").select("id, name");
     if (activeOrgId) {
       logsQ = logsQ.eq("org_id", activeOrgId);
       screensQ = screensQ.eq("org_id", activeOrgId);
@@ -156,10 +156,10 @@ export default function SystemLogsPage() {
       logsQ,
       screensQ,
     ]);
-    const sMap = new Map((screensRes.data || []).map((s: any) => [s.id, s.name]));
-    const rows = (logsRes.data || []) as any[];
+    const sMap = new Map((screensRes.data || []).map((s) => [s.id, s.name]));
+    const rows = logsRes.data || [];
     await ensureProfiles(rows.map((l) => l.created_by).filter(Boolean));
-    setDeviceLogs(rows.map((l: any) => ({
+    setDeviceLogs(rows.map((l) => ({
       ...l,
       screen_name: sMap.get(l.screen_id) || "Unknown",
       operator_name: l.created_by ? (getDisplayName(l.created_by, "Unknown")) : undefined,
@@ -170,12 +170,12 @@ export default function SystemLogsPage() {
 
   const fetchActivityLogs = async () => {
     setActivityLoading(true);
-    let q = (supabase as any).from("activity_logs").select("*").order("created_at", { ascending: false }).limit(1000);
+    let q = supabase.from("activity_logs").select("*").order("created_at", { ascending: false }).limit(1000);
     if (activeOrgId) q = q.eq("org_id", activeOrgId);
     const { data } = await q;
-    const rows = (data || []) as any[];
+    const rows = data || [];
     await ensureProfiles(rows.map((l) => l.user_id).filter(Boolean));
-    setActivityLogs(rows.map((l: any) => ({
+    setActivityLogs(rows.map((l) => ({
       ...l,
       user_name: getDisplayName(l.user_id, "Unknown"),
     })));
@@ -184,7 +184,7 @@ export default function SystemLogsPage() {
 
   const fetchPlaybackLogs = async () => {
     setPlaybackLoading(true);
-    let q = (supabase as any).from("playback_logs").select("*").order("played_at", { ascending: false }).limit(1000);
+    let q = supabase.from("playback_logs").select("*").order("played_at", { ascending: false }).limit(1000);
     if (activeOrgId) q = q.eq("org_id", activeOrgId);
     const { data } = await q;
     setPlaybackLogs(data || []);
@@ -734,7 +734,7 @@ export default function SystemLogsPage() {
                         <Tooltip
                           contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 13 }}
                           labelStyle={{ color: "hsl(var(--foreground))" }}
-                          labelFormatter={(_, items) => (items?.[0]?.payload as any)?.fullName || ""}
+                          labelFormatter={(_, items) => (items?.[0]?.payload as { fullName?: string })?.fullName || ""}
                           formatter={(value: number) => [value, { zh: "播放次數", en: "Plays", ja: "再生回数" }[language]]}
                         />
                         <Bar dataKey="count" radius={[0, 4, 4, 0]} fill="#f59e0b" />

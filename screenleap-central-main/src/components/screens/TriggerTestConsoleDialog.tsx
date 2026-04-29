@@ -607,9 +607,9 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
               const detail =
                 v.status === "valid"
                   ? `驗證時間 ${v.checkedAt}${v.expiresAt ? ` · 連結到期 ${v.expiresAt}` : ""}`
-                  : v.status === "none" || v.status === "missing"
-                  ? (v as any).reason ?? "開啟對話框時將自動驗證 URL 中的分享連結"
-                  : (v as any).reason;
+                  : v.status === "none"
+                  ? "開啟對話框時將自動驗證 URL 中的分享連結"
+                  : v.reason;
               return (
                 <div className={`rounded-md border px-2.5 py-1.5 text-xs flex items-start gap-2 max-w-[70%] ${m.cls}`}>
                   <Icon className="w-3.5 h-3.5 mt-0.5 shrink-0" />
@@ -843,13 +843,13 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
               <TabsContent value="matched" className="space-y-2">
                 {matched.length === 0 ? (
                   <p className="text-xs text-muted-foreground">沒有規則匹配此 payload。</p>
-                ) : matched.map((r: any) => (
-                  <div key={r.id} className="border border-border rounded-md p-3 space-y-1">
+                ) : matched.map((r) => (
+                  <div key={String(r.id)} className="border border-border rounded-md p-3 space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">{r.name}</span>
-                      <Badge variant="outline">priority {r.priority ?? 0}</Badge>
+                      <span className="text-sm font-medium">{String(r.name ?? "")}</span>
+                      <Badge variant="outline">priority {r.priority != null ? String(r.priority) : 0}</Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground font-mono">{r.trigger_source}/{r.trigger_key}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{String(r.trigger_source ?? "")}/{String(r.trigger_key ?? "")}</p>
                   </div>
                 ))}
               </TabsContent>
@@ -857,16 +857,16 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
               <TabsContent value="resolved" className="space-y-2">
                 {resolved.length === 0 ? (
                   <p className="text-xs text-muted-foreground">該 screen/org 沒有任何啟用的候選規則。</p>
-                ) : resolved.map((r: any) => (
-                  <div key={r.id} className="border border-border rounded-md p-3 space-y-1">
+                ) : resolved.map((r) => (
+                  <div key={String(r.id)} className="border border-border rounded-md p-3 space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium">{r.name}</span>
+                      <span className="text-sm font-medium">{String(r.name ?? "")}</span>
                       <div className="flex gap-1">
-                        <Badge variant="secondary">{r.scope}</Badge>
-                        <Badge variant="outline">priority {r.priority ?? 0}</Badge>
+                        <Badge variant="secondary">{String(r.scope ?? "")}</Badge>
+                        <Badge variant="outline">priority {r.priority != null ? String(r.priority) : 0}</Badge>
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground font-mono">{r.trigger_source}/{r.trigger_key}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{String(r.trigger_source ?? "")}/{String(r.trigger_key ?? "")}</p>
                     {r.trigger_condition && (
                       <pre className="text-[10px] bg-muted/40 rounded p-2 overflow-auto">{JSON.stringify(r.trigger_condition, null, 2)}</pre>
                     )}
@@ -877,18 +877,18 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
               <TabsContent value="logs" className="space-y-2">
                 {logs.length === 0 ? (
                   <p className="text-xs text-muted-foreground">沒有歷史日誌。</p>
-                ) : logs.map((l: any) => (
-                  <div key={l.id} className="border border-border rounded-md p-2 text-xs space-y-1">
+                ) : logs.map((l) => (
+                  <div key={String(l.id)} className="border border-border rounded-md p-2 text-xs space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="flex items-center gap-1">
                         {l.success ? <CheckCircle2 className="w-3 h-3 text-success" /> : <AlertCircle className="w-3 h-3 text-destructive" />}
-                        <span className="font-mono">{l.trigger_source}/{l.trigger_key}</span>
+                        <span className="font-mono">{String(l.trigger_source ?? "")}/{String(l.trigger_key ?? "")}</span>
                       </span>
-                      <span className="text-muted-foreground">{new Date(l.created_at).toLocaleString()}</span>
+                      <span className="text-muted-foreground">{new Date(String(l.created_at)).toLocaleString()}</span>
                     </div>
-                    {l.error_message && <p className="text-destructive">{l.error_message}</p>}
+                    {l.error_message && <p className="text-destructive">{String(l.error_message)}</p>}
                     {l.debug_id && (
-                      <p className="text-[10px] text-muted-foreground font-mono">debug_id: {l.debug_id}</p>
+                      <p className="text-[10px] text-muted-foreground font-mono">debug_id: {String(l.debug_id)}</p>
                     )}
                   </div>
                 ))}

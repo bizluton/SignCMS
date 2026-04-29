@@ -50,6 +50,23 @@ function KioskQR({ value }: { value: string }) {
  * first image/video media. BGM tracks loop independently with a volume mixer.
  */
 
+interface WidgetConfig {
+  widgetType?: string;
+  bgColor?: string;
+  textColor?: string;
+  timezone?: string;
+  format?: string;
+  showDate?: boolean;
+  text?: string;
+  qrcodeContent?: string;
+  qrcodeSize?: number;
+  targetDate?: string;
+  countdownTitle?: string;
+  url?: string;
+  youtubeId?: string;
+  [key: string]: unknown;
+}
+
 interface MediaEntry {
   id: string;
   name?: string;
@@ -59,7 +76,7 @@ interface MediaEntry {
   duration_seconds?: number | null;
   assetPath?: string | null;
   /** Embedded for widget-type virtual entries (no asset file). */
-  widgetConfig?: any;
+  widgetConfig?: WidgetConfig;
 }
 
 interface ScheduleItem {
@@ -78,7 +95,7 @@ interface BgmItem {
 interface DesignProject {
   id: string;
   name: string;
-  zones?: any[];
+  zones?: unknown[];
 }
 
 interface Manifest {
@@ -96,7 +113,7 @@ type PlayItem =
   | { kind: "image"; url: string; durationMs: number; label: string }
   | { kind: "video"; url: string; durationMs: number; label: string }
   | { kind: "design"; project: DesignProject; durationMs: number; label: string }
-  | { kind: "widget"; config: any; durationMs: number; label: string }
+  | { kind: "widget"; config: WidgetConfig; durationMs: number; label: string }
   | { kind: "blank"; durationMs: number; label: string };
 
 const DEFAULT_DURATION = 10;
@@ -120,19 +137,22 @@ function isAudioMime(m?: string) {
 function estimateDesignDuration(d: DesignProject | undefined): number {
   if (!d?.zones) return 30;
   let max = 0;
-  const visit = (content: any) => {
-    if (!content) return;
-    if (Array.isArray(content.mediaItems)) {
-      for (const m of content.mediaItems) {
-        const dur = Number(m?.duration);
+  const visit = (content: unknown) => {
+    if (!content || typeof content !== "object") return;
+    const c = content as Record<string, unknown>;
+    if (Array.isArray(c.mediaItems)) {
+      for (const m of c.mediaItems) {
+        const dur = Number((m as Record<string, unknown>)?.duration);
         if (Number.isFinite(dur) && dur > max) max = dur;
       }
     }
   };
   for (const z of d.zones) {
-    if (!z || z._meta) continue;
-    visit(z?.content);
-    if (Array.isArray(z?.overlays)) for (const o of z.overlays) visit(o?.content);
+    if (!z || typeof z !== "object") continue;
+    const zObj = z as Record<string, unknown>;
+    if (zObj._meta) continue;
+    visit(zObj.content);
+    if (Array.isArray(zObj.overlays)) for (const o of zObj.overlays) visit((o as Record<string, unknown>)?.content);
   }
   return max > 0 ? max : 30;
 }
@@ -487,9 +507,9 @@ export default function SignCMSPlayer({ bootstrapBlob, compactUi, autoPlay }: Si
       setBgmVolume(m.schedule?.bgm_volume ?? 50);
       setCurrentIdx(0);
       setBgmIdx(0);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error(err);
-      setError(err?.message || "Failed to load ZIP");
+      setError(err instanceof Error ? err.message : "Failed to load ZIP");
     } finally {
       setLoading(false);
     }
@@ -505,18 +525,26 @@ export default function SignCMSPlayer({ bootstrapBlob, compactUi, autoPlay }: Si
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bootstrapBlob]);
 
+  type WindowWithFSA = Window & { showDirectoryPicker?: (opts?: { mode?: string }) => Promise<FileSystemDirectoryHandle> };
+
+  type FSADirectoryHandle = FileSystemDirectoryHandle & {
+    entries(): AsyncIterableIterator<[string, FileSystemHandle]>;
+    queryPermission?(desc: { mode: string }): Promise<string>;
+    requestPermission?(desc: { mode: string }): Promise<string>;
+  };
+
   // Load schedule.json + assets/ from a granted directory handle.
-  const loadFromDirHandle = async (dir: any) => {
+  const loadFromDirHandle = async (dir: FSADirectoryHandle) => {
     cleanupBlobs();
     const manifestHandle = await dir.getFileHandle("schedule.json");
     const manifestText = await (await manifestHandle.getFile()).text();
     const m: Manifest = JSON.parse(manifestText);
     const urls: Record<string, string> = {};
     try {
-      const assetsDir = await dir.getDirectoryHandle("assets");
-      for await (const [name, handle] of (assetsDir as any).entries()) {
+      const assetsDir = await dir.getDirectoryHandle("assets") as FSADirectoryHandle;
+      for await (const [name, handle] of assetsDir.entries()) {
         if (handle.kind !== "file") continue;
-        const file = await handle.getFile();
+        const file = await (handle as FileSystemFileHandle).getFile();
         const url = URL.createObjectURL(file);
         urls[`assets/${name}`] = url;
         blobUrlsRef.current.push(url);
@@ -530,21 +558,21 @@ export default function SignCMSPlayer({ bootstrapBlob, compactUi, autoPlay }: Si
   };
 
   const handlePickFolder = async () => {
-    if (typeof (window as any).showDirectoryPicker !== "function") {
+    if (typeof (window as WindowWithFSA).showDirectoryPicker !== "function") {
       setError("Your browser does not support folder picking. Use a Chromium-based browser or upload a ZIP.");
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const dir = await (window as any).showDirectoryPicker();
+      const dir = await (window as WindowWithFSA).showDirectoryPicker!() as FSADirectoryHandle;
       await loadFromDirHandle(dir);
       // Persist for kiosk reuse via ?folder=last.
       saveLastFolderHandle(dir).catch(() => { /* noop */ });
-    } catch (err: any) {
-      if (err?.name === "AbortError") { setLoading(false); return; }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") { setLoading(false); return; }
       console.error(err);
-      setError(err?.message || "Failed to load folder");
+      setError(err instanceof Error ? err.message : "Failed to load folder");
     } finally {
       setLoading(false);
     }
@@ -575,18 +603,18 @@ export default function SignCMSPlayer({ bootstrapBlob, compactUi, autoPlay }: Si
           try {
             // queryPermission may return "granted" without a gesture; otherwise
             // we surface a hint and wait for the user to click anywhere.
-            const perm = await (handle as any).queryPermission?.({ mode: "read" });
+            const perm = await (handle as FSADirectoryHandle).queryPermission?.({ mode: "read" });
             if (perm !== "granted") {
               setKioskHint("Click anywhere to grant folder access and start autoplay.");
               const onGesture = async () => {
                 window.removeEventListener("click", onGesture);
                 window.removeEventListener("keydown", onGesture);
                 try {
-                  const r = await (handle as any).requestPermission?.({ mode: "read" });
+                  const r = await (handle as FSADirectoryHandle).requestPermission?.({ mode: "read" });
                   if (r !== "granted") { setError("Folder permission denied"); return; }
                   setKioskHint(null);
                   setLoading(true);
-                  await loadFromDirHandle(handle);
+                  await loadFromDirHandle(handle as FSADirectoryHandle);
                   setLoading(false);
                   if (!cancelled) startKiosk(wantFs, wantMuted, wantLoop, wantVolume);
                 } catch (e) {
@@ -600,7 +628,7 @@ export default function SignCMSPlayer({ bootstrapBlob, compactUi, autoPlay }: Si
               return;
             }
             setLoading(true);
-            await loadFromDirHandle(handle);
+            await loadFromDirHandle(handle as FSADirectoryHandle);
             setLoading(false);
             if (!cancelled) startKiosk(wantFs, wantMuted, wantLoop, wantVolume);
             return;
@@ -888,7 +916,7 @@ export default function SignCMSPlayer({ bootstrapBlob, compactUi, autoPlay }: Si
             <div className="absolute inset-0">
               <DesignStage
                 key={current.project.id + currentIdx}
-                project={current.project as any}
+                project={current.project}
                 resolveMediaUrl={resolveMediaUrl}
                 muted={muted}
                 playing={playing}

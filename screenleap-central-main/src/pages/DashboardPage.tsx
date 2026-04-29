@@ -98,14 +98,16 @@ export default function DashboardPage() {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
-    let screensQ = (supabase as any).from("screens").select("id, name, branch, online, updated_at, org_id").order("created_at");
-    let schedulesQ = (supabase as any).from("schedules").select("id, name, screen_id, enabled, start_time, end_time").order("created_at");
-    let mediaQ = (supabase as any).from("media_items").select("id, name, type").is("deleted_at", null).order("created_at", { ascending: false });
-    const emergencyQ = (supabase as any).from("publish_records").select("id").eq("status", "emergency");
-    const todayPubQ = (supabase as any).from("publish_records").select("id").gte("created_at", todayStart.toISOString());
-    const scheduledQ = (supabase as any).from("publish_records").select("id").eq("status", "scheduled");
-    let invQ = (supabase as any).from("invitations").select("id, expires_at").eq("status", "pending");
-    let membersQ = (supabase as any).from("team_members").select("id, user_id, teams!inner(org_id)");
+    const fromTable = (table: string) => supabase.from(table as Parameters<typeof supabase.from>[0]);
+
+    let screensQ = supabase.from("screens").select("id, name, branch, online, updated_at, org_id").order("created_at");
+    let schedulesQ = fromTable("schedules").select("id, name, screen_id, enabled, start_time, end_time").order("created_at");
+    let mediaQ = supabase.from("media_items").select("id, name, type").is("deleted_at", null).order("created_at", { ascending: false });
+    const emergencyQ = supabase.from("publish_records").select("id").eq("status", "emergency");
+    const todayPubQ = supabase.from("publish_records").select("id").gte("created_at", todayStart.toISOString());
+    const scheduledQ = supabase.from("publish_records").select("id").eq("status", "scheduled");
+    let invQ = supabase.from("invitations").select("id, expires_at").eq("status", "pending");
+    let membersQ = supabase.from("team_members").select("id, user_id, teams!inner(org_id)");
 
     if (activeOrgId) {
       screensQ = screensQ.eq("org_id", activeOrgId);
@@ -115,30 +117,34 @@ export default function DashboardPage() {
       membersQ = membersQ.eq("teams.org_id", activeOrgId);
     }
 
+    const scheduleItemsQ = fromTable("schedule_items").select("id, schedule_id, media_id, duration").order("sort_order");
+
     const [screensRes, schedulesRes, mediaRes, itemsRes, emergencyRes, todayPubRes, scheduledRes, invRes, membersRes] =
       await Promise.all([
         screensQ, schedulesQ, mediaQ,
-        (supabase as any).from("schedule_items").select("id, schedule_id, media_id, duration").order("sort_order"),
+        scheduleItemsQ,
         emergencyQ, todayPubQ, scheduledQ, invQ, membersQ,
       ]);
 
-    const filteredScreens = screensRes.data || [];
+    const filteredScreens = (screensRes.data || []) as ScreenRow[];
     setScreens(filteredScreens);
 
-    const filteredSchedules = schedulesRes.data || [];
+    const filteredSchedules = (schedulesRes.data || []) as unknown as ScheduleRow[];
     setSchedules(filteredSchedules);
-    setMediaItems(mediaRes.data || []);
+    setMediaItems((mediaRes.data || []) as MediaRow[]);
 
-    const scheduleIds = new Set(filteredSchedules.map((s: any) => s.id));
-    const allItems = itemsRes.data || [];
-    const filteredItems = activeOrgId ? allItems.filter((si: any) => scheduleIds.has(si.schedule_id)) : allItems;
+    const scheduleIds = new Set(filteredSchedules.map((s) => s.id));
+    const allItems = (itemsRes.data || []) as unknown as ScheduleItemRow[];
+    const filteredItems = activeOrgId ? allItems.filter((si) => scheduleIds.has(si.schedule_id)) : allItems;
     setScheduleItems(filteredItems);
 
     setEmergencyCount((emergencyRes.data || []).length);
-    const pendingInvs = (invRes.data || []).filter((inv: any) => new Date(inv.expires_at) > new Date());
+    const invData = (invRes.data || []) as { id: string; expires_at: string }[];
+    const pendingInvs = invData.filter((inv) => new Date(inv.expires_at) > new Date());
     setPendingInvitations(pendingInvs.length);
 
-    const uniqueMembers = new Set((membersRes.data || []).map((m: any) => m.user_id));
+    const membersData = (membersRes.data || []) as { id: string; user_id: string }[];
+    const uniqueMembers = new Set(membersData.map((m) => m.user_id));
     setMemberCount(uniqueMembers.size);
 
     setPublishRecords([
@@ -199,10 +205,10 @@ export default function DashboardPage() {
   }, [mediaItems, scheduleItems]);
 
   const scheduleOverview = useMemo(() => {
-    const sMap = new Map(screens.map((s: any) => [s.id, s]));
+    const sMap = new Map(screens.map((s) => [s.id, s]));
     return schedules.map((s) => {
       const items = scheduleItems.filter((si) => si.schedule_id === s.id);
-      const totalDuration = items.reduce((sum: number, i: any) => sum + (i.duration || 0), 0);
+      const totalDuration = items.reduce((sum: number, i) => sum + (i.duration || 0), 0);
       const screen = sMap.get(s.screen_id);
       return {
         ...s,
@@ -287,16 +293,16 @@ export default function DashboardPage() {
 
       {/* Offline screens alert panel */}
       <OfflineScreenAlertsPanel
-        screens={screens as any}
+        screens={screens.map((s) => ({ ...s, branch: s.branch ?? "" }))}
         activeOrgId={activeOrgId ?? null}
         onChanged={fetchData}
       />
 
       {/* Estimated plays today widget */}
       <EstimatedPlaysWidget
-        schedules={schedules as any}
-        scheduleItems={scheduleItems as any}
-        screens={screens as any}
+        schedules={schedules}
+        scheduleItems={scheduleItems}
+        screens={screens}
       />
 
       {/* HERO: 3 merged primary cards */}

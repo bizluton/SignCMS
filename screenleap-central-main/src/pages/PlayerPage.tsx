@@ -61,6 +61,16 @@ function isScheduleActiveNow(s: Schedule, now: Date): boolean {
   return cur >= start && cur <= end;
 }
 
+interface ZoneItem {
+  _meta?: boolean;
+  bgm?: {
+    items?: Array<{ id?: unknown; url?: unknown; name?: unknown }>;
+    volume?: unknown;
+    audioSource?: unknown;
+  };
+  [key: string]: unknown;
+}
+
 // Studio stores BGM as zones[0] = { _meta: true, bgm: { items, volume, audioSource } }.
 function extractDesignBgm(zones: unknown): {
   tracks: BgmTrack[];
@@ -68,12 +78,12 @@ function extractDesignBgm(zones: unknown): {
   audioSource: string | null;
 } {
   if (!Array.isArray(zones)) return { tracks: [], volume: null, audioSource: null };
-  const meta = (zones as any[]).find((z) => z && z._meta);
+  const meta = (zones as ZoneItem[]).find((z) => z && z._meta);
   const bgm = meta?.bgm;
   if (!bgm) return { tracks: [], volume: null, audioSource: null };
   const rawItems = Array.isArray(bgm.items) ? bgm.items : [];
   const tracks: BgmTrack[] = rawItems
-    .map((it: any, idx: number) => ({
+    .map((it, idx: number) => ({
       id: String(it?.id ?? `dp-bgm-${idx}`),
       media_id: String(it?.id ?? ""),
       url: String(it?.url ?? ""),
@@ -102,7 +112,7 @@ export default function PlayerPage() {
   const lastLoggedRef = useRef<string>("");
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const wakeLockRef = useRef<any>(null);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [wakeLockOn, setWakeLockOn] = useState(false);
 
@@ -156,7 +166,7 @@ export default function PlayerPage() {
     });
 
     // Look up the rule + its target design project.
-    const { data: rule } = await (supabase as any)
+    const { data: rule } = await supabase
       .from("smart_trigger_rules")
       .select(
         "id, name, scope, enabled, duration_seconds, target_design_project_id, " +
@@ -178,7 +188,7 @@ export default function PlayerPage() {
     // For org-scope rules, double-check there's no per-screen override
     // disabling it (defense-in-depth; webhook already enforces this).
     if (rule.scope === "org") {
-      const { data: ov } = await (supabase as any)
+      const { data: ov } = await supabase
         .from("screen_smart_trigger_overrides")
         .select("enabled")
         .eq("screen_id", screenId)
@@ -238,14 +248,14 @@ export default function PlayerPage() {
           filter: `screen_id=eq.${screenId}`,
         },
         (payload) => {
-          const row = payload.new as any;
+          const row = payload.new as Record<string, unknown>;
           applyTriggerOverride({
-            id: row.id,
-            rule_id: row.rule_id,
-            screen_id: row.screen_id,
-            success: row.success,
-            trigger_key: row.trigger_key,
-            debug_id: row.debug_id ?? null,
+            id: String(row.id ?? ""),
+            rule_id: row.rule_id != null ? String(row.rule_id) : null,
+            screen_id: row.screen_id != null ? String(row.screen_id) : null,
+            success: Boolean(row.success),
+            trigger_key: row.trigger_key != null ? String(row.trigger_key) : null,
+            debug_id: row.debug_id != null ? String(row.debug_id) : null,
           });
         },
       )
@@ -260,16 +270,16 @@ export default function PlayerPage() {
           filter: `screen_id=is.null`,
         },
         (payload) => {
-          const row = payload.new as any;
+          const row = payload.new as Record<string, unknown>;
           // Only apply when this screen belongs to the same org as the log.
           if (!screen || row.org_id !== screen.org_id) return;
           applyTriggerOverride({
-            id: row.id,
-            rule_id: row.rule_id,
-            screen_id: row.screen_id,
-            success: row.success,
-            trigger_key: row.trigger_key,
-            debug_id: row.debug_id ?? null,
+            id: String(row.id ?? ""),
+            rule_id: row.rule_id != null ? String(row.rule_id) : null,
+            screen_id: row.screen_id != null ? String(row.screen_id) : null,
+            success: Boolean(row.success),
+            trigger_key: row.trigger_key != null ? String(row.trigger_key) : null,
+            debug_id: row.debug_id != null ? String(row.debug_id) : null,
           });
         },
       )
@@ -311,7 +321,7 @@ export default function PlayerPage() {
   }, []);
 
   const acquireWakeLock = useCallback(async () => {
-    const nav: any = navigator;
+    const nav = navigator as Navigator & { wakeLock?: { request: (type: string) => Promise<WakeLockSentinel> } };
     if (!nav.wakeLock?.request) {
       toast.error(t("playerWakeLockUnsupported"));
       return;
@@ -319,7 +329,7 @@ export default function PlayerPage() {
     try {
       wakeLockRef.current = await nav.wakeLock.request("screen");
       setWakeLockOn(true);
-      wakeLockRef.current.addEventListener?.("release", () => setWakeLockOn(false));
+      wakeLockRef.current.addEventListener("release", () => setWakeLockOn(false));
       toast.success(t("playerWakeLockOn"));
     } catch {
       toast.error(t("playerWakeLockUnsupported"));
@@ -356,12 +366,12 @@ export default function PlayerPage() {
     if (licenseInfo && !licenseInfo.licensed) {
       setLoading(false);
       // Still fetch the screen row so we can show its name in the lockout view.
-      const { data: scr } = await (supabase as any).from("screens").select("id, name, org_id, resolution").eq("id", screenId).maybeSingle();
+      const { data: scr } = await supabase.from("screens").select("id, name, org_id, resolution").eq("id", screenId).maybeSingle();
       if (scr) setScreen(scr);
       return;
     }
     setLoading(true);
-    const { data: scr } = await (supabase as any).from("screens").select("id, name, org_id, resolution").eq("id", screenId).maybeSingle();
+    const { data: scr } = await supabase.from("screens").select("id, name, org_id, resolution").eq("id", screenId).maybeSingle();
     if (!scr) {
       toast.error(t("playerScreenNotFound"));
       setLoading(false);
@@ -369,8 +379,36 @@ export default function PlayerPage() {
     }
     setScreen(scr);
 
-    const { data: schedRows } = await (supabase as any)
-      .from("schedules")
+    interface RawScheduleItem {
+      id: string;
+      media_id: string | null;
+      design_project_id: string | null;
+      duration: number;
+      item_type: string;
+      sort_order: number;
+      media_items?: { id: string; name: string; type: string; url: string } | null;
+      design_projects?: { id: string; name: string; zones: unknown } | null;
+    }
+    interface RawBgmItem {
+      id: string;
+      media_id: string;
+      sort_order: number;
+      media_items?: { id: string; name: string; url: string } | null;
+    }
+    interface RawScheduleRow {
+      id: string;
+      name: string;
+      enabled: boolean;
+      start_time: string;
+      end_time: string;
+      days: string[];
+      bgm_volume: number | null;
+      schedule_items?: RawScheduleItem[];
+      schedule_bgm_items?: RawBgmItem[];
+    }
+
+    const { data: schedRows } = await supabase
+      .from("schedules" as never)
       .select(
         "id, name, enabled, start_time, end_time, days, bgm_volume, " +
           "schedule_items(id, media_id, design_project_id, duration, item_type, sort_order, " +
@@ -382,7 +420,7 @@ export default function PlayerPage() {
       .eq("screen_id", screenId)
       .order("created_at");
 
-    const parsed: Schedule[] = (schedRows || []).map((s: any) => ({
+    const parsed: Schedule[] = ((schedRows as unknown as RawScheduleRow[]) || []).map((s) => ({
       id: s.id,
       name: s.name,
       enabled: s.enabled,
@@ -391,8 +429,8 @@ export default function PlayerPage() {
       days: s.days || [],
       bgm_volume: typeof s.bgm_volume === "number" ? s.bgm_volume : 30,
       items: (s.schedule_items || [])
-        .sort((a: any, b: any) => a.sort_order - b.sort_order)
-        .map((it: any) => {
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((it) => {
           const isDesign = it.item_type === "design_project" && it.design_projects;
           if (isDesign) {
             const dp = it.design_projects;
@@ -422,8 +460,8 @@ export default function PlayerPage() {
           } as PlaylistItem;
         }),
       bgm_tracks: (s.schedule_bgm_items || [])
-        .sort((a: any, b: any) => a.sort_order - b.sort_order)
-        .map((b: any) => ({
+        .sort((a, b) => a.sort_order - b.sort_order)
+        .map((b) => ({
           id: b.id,
           media_id: b.media_id,
           url: b.media_items?.url || "",
@@ -552,7 +590,7 @@ export default function PlayerPage() {
     if (lastLoggedRef.current === key) return; // dedupe
     lastLoggedRef.current = key;
     try {
-      await (supabase as any).from("playback_logs").insert({
+      await supabase.from("playback_logs").insert({
         media_id: item.media_id,
         media_name: item.media_name,
         screen_id: screen.id,
