@@ -39,7 +39,7 @@ export default function AdminPage() {
   const [resetMode, setResetMode] = useState<"email" | "password">("email");
   const [tempPassword, setTempPassword] = useState("");
   const [saving, setSaving] = useState(false);
-  const { isSystemAdmin } = useIsSystemAdmin();
+  const { isSystemAdmin, loading: sysAdminLoading } = useIsSystemAdmin();
   const defaultTab = (isSystemAdmin || isOrgAdmin) ? "users" : "teams";
   const [activeTab, setActiveTab] = useState<string>(defaultTab);
 
@@ -225,7 +225,7 @@ export default function AdminPage() {
     setSaving(false);
   };
 
-  if (roleLoading) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  if (roleLoading || sysAdminLoading) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   if (!isAdmin && !isOrgAdmin) return (
     <div className="flex items-center justify-center min-h-[400px]">
