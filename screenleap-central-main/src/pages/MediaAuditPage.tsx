@@ -80,7 +80,7 @@ export default function MediaAuditPage() {
         actionFilter === "__all__"
           ? [ACTION_CODES.soft, ACTION_CODES.restore, ACTION_CODES.purge]
           : [ACTION_CODES[actionFilter]];
-      let q = (supabase as any)
+      let q = supabase
         .from("activity_logs")
         .select(
           "id, created_at, user_id, org_id, action_code, action, target_id, target_name, detail, action_params",

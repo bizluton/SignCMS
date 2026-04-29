@@ -99,12 +99,12 @@ const AnnouncementPage = () => {
     try {
       const saved = localStorage.getItem(orgKey("signboard-announcements", oid));
       if (saved) {
-        return JSON.parse(saved).map((a: any) => ({
+        return (JSON.parse(saved) as Array<Record<string, unknown>>).map((a) => ({
           ...a,
-          startDate: new Date(a.startDate),
-          endDate: new Date(a.endDate),
-          createdAt: new Date(a.createdAt),
-        }));
+          startDate: new Date(a.startDate as string),
+          endDate: new Date(a.endDate as string),
+          createdAt: new Date(a.createdAt as string),
+        } as Announcement));
       }
     } catch {}
     return [];

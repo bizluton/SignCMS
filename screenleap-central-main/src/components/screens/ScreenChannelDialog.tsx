@@ -77,8 +77,8 @@ export function ScreenChannelDialog({ open, onOpenChange, screenId, screenName, 
     (async () => {
       setLoading(true);
       const [subRes, trgRes] = await Promise.all([
-        (supabase as any).from("screen_channel_subscriptions").select("*").eq("screen_id", screenId),
-        (supabase as any).from("screen_channel_switch_triggers").select("*").eq("screen_id", screenId).order("created_at", { ascending: true }),
+        supabase.from("screen_channel_subscriptions").select("*").eq("screen_id", screenId),
+        supabase.from("screen_channel_switch_triggers").select("*").eq("screen_id", screenId).order("created_at", { ascending: true }),
       ]);
       if (!cancelled) {
         setSubs((subRes.data || []) as Subscription[]);
@@ -135,8 +135,8 @@ export function ScreenChannelDialog({ open, onOpenChange, screenId, screenName, 
     setSaving(true);
     // Replace strategy for both tables (small N, simplest correct approach)
     const [delSubs, delTrg] = await Promise.all([
-      (supabase as any).from("screen_channel_subscriptions").delete().eq("screen_id", screenId),
-      (supabase as any).from("screen_channel_switch_triggers").delete().eq("screen_id", screenId),
+      supabase.from("screen_channel_subscriptions").delete().eq("screen_id", screenId),
+      supabase.from("screen_channel_switch_triggers").delete().eq("screen_id", screenId),
     ]);
     if (delSubs.error || delTrg.error) {
       toast.error((delSubs.error || delTrg.error).message);
@@ -144,13 +144,13 @@ export function ScreenChannelDialog({ open, onOpenChange, screenId, screenName, 
       return;
     }
     if (subs.length > 0) {
-      const { error } = await (supabase as any).from("screen_channel_subscriptions").insert(
+      const { error } = await supabase.from("screen_channel_subscriptions").insert(
         subs.map((s) => ({ screen_id: screenId, channel_id: s.channel_id, is_default: s.is_default }))
       );
       if (error) { toast.error(error.message); setSaving(false); return; }
     }
     if (triggers.length > 0) {
-      const { error } = await (supabase as any).from("screen_channel_switch_triggers").insert(
+      const { error } = await supabase.from("screen_channel_switch_triggers").insert(
         triggers.map((t) => ({
           screen_id: screenId,
           target_channel_id: t.target_channel_id,
