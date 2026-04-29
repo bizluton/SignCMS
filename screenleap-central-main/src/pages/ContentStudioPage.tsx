@@ -4463,7 +4463,7 @@ export default function ContentStudioPage() {
           if (blob) {
             const baseName = sanitize(m.original_name || m.name || `media_${m.id}`);
             const hasExt = /\.[A-Za-z0-9]{2,5}$/.test(baseName);
-            let fileName = hasExt ? baseName : (extFromMime ? `${baseName}.${extFromMime}` : baseName);
+            const fileName = hasExt ? baseName : (extFromMime ? `${baseName}.${extFromMime}` : baseName);
             // Prefix with id to guarantee uniqueness
             let candidate = `${m.id}_${fileName}`;
             let n = 1;

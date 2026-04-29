@@ -250,14 +250,14 @@ export default function PublishingCenterPage() {
     const rawChannels = (channelRes.data || []) as any[];
     const rawProjects = (projectRes.data || []) as any[];
     const creatorIds = Array.from(new Set(rawProjects.map((p) => p.created_by).filter(Boolean) as string[]));
-    let creatorMap = new Map<string, string>();
-    let teamMap = new Map<string, string>();
+    const creatorMap = new Map<string, string>();
+    const teamMap = new Map<string, string>();
     // Resolve team names from project.team_id and channel.team_id together
     const allTeamIds = Array.from(new Set([
       ...rawProjects.map((p) => p.team_id).filter(Boolean) as string[],
       ...rawChannels.map((c) => c.team_id).filter(Boolean) as string[],
     ]));
-    let projectTeamNames = new Map<string, string>();
+    const projectTeamNames = new Map<string, string>();
     if (allTeamIds.length > 0) {
       const { data: ptData } = await (supabase as any)
         .from("teams").select("id, name").in("id", allTeamIds);
@@ -283,7 +283,7 @@ export default function PublishingCenterPage() {
       });
       // Fetch teams referenced by these memberships
       const teamIds = Array.from(new Set((memRes.data || []).map((m: any) => m.team_id).filter(Boolean)));
-      let teamsById = new Map<string, { name: string; org_id: string }>();
+      const teamsById = new Map<string, { name: string; org_id: string }>();
       if (teamIds.length > 0) {
         const { data: teamsData } = await (supabase as any)
           .from("teams")

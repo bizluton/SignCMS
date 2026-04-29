@@ -21,7 +21,7 @@ function fromBase64Url(s: string): Uint8Array {
 }
 
 async function gzip(data: Uint8Array): Promise<Uint8Array> {
-  // @ts-ignore - CompressionStream is supported in modern browsers
+  // @ts-expect-error - CompressionStream is supported in modern browsers but not in older TS lib typings
   const cs = new CompressionStream("gzip");
   const stream = new Blob([data as BlobPart]).stream().pipeThrough(cs);
   const buf = await new Response(stream).arrayBuffer();
@@ -29,7 +29,7 @@ async function gzip(data: Uint8Array): Promise<Uint8Array> {
 }
 
 async function gunzip(data: Uint8Array): Promise<Uint8Array> {
-  // @ts-ignore
+  // @ts-expect-error - DecompressionStream is supported in modern browsers but not in older TS lib typings
   const ds = new DecompressionStream("gzip");
   const stream = new Blob([data as BlobPart]).stream().pipeThrough(ds);
   const buf = await new Response(stream).arrayBuffer();
