@@ -8,8 +8,8 @@ const corsHeaders = {
 
 const TARGET_EMAIL = 'rainer@bizlution.com'
 const SITE_NAME = 'SignCMS'
-const SENDER_DOMAIN = 'notify.fms.bizlution.ai'
-const FROM_DOMAIN = 'notify.fms.bizlution.ai'
+const SENDER_DOMAIN = 'signcms.net'
+const FROM_DOMAIN = 'signcms.net'
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {

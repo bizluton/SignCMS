@@ -33,9 +33,9 @@ const EMAIL_TEMPLATES: Record<string, React.ComponentType<any>> = {
 }
 
 const SITE_NAME = 'SignCMS'
-const SENDER_DOMAIN = 'notify.fms.bizlution.ai'
-const ROOT_DOMAIN = 'fms.bizlution.ai'
-const FROM_DOMAIN = 'notify.fms.bizlution.ai'
+const SENDER_DOMAIN = 'signcms.net'
+const ROOT_DOMAIN = 'signcms.net'
+const FROM_DOMAIN = 'signcms.net'
 
 // Supabase auth hook payload (Send Email hook)
 interface AuthHookEmailData {

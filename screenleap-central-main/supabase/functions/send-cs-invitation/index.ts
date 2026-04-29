@@ -13,8 +13,8 @@ const corsHeaders = {
 }
 
 const SITE_NAME = 'SignCMS'
-const SENDER_DOMAIN = 'notify.fms.bizlution.ai'
-const FROM_DOMAIN = 'notify.fms.bizlution.ai'
+const SENDER_DOMAIN = 'signcms.net'
+const FROM_DOMAIN = 'signcms.net'
 
 interface CSInvitationEmailProps {
   siteName: string
