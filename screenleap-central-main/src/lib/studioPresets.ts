@@ -42,6 +42,7 @@ export interface StudioTemplatePreset {
   color: string;
   zones: StudioZonePreset[];
   aspect: StudioAspectRatio;
+  bgm?: { items: unknown[]; volume: number; audioSource: string };
 }
 
 export const STUDIO_LAYOUT_PRESETS: StudioLayoutPreset[] = [

@@ -54,6 +54,12 @@ export function deleteUserScene(id: string): void {
   studioSourceCache = null;
 }
 
+export function renameUserScene(id: string, newName: string): void {
+  const scenes = getUserScenes().map((s) => s.id === id ? { ...s, nameKey: newName } : s);
+  try { window.localStorage.setItem(USER_SCENES_KEY, JSON.stringify(scenes)); } catch { /* noop */ }
+  studioSourceCache = null;
+}
+
 function buildStudioSourceCache() {
   studioSourceCache = {
     version: STUDIO_DATA_VERSION,

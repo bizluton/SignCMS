@@ -62,6 +62,7 @@ import {
   invalidateStudioSourceCache,
   saveUserScene,
   deleteUserScene,
+  renameUserScene,
   type StudioIconKey,
 } from "@/lib/studioData";
 import { type TranslationKey } from "@/contexts/translations";
@@ -3726,6 +3727,11 @@ export default function ContentStudioPage() {
     setSelectedZone(null);
     setSelectedOverlay(null);
     setExtraSelectedZoneIds(new Set());
+    if (tpl.bgm) {
+      setBgmItems((tpl.bgm.items as MediaItem[]) ?? []);
+      setBgmVolume(tpl.bgm.volume ?? 30);
+      setBgmAudioSource(tpl.bgm.audioSource ?? "bgm");
+    }
   }, []);
 
   // Add a blank page using the simplest (single full-canvas) layout.
@@ -3843,11 +3849,14 @@ export default function ContentStudioPage() {
         label: z.label,
         content: z.content as import("@/lib/studioPresets").StudioZoneContent | undefined,
       })),
+      bgm: bgmItems.length > 0
+        ? { items: bgmItems as unknown[], volume: bgmVolume, audioSource: bgmAudioSource }
+        : undefined,
     };
     saveUserScene(scene);
     setScenesVersion((v) => v + 1);
     toast.success(t("studioSaveToSceneSuccess"));
-  }, [t, aspect]);
+  }, [t, aspect, bgmItems, bgmVolume, bgmAudioSource]);
 
   // 切換 aspect：若目前版型不適用新比例，自動轉換為對應比例下最相近的版型，並盡量保留每個 zone 已編輯的內容
   const changeAspect = useCallback((next: AspectRatio) => {
@@ -5553,29 +5562,64 @@ export default function ContentStudioPage() {
                     );
                   })()}
                 </TabsContent>
-                <TabsContent value="scene" className="flex-1 overflow-y-auto mt-3 space-y-2 pr-1">
-                  {studioSources.templates.length === 0 && (
+                <TabsContent value="scene" className="flex-1 overflow-y-auto mt-3 pr-1">
+                  {studioSources.templates.length === 0 ? (
                     <p className="text-xs text-muted-foreground text-center py-8">{t("studioNoProjects")}</p>
-                  )}
-                  {studioSources.templates.map((tpl) => (
-                    <div key={tpl.id} className="flex items-center gap-2 group">
-                      <button onClick={() => applyTemplate(tpl)} className="flex-1 flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent transition-colors text-left">
-                        <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground truncate">{t(tpl.nameKey as TranslationKey)}</p>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
-                            <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
-                          </div>
+                  ) : (
+                    <div className={`grid gap-2 ${aspect === "9:16" ? "grid-cols-3" : "grid-cols-2"}`}>
+                      {studioSources.templates.map((tpl) => (
+                        <div key={tpl.id} className="relative group">
+                          <button
+                            onClick={() => applyTemplate(tpl)}
+                            className="w-full flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card hover:bg-accent hover:border-primary/50 transition-colors text-left"
+                          >
+                            <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border group-hover:ring-primary/40 transition-all ${tpl.aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
+                              <LayoutThumb zones={tpl.zones} aspect={tpl.aspect} />
+                            </div>
+                            <div className="flex items-center justify-between gap-1">
+                              <p className="text-[11px] font-medium text-foreground truncate">{t(tpl.nameKey as TranslationKey)}</p>
+                              <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0">{tpl.zones.length}</Badge>
+                            </div>
+                          </button>
+                          {tpl.id.startsWith("user-scene-") && (
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button
+                                  type="button"
+                                  className="absolute top-3 right-3 w-5 h-5 inline-flex items-center justify-center rounded bg-background/80 border border-border opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent"
+                                  onClick={(e) => e.stopPropagation()}
+                                  aria-label="Edit"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent side="bottom" align="start" className="w-40 p-1">
+                                <button
+                                  type="button"
+                                  className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent transition-colors text-left"
+                                  onClick={() => {
+                                    const input = window.prompt(t("studioRenameScene"), t(tpl.nameKey as TranslationKey));
+                                    if (!input?.trim()) return;
+                                    renameUserScene(tpl.id, input.trim());
+                                    setScenesVersion((v) => v + 1);
+                                  }}
+                                >
+                                  <Edit3 className="w-3 h-3 shrink-0" /> {t("studioRenameScene")}
+                                </button>
+                                <button
+                                  type="button"
+                                  className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-left"
+                                  onClick={() => { deleteUserScene(tpl.id); setScenesVersion((v) => v + 1); }}
+                                >
+                                  <Trash2 className="w-3 h-3 shrink-0" /> {t("studioDeleteScene")}
+                                </button>
+                              </PopoverContent>
+                            </Popover>
+                          )}
                         </div>
-                      </button>
-                      {tpl.id.startsWith("user-scene-") && (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => { deleteUserScene(tpl.id); setScenesVersion((v) => v + 1); }} title={t("studioDeleteScene")}>
-                          <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                        </Button>
-                      )}
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </TabsContent>
               </Tabs>
             </TabsContent>
@@ -6257,30 +6301,63 @@ export default function ContentStudioPage() {
                       );
                     })()}
                   </TabsContent>
-                  <TabsContent value="scene" className="flex-1 overflow-y-auto mt-3 space-y-2 pr-1">
-                    {studioSources.templates.length === 0 && (
+                  <TabsContent value="scene" className="flex-1 overflow-y-auto mt-3 pr-1">
+                    {studioSources.templates.length === 0 ? (
                       <p className="text-xs text-muted-foreground text-center py-8">{t("studioNoProjects")}</p>
-                    )}
-                    {studioSources.templates.map((tpl) => (
-                      <div key={tpl.id} className="flex items-center gap-2">
-                        <button onClick={() => { applyTemplate(tpl); setMobilePanelOpen(false); }}
-                          className="flex-1 flex items-center gap-3 p-3 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left">
-                          <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-foreground truncate">{t(tpl.nameKey as TranslationKey)}</p>
-                            <div className="flex items-center gap-1.5 mt-0.5">
-                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
-                              <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
-                            </div>
+                    ) : (
+                      <div className={`grid gap-2 ${aspect === "9:16" ? "grid-cols-3" : "grid-cols-2"}`}>
+                        {studioSources.templates.map((tpl) => (
+                          <div key={tpl.id} className="relative group">
+                            <button
+                              onClick={() => { applyTemplate(tpl); setMobilePanelOpen(false); }}
+                              className="w-full flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left"
+                            >
+                              <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border ${tpl.aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
+                                <LayoutThumb zones={tpl.zones} aspect={tpl.aspect} />
+                              </div>
+                              <div className="flex items-center justify-between gap-1">
+                                <p className="text-[11px] font-medium text-foreground truncate">{t(tpl.nameKey as TranslationKey)}</p>
+                                <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0">{tpl.zones.length}</Badge>
+                              </div>
+                            </button>
+                            {tpl.id.startsWith("user-scene-") && (
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="absolute top-3 right-3 w-5 h-5 inline-flex items-center justify-center rounded bg-background/80 border border-border opacity-0 group-hover:opacity-100 transition-opacity hover:bg-accent"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent side="bottom" align="start" className="w-40 p-1">
+                                  <button
+                                    type="button"
+                                    className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent transition-colors text-left"
+                                    onClick={() => {
+                                      const input = window.prompt(t("studioRenameScene"), t(tpl.nameKey as TranslationKey));
+                                      if (!input?.trim()) return;
+                                      renameUserScene(tpl.id, input.trim());
+                                      setScenesVersion((v) => v + 1);
+                                    }}
+                                  >
+                                    <Edit3 className="w-3 h-3 shrink-0" /> {t("studioRenameScene")}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-left"
+                                    onClick={() => { deleteUserScene(tpl.id); setScenesVersion((v) => v + 1); }}
+                                  >
+                                    <Trash2 className="w-3 h-3 shrink-0" /> {t("studioDeleteScene")}
+                                  </button>
+                                </PopoverContent>
+                              </Popover>
+                            )}
                           </div>
-                        </button>
-                        {tpl.id.startsWith("user-scene-") && (
-                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => { deleteUserScene(tpl.id); setScenesVersion((v) => v + 1); }} title={t("studioDeleteScene")}>
-                            <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                          </Button>
-                        )}
+                        ))}
                       </div>
-                    ))}
+                    )}
                   </TabsContent>
                 </Tabs>
               </TabsContent>

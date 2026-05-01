@@ -1077,6 +1077,7 @@ const translations = {
   studioSaveToSceneName: { zh: "場景名稱", en: "Scene name", ja: "シーン名" },
   studioSaveToSceneSuccess: { zh: "已儲存為場景", en: "Saved to Scene", ja: "シーンとして保存しました" },
   studioDeleteScene: { zh: "刪除場景", en: "Delete Scene", ja: "シーンを削除" },
+  studioRenameScene: { zh: "重新命名場景", en: "Rename Scene", ja: "シーン名を変更" },
   schedExport: { zh: "匯出排程", en: "Export Schedule", ja: "スケジュールをエクスポート" },
   schedExporting: { zh: "正在匯出排程…", en: "Exporting schedule…", ja: "スケジュールをエクスポート中…" },
   schedExportSuccess: { zh: "排程已匯出為 ZIP", en: "Schedule exported as ZIP", ja: "スケジュールを ZIP としてエクスポートしました" },
