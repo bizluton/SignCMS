@@ -5669,7 +5669,7 @@ export default function ContentStudioPage() {
             </div>
 
             {/* New Project: Layout + Scene inner tabs */}
-            <TabsContent value="new" className="flex-1 flex flex-col min-h-0 mt-2">
+            <TabsContent value="new" className="flex-1 flex flex-col min-h-0 mt-2 data-[state=inactive]:hidden">
               <Tabs value={innerSidebarTab} onValueChange={setInnerSidebarTab} className="flex flex-col flex-1 min-h-0">
                 <TabsList className="w-full shrink-0">
                   <TabsTrigger value="layouts" className="flex-1 text-xs">{t("studioLayouts")}</TabsTrigger>
@@ -5774,7 +5774,7 @@ export default function ContentStudioPage() {
             </TabsContent>
 
             {/* My Project: project list + Import */}
-            <TabsContent value="my" className="flex-1 flex flex-col min-h-0 mt-2">
+            <TabsContent value="my" className="flex-1 flex flex-col min-h-0 mt-2 data-[state=inactive]:hidden">
               <div className="shrink-0 mb-2">
                 <Button variant="outline" size="sm" className="w-full gap-1.5 text-xs" onClick={() => importInputRef.current?.click()}>
                   <Upload className="w-3.5 h-3.5" /> {t("studioImportProject")}
@@ -6423,7 +6423,7 @@ export default function ContentStudioPage() {
               </TabsList>
 
               {/* New Project: Layout + Scene inner tabs */}
-              <TabsContent value="new" className="flex-1 flex flex-col min-h-0 mt-2">
+              <TabsContent value="new" className="flex-1 flex flex-col min-h-0 mt-2 data-[state=inactive]:hidden">
                 <Tabs value={innerSidebarTab} onValueChange={setInnerSidebarTab} className="flex flex-col flex-1 min-h-0">
                   <TabsList className="w-full shrink-0">
                     <TabsTrigger value="layouts" className="flex-1 text-xs">{t("studioLayouts")}</TabsTrigger>
@@ -6518,7 +6518,7 @@ export default function ContentStudioPage() {
               </TabsContent>
 
               {/* My Project: import + list */}
-              <TabsContent value="my" className="flex-1 flex flex-col min-h-0 mt-2">
+              <TabsContent value="my" className="flex-1 flex flex-col min-h-0 mt-2 data-[state=inactive]:hidden">
                 <div className="shrink-0 mb-2">
                   <Button variant="outline" size="sm" className="w-full gap-1.5 text-xs" onClick={() => importInputRef.current?.click()}>
                     <Upload className="w-3.5 h-3.5" /> {t("studioImportProject")}
