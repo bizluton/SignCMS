@@ -4658,15 +4658,23 @@ export default function ContentStudioPage() {
           for (const m of c.mediaItems as Array<{ id?: unknown }>) if (m?.id) mediaIds.add(String(m.id));
         }
       };
+      // Walk top-level zone/overlay items (active page)
       for (const z of zonesData) {
         walkContent(z?.content);
         if (Array.isArray(z?.overlays)) for (const o of z.overlays as Array<{ content?: unknown }>) walkContent(o?.content);
       }
-      // Top-level overlays / bgm (if stored on project)
-      const topOverlays = (proj as unknown as Record<string, unknown>).overlays;
-      if (Array.isArray(topOverlays)) for (const o of topOverlays as Array<{ content?: unknown }>) walkContent(o?.content);
-      const bgm = (proj as unknown as Record<string, unknown>).bgmItems;
-      if (Array.isArray(bgm)) for (const b of bgm as Array<{ id?: unknown }>) if (b?.id) mediaIds.add(String(b.id));
+      // Walk ALL pages from _meta so non-active pages' media is also included
+      const metaEntry = zonesData.find((z) => z._meta === true);
+      const allPages = Array.isArray(metaEntry?.pages)
+        ? (metaEntry!.pages as Array<{ zones?: unknown[]; overlays?: unknown[] }>)
+        : [];
+      for (const page of allPages) {
+        for (const z of (page.zones || [])) walkContent((z as Record<string, unknown>).content);
+        for (const o of (page.overlays || [])) walkContent((o as Record<string, unknown>).content);
+      }
+      // Walk BGM audio items from _meta.bgm.items
+      const bgmMeta = metaEntry?.bgm as { items?: Array<{ id?: unknown }> } | undefined;
+      for (const b of (bgmMeta?.items || [])) if (b?.id) mediaIds.add(String(b.id));
 
       // Fetch media metadata
       type MediaRow = { id: string; name: string; original_name: string | null; type: string; mime_type: string; url: string; size_bytes: number; width: number | null; height: number | null; duration_seconds: number | null };
@@ -4755,8 +4763,8 @@ export default function ContentStudioPage() {
           name: proj.name,
           aspect: proj.aspect,
           zones: zonesData,
-          overlays: topOverlays ?? null,
-          bgmItems: bgm ?? null,
+          overlays: zonesData.filter((z) => z._overlay === true),
+          bgmItems: bgmMeta?.items ?? null,
           updated_at: proj.updated_at,
           created_at: proj.created_at,
         },
@@ -4785,6 +4793,113 @@ export default function ContentStudioPage() {
       setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
     } catch (err) {
       console.error("Export project failed", err);
+      toast.error(t("studioExportFailed"), { id: exportToast });
+    }
+  }, [t]);
+
+  // Export scene (user-saved template) to ZIP
+  const handleExportScene = useCallback(async (tpl: TemplateItem) => {
+    const exportToast = toast.loading(t("studioExportingProject"));
+    try {
+      const tplRaw = tpl as TemplateItem & { bgm?: { items?: Array<{ id?: string }>; volume?: number; audioSource?: string } };
+
+      const mediaIds = new Set<string>();
+      const walkContent = (content: unknown) => {
+        if (!content || typeof content !== "object") return;
+        const c = content as Record<string, unknown>;
+        if (Array.isArray(c.mediaItems)) {
+          for (const m of c.mediaItems as Array<{ id?: unknown }>) if (m?.id) mediaIds.add(String(m.id));
+        }
+      };
+      for (const z of tpl.zones) walkContent(z.content);
+      for (const b of (tplRaw.bgm?.items || [])) if (b?.id) mediaIds.add(String(b.id));
+
+      type MediaRow = { id: string; name: string; original_name: string | null; type: string; mime_type: string; url: string; size_bytes: number; width: number | null; height: number | null; duration_seconds: number | null };
+      let mediaRows: MediaRow[] = [];
+      if (mediaIds.size > 0) {
+        const { data } = await supabase
+          .from("media_items")
+          .select("id, name, original_name, type, mime_type, url, size_bytes, width, height, duration_seconds")
+          .in("id", Array.from(mediaIds));
+        mediaRows = (data || []) as MediaRow[];
+      }
+
+      const zip = new JSZip();
+      const assetsFolder = zip.folder("assets")!;
+      const manifestMedia: Array<Record<string, unknown>> = [];
+      const sanitize = (s: string) => (s || "file").replace(/[^\w\-.]+/g, "_").slice(0, 80);
+      const usedNames = new Set<string>();
+
+      for (const m of mediaRows) {
+        let assetPath: string | null = null;
+        try {
+          const url: string = m.url || "";
+          if (!url) { manifestMedia.push({ ...m, assetPath: null, exportError: "no_url" }); continue; }
+          let blob: Blob | null = null;
+          let extFromMime = "";
+          if (m.mime_type) {
+            const map: Record<string, string> = {
+              "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif",
+              "video/mp4": "mp4", "video/webm": "webm", "audio/mpeg": "mp3", "audio/wav": "wav",
+            };
+            extFromMime = map[m.mime_type] || "";
+          }
+          if (url.startsWith("data:")) {
+            const match = url.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              const bin = atob(match[2]);
+              const bytes = new Uint8Array(bin.length);
+              for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+              blob = new Blob([bytes], { type: match[1] });
+              if (!extFromMime) extFromMime = (match[1].split("/")[1] || "bin").split("+")[0];
+            }
+          } else {
+            const resp = await fetch(url);
+            if (resp.ok) blob = await resp.blob();
+          }
+          if (blob) {
+            const baseName = sanitize(m.original_name || m.name || `media_${m.id}`);
+            const hasExt = /\.[A-Za-z0-9]{2,5}$/.test(baseName);
+            const fileName = hasExt ? baseName : (extFromMime ? `${baseName}.${extFromMime}` : baseName);
+            let candidate = `${m.id}_${fileName}`;
+            let n = 1;
+            while (usedNames.has(candidate)) { candidate = `${m.id}_${n}_${fileName}`; n++; }
+            usedNames.add(candidate);
+            assetsFolder.file(candidate, blob);
+            assetPath = `assets/${candidate}`;
+          }
+        } catch (err) { console.error("Export scene media failed", m.id, err); }
+        manifestMedia.push({ id: m.id, name: m.name, original_name: m.original_name, type: m.type, mime_type: m.mime_type, size_bytes: m.size_bytes, width: m.width, height: m.height, duration_seconds: m.duration_seconds, assetPath });
+      }
+
+      const manifest = {
+        format: "signcms.design_scene",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        scene: {
+          id: tpl.id,
+          nameKey: tpl.nameKey,
+          aspect: tpl.aspect,
+          zones: tpl.zones,
+          bgm: tplRaw.bgm ?? null,
+        },
+        media: manifestMedia,
+      };
+      zip.file("scene.json", JSON.stringify(manifest, null, 2));
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const filename = `${sanitize(tpl.nameKey || "scene")}.zip`;
+      try {
+        const a = document.createElement("a");
+        a.href = url; a.download = filename; a.rel = "noopener";
+        document.body.appendChild(a); a.click(); a.remove();
+      } catch { /* ignore */ }
+      setExportDownload({ url, filename, sizeBytes: blob.size });
+      toast.success(t("studioExportSuccess"), { id: exportToast });
+      setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
+    } catch (err) {
+      console.error("Export scene failed", err);
       toast.error(t("studioExportFailed"), { id: exportToast });
     }
   }, [t]);
@@ -5796,6 +5911,13 @@ export default function ContentStudioPage() {
                                 </button>
                                 <button
                                   type="button"
+                                  className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent transition-colors text-left"
+                                  onClick={() => handleExportScene(tpl)}
+                                >
+                                  <Download className="w-3 h-3 shrink-0" /> {t("studioDownloadScene")}
+                                </button>
+                                <button
+                                  type="button"
                                   className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-left"
                                   onClick={() => { deleteUserScene(tpl.id); setScenesVersion((v) => v + 1); }}
                                 >
@@ -6537,6 +6659,13 @@ export default function ContentStudioPage() {
                                     }}
                                   >
                                     <Edit3 className="w-3 h-3 shrink-0" /> {t("studioRenameScene")}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent transition-colors text-left"
+                                    onClick={() => handleExportScene(tpl)}
+                                  >
+                                    <Download className="w-3 h-3 shrink-0" /> {t("studioDownloadScene")}
                                   </button>
                                   <button
                                     type="button"

@@ -1079,6 +1079,7 @@ const translations = {
   studioSceneNameDuplicate: { zh: "場景名稱已存在，請使用其他名稱", en: "Scene name already exists, please use a different name", ja: "シーン名が既に存在します。別の名前を使用してください" },
   studioDeleteScene: { zh: "刪除場景", en: "Delete Scene", ja: "シーンを削除" },
   studioRenameScene: { zh: "重新命名場景", en: "Rename Scene", ja: "シーン名を変更" },
+  studioDownloadScene: { zh: "下載場景", en: "Download Scene", ja: "シーンをダウンロード" },
   studioVideoZoneLimit: { zh: "只能有一個區域包含影片，{zone} 已含有影片", en: "Only one zone may contain video — {zone} already has one", ja: "動画を含められるゾーンは1つだけです — {zone} に既に動画があります" },
   schedExport: { zh: "匯出排程", en: "Export Schedule", ja: "スケジュールをエクスポート" },
   schedExporting: { zh: "正在匯出排程…", en: "Exporting schedule…", ja: "スケジュールをエクスポート中…" },
