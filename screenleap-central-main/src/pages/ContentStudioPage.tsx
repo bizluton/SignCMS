@@ -494,16 +494,12 @@ function CarouselPreview({ items, transition = "fade", fitMode = "cover-x", unmu
 
   if (items.length === 0) return null;
 
-  // fitMode → 圖片樣式
-  // cover-x: 寬度 100%、高度 auto（橫向填滿，可能上下被裁切或留白）
-  // cover-y: 高度 100%、寬度 auto（直向填滿，可能左右被裁切或留白）
-  // contain: 完整顯示（保留比例、可能留邊）
-  // stretch: 強制填滿（可能變形）
+  // fitMode → 圖片樣式（container has overflow:hidden so auto-size dims get clipped）
   const imgStyle: React.CSSProperties =
-    fitMode === "cover-y" ? { width: "auto", height: "100%", maxWidth: "none", objectFit: "cover" } :
+    fitMode === "cover-y" ? { width: "auto", height: "100%", maxWidth: "none" } :
     fitMode === "contain" ? { width: "100%", height: "100%", objectFit: "contain" } :
     fitMode === "stretch" ? { width: "100%", height: "100%", objectFit: "fill" } :
-    /* cover-x */            { width: "100%", height: "auto", maxHeight: "none", objectFit: "cover" };
+    /* cover-x */            { width: "100%", height: "auto", maxHeight: "none" };
 
   const renderItem = (item: MediaItem, isCurrent: boolean) => {
     if (item.type === "widget" && item.widgetConfig) {
@@ -539,7 +535,7 @@ function CarouselPreview({ items, transition = "fade", fitMode = "cover-x", unmu
 
   const getTransitionStyle = (isCurrent: boolean): React.CSSProperties => {
     const base: React.CSSProperties = {
-      position: "absolute", inset: 0,
+      position: "absolute", inset: 0, overflow: "hidden",
       display: "flex", alignItems: "center", justifyContent: "center",
       transition: "all 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
     };
@@ -3329,9 +3325,11 @@ export default function ContentStudioPage() {
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const [selectedOverlay, setSelectedOverlay] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-  const [sidebarTab, setSidebarTab] = useState<string>(
-    persistedSessionRef.current?.sidebarTab ?? "layouts"
-  );
+  const [sidebarTab, setSidebarTab] = useState<string>(() => {
+    const saved = persistedSessionRef.current?.sidebarTab ?? "new";
+    return ["new", "my"].includes(saved) ? saved : "new";
+  });
+  const [innerSidebarTab, setInnerSidebarTab] = useState<string>("layouts");
   const isMobile = useIsMobile();
   const [mobileEditMode, setMobileEditMode] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
@@ -3350,7 +3348,8 @@ export default function ContentStudioPage() {
       : false
   );
   const enforceInitialPanelState = useCallback(() => {
-    setSidebarTab("layouts");
+    setSidebarTab("new");
+    setInnerSidebarTab("layouts");
     setLayoutPanelOpen(true);
     setMediaLibraryOpen(false);
   }, []);
@@ -3636,6 +3635,8 @@ export default function ContentStudioPage() {
       setTeams(data || []);
     })();
   }, [activeOrgId]);
+
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   // Canvas: prefer fixed display height (540), but shrink height proportionally
   // when computed width would overflow the available container width.
@@ -4604,6 +4605,80 @@ export default function ContentStudioPage() {
     }
   }, [t]);
 
+  // Import project from ZIP
+  const handleImport = useCallback(async (file: File) => {
+    const importToast = toast.loading(t("studioImportingProject"));
+    try {
+      const zip = await JSZip.loadAsync(file);
+      const projectJsonFile = zip.file("project.json");
+      if (!projectJsonFile) throw new Error("missing project.json");
+      const manifest = JSON.parse(await projectJsonFile.async("string")) as {
+        format: string;
+        version: number;
+        project: {
+          name: string; aspect: string; zones: unknown;
+          overlays?: unknown; bgmItems?: unknown;
+        };
+        media?: Array<{
+          id: string; name: string; original_name: string | null;
+          type: string; mime_type: string; size_bytes: number;
+          width: number | null; height: number | null;
+          duration_seconds: number | null; assetPath: string | null;
+        }>;
+      };
+      if (manifest.format !== "signcms.design_project") throw new Error("invalid format");
+      const proj = manifest.project;
+      const mediaManifest = manifest.media || [];
+
+      const idRemap = new Map<string, string>();
+      for (const m of mediaManifest) {
+        if (!m.assetPath) continue;
+        const assetFile = zip.file(m.assetPath);
+        if (!assetFile) continue;
+        try {
+          const buf = await assetFile.async("arraybuffer");
+          const blob = new Blob([buf], { type: m.mime_type || "application/octet-stream" });
+          const baseName = m.original_name || m.name || `import_${m.id}`;
+          const tmpFile = new File([blob], baseName, { type: m.mime_type || "application/octet-stream" });
+          const result = await uploadMediaFile(tmpFile, { orgId: activeOrgId! });
+          if (result.ok && result.data?.id) idRemap.set(m.id, result.data.id);
+        } catch (err) {
+          console.warn("Import: asset upload failed", m.id, err);
+        }
+      }
+
+      const remapIds = (data: unknown): unknown => {
+        let str = JSON.stringify(data);
+        for (const [oldId, newId] of idRemap) str = str.split(oldId).join(newId);
+        return JSON.parse(str);
+      };
+
+      const { data: inserted, error } = await (supabase as unknown as { from: (t: string) => unknown })
+        .from("design_projects")
+        .insert({
+          name: `${proj.name} (imported)`,
+          aspect: proj.aspect,
+          zones: remapIds(proj.zones),
+          org_id: activeOrgId,
+          created_by: user?.id,
+          collab_scope: "creator",
+        })
+        .select()
+        .single() as { data: { id: string; name: string; aspect: string; zones: unknown; org_id: string; created_by: string | null; updated_at: string; created_at: string; team_id: string | null; collab_scope: string | null } | null; error: unknown };
+
+      if (error) throw error;
+      toast.success(t("studioImportSuccess"), { id: importToast });
+      await loadProjects();
+      if (inserted) {
+        setSidebarTab("my");
+        handleLoad({ ...inserted, zones: (inserted.zones as Zone[] | null) ?? [] } as DesignProject);
+      }
+    } catch (err) {
+      console.error("Import project failed", err);
+      toast.error(t("studioImportFailed"), { id: importToast });
+    }
+  }, [t, activeOrgId, user?.id, loadProjects, handleLoad]);
+
   // New project
   const handleNew = useCallback(() => {
     setCurrentProject(null);
@@ -5163,7 +5238,7 @@ export default function ContentStudioPage() {
                 <span className="text-[10px] text-muted-foreground">{aspect} · {resolution.width}×{resolution.height}</span>
               </div>
             </div>
-            <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => { setSidebarTab("projects"); setMobilePanelOpen(true); }} title={t("studioMobilePanels")}>
+            <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => { setSidebarTab("my"); setMobilePanelOpen(true); }} title={t("studioMobilePanels")}>
               <PanelLeft className="w-4 h-4" />
             </Button>
             <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => setMobileToolsOpen(true)} title={t("studioMobileTools")}>
@@ -5376,9 +5451,8 @@ export default function ContentStudioPage() {
           <Tabs value={sidebarTab} onValueChange={setSidebarTab} className="flex flex-col min-h-0 h-full animate-studio-panel-expand">
             <div className="flex items-center gap-1.5 shrink-0">
               <TabsList className="flex-1 min-w-0">
-                <TabsTrigger value="layouts" className="flex-1 text-xs">{t("studioLayouts")}</TabsTrigger>
-                <TabsTrigger value="templates" className="flex-1 text-xs">{t("studioTemplates")}</TabsTrigger>
-                <TabsTrigger value="projects" className="flex-1 text-xs">{t("studioProjects")}</TabsTrigger>
+                <TabsTrigger value="new" className="flex-1 text-xs">{t("studioNewProject")}</TabsTrigger>
+                <TabsTrigger value="my" className="flex-1 text-xs">{t("studioMyProject")}</TabsTrigger>
               </TabsList>
               <TooltipProvider delayDuration={200}>
                 <Tooltip>
@@ -5404,111 +5478,128 @@ export default function ContentStudioPage() {
                 </Tooltip>
               </TooltipProvider>
             </div>
-            <TabsContent value="layouts" className="flex-1 overflow-y-auto mt-3 pr-1">
-              {(() => {
-                const filtered = studioSources.layouts
-                  .filter((lp) => !lp.aspect || lp.aspect === aspect)
-                  .slice()
-                  .sort((a, b) => a.zones.length - b.zones.length);
-                if (filtered.length === 0) {
-                  return <p className="text-xs text-muted-foreground text-center py-6">{t("studioNoLayouts")}</p>;
-                }
-                return (
-                  <>
-                    <p className="text-[10px] text-muted-foreground mb-2 px-1">
-                      {t("studioLayoutsForAspect")} <span className="font-medium text-foreground">{aspect}</span> · {filtered.length}
-                    </p>
-                    <div className={`grid gap-2 ${aspect === "9:16" ? "grid-cols-3" : "grid-cols-2"}`}>
-                      {filtered.map((lp) => (
-                        <button
-                          key={lp.id}
-                          onClick={() => applyLayout(lp)}
-                          title={t(lp.nameKey as TranslationKey)}
-                          className="flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card hover:bg-accent hover:border-primary/50 transition-colors text-left group"
-                        >
-                          <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border group-hover:ring-primary/40 transition-all ${aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
-                            <LayoutThumb zones={lp.zones} aspect={aspect} />
-                          </div>
-                          <div className="flex items-center justify-between gap-1">
-                            <p className="text-[11px] font-medium text-foreground truncate">{t(lp.nameKey as TranslationKey)}</p>
-                            <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0">{lp.zones.length}</Badge>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                );
-              })()}
+
+            {/* New Project: Layout + Scene inner tabs */}
+            <TabsContent value="new" className="flex-1 flex flex-col min-h-0 mt-2">
+              <Tabs value={innerSidebarTab} onValueChange={setInnerSidebarTab} className="flex flex-col flex-1 min-h-0">
+                <TabsList className="w-full shrink-0">
+                  <TabsTrigger value="layouts" className="flex-1 text-xs">{t("studioLayouts")}</TabsTrigger>
+                  <TabsTrigger value="scene" className="flex-1 text-xs">{t("studioScene")}</TabsTrigger>
+                </TabsList>
+                <TabsContent value="layouts" className="flex-1 overflow-y-auto mt-3 pr-1">
+                  {(() => {
+                    const filtered = studioSources.layouts
+                      .filter((lp) => !lp.aspect || lp.aspect === aspect)
+                      .slice()
+                      .sort((a, b) => a.zones.length - b.zones.length);
+                    if (filtered.length === 0) {
+                      return <p className="text-xs text-muted-foreground text-center py-6">{t("studioNoLayouts")}</p>;
+                    }
+                    return (
+                      <>
+                        <p className="text-[10px] text-muted-foreground mb-2 px-1">
+                          {t("studioLayoutsForAspect")} <span className="font-medium text-foreground">{aspect}</span> · {filtered.length}
+                        </p>
+                        <div className={`grid gap-2 ${aspect === "9:16" ? "grid-cols-3" : "grid-cols-2"}`}>
+                          {filtered.map((lp) => (
+                            <button
+                              key={lp.id}
+                              onClick={() => applyLayout(lp)}
+                              title={t(lp.nameKey as TranslationKey)}
+                              className="flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card hover:bg-accent hover:border-primary/50 transition-colors text-left group"
+                            >
+                              <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border group-hover:ring-primary/40 transition-all ${aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
+                                <LayoutThumb zones={lp.zones} aspect={aspect} />
+                              </div>
+                              <div className="flex items-center justify-between gap-1">
+                                <p className="text-[11px] font-medium text-foreground truncate">{t(lp.nameKey as TranslationKey)}</p>
+                                <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0">{lp.zones.length}</Badge>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </TabsContent>
+                <TabsContent value="scene" className="flex-1 overflow-y-auto mt-3 space-y-2 pr-1">
+                  {studioSources.templates.map((tpl) => (
+                    <button key={tpl.id} onClick={() => applyTemplate(tpl)} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent transition-colors text-left group">
+                      <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground">{t(tpl.nameKey as TranslationKey)}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
+                          <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </button>
+                  ))}
+                </TabsContent>
+              </Tabs>
             </TabsContent>
 
-            <TabsContent value="templates" className="flex-1 overflow-y-auto mt-3 space-y-2 pr-1">
-              {studioSources.templates.map((tpl) => (
-                <button key={tpl.id} onClick={() => applyTemplate(tpl)} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent transition-colors text-left group">
-                  <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{t(tpl.nameKey as TranslationKey)}</p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
-                      <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
-                    </div>
+            {/* My Project: project list + Import */}
+            <TabsContent value="my" className="flex-1 flex flex-col min-h-0 mt-2">
+              <div className="shrink-0 mb-2">
+                <Button variant="outline" size="sm" className="w-full gap-1.5 text-xs" onClick={() => importInputRef.current?.click()}>
+                  <Upload className="w-3.5 h-3.5" /> {t("studioImportProject")}
+                </Button>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                {projects.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <FolderOpen className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                    <p className="text-xs">{t("studioNoProjects")}</p>
                   </div>
-                  <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                </button>
-              ))}
-            </TabsContent>
-
-            <TabsContent value="projects" className="flex-1 overflow-y-auto mt-3 space-y-2 pr-1">
-              {projects.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground">
-                  <FolderOpen className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                  <p className="text-xs">{t("studioNoProjects")}</p>
-                </div>
-              ) : projects.map((p) => {
-                const resBadge = getProjectResolutionBadge(p.zones);
-                const teamName = p.team_id
-                  ? (() => { const tm = teams.find((tt) => tt.id === p.team_id); return tm ? (tm.name === "Default" ? t("teamNoTeamLabel") : tm.name) : t("teamNoTeamLabel"); })()
-                  : t("teamNoTeamLabel");
-                const collab = (p.collab_scope as "creator" | "team" | "org" | null | undefined) || "creator";
-                const collabLabel = collab === "org" ? t("studioCollabOrg") : collab === "team" ? t("studioCollabTeam") : t("studioCollabCreator");
-                const CollabIcon = collab === "org" ? Building2 : collab === "team" ? Users : UserIcon;
-                const creatorName = getDisplayName(p.created_by ?? null, "—");
-                void profilesVersion;
-                return (
-                <div key={p.id} className={`flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent transition-colors group ${currentProject?.id === p.id ? "border-primary" : "border-border"}`}>
-                  <button className="flex-1 text-left min-w-0" onClick={() => handleLoad(p)}>
-                    <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
-                    <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{p.aspect === "9:16" ? t("aspectPortrait") : t("aspectLandscape")}</Badge>
-                      {resBadge && (
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] px-1.5 py-0 border-primary/40 text-primary"
-                          title={resBadge.dims}
-                        >
-                          {resBadge.label}
+                ) : projects.map((p) => {
+                  const resBadge = getProjectResolutionBadge(p.zones);
+                  const teamName = p.team_id
+                    ? (() => { const tm = teams.find((tt) => tt.id === p.team_id); return tm ? (tm.name === "Default" ? t("teamNoTeamLabel") : tm.name) : t("teamNoTeamLabel"); })()
+                    : t("teamNoTeamLabel");
+                  const collab = (p.collab_scope as "creator" | "team" | "org" | null | undefined) || "creator";
+                  const collabLabel = collab === "org" ? t("studioCollabOrg") : collab === "team" ? t("studioCollabTeam") : t("studioCollabCreator");
+                  const CollabIcon = collab === "org" ? Building2 : collab === "team" ? Users : UserIcon;
+                  const creatorName = getDisplayName(p.created_by ?? null, "—");
+                  void profilesVersion;
+                  return (
+                  <div key={p.id} className={`flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent transition-colors group ${currentProject?.id === p.id ? "border-primary" : "border-border"}`}>
+                    <button className="flex-1 text-left min-w-0" onClick={() => handleLoad(p)}>
+                      <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{p.aspect === "9:16" ? t("aspectPortrait") : t("aspectLandscape")}</Badge>
+                        {resBadge && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] px-1.5 py-0 border-primary/40 text-primary"
+                            title={resBadge.dims}
+                          >
+                            {resBadge.label}
+                          </Badge>
+                        )}
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 inline-flex items-center gap-1">
+                          <Users className="w-2.5 h-2.5" />{teamName}
                         </Badge>
-                      )}
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 inline-flex items-center gap-1">
-                        <Users className="w-2.5 h-2.5" />{teamName}
-                      </Badge>
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 inline-flex items-center gap-1">
-                        <CollabIcon className="w-2.5 h-2.5" />{collabLabel}
-                      </Badge>
-                      <span className="text-[11px] text-muted-foreground">{new Date(p.updated_at).toLocaleDateString()}</span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                      <UserIcon className="w-2.5 h-2.5 inline mr-1" />{t("studioCreator")}: {creatorName}
-                    </p>
-                  </button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleExport(p)} title={t("studioExportProject")}>
-                    <Download className="w-3.5 h-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleDelete(p.id)}>
-                    <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                  </Button>
-                </div>
-                );
-              })}
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 inline-flex items-center gap-1">
+                          <CollabIcon className="w-2.5 h-2.5" />{collabLabel}
+                        </Badge>
+                        <span className="text-[11px] text-muted-foreground">{new Date(p.updated_at).toLocaleDateString()}</span>
+                      </div>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                        <UserIcon className="w-2.5 h-2.5 inline mr-1" />{t("studioCreator")}: {creatorName}
+                      </p>
+                    </button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleExport(p)} title={t("studioExportProject")}>
+                      <Download className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={() => handleDelete(p.id)}>
+                      <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                    </Button>
+                  </div>
+                  );
+                })}
+              </div>
             </TabsContent>
           </Tabs>
           )}
@@ -5780,7 +5871,7 @@ export default function ContentStudioPage() {
                     <p className="text-xs text-muted-foreground mt-1">{t("studioMobileEmptyDesc")}</p>
                   </div>
                   <div className="flex flex-col gap-2 w-full pt-1">
-                    <Button size="sm" className="w-full gap-1.5" onClick={(e) => { e.stopPropagation(); setSidebarTab("projects"); setMobilePanelOpen(true); }}>
+                    <Button size="sm" className="w-full gap-1.5" onClick={(e) => { e.stopPropagation(); setSidebarTab("my"); setMobilePanelOpen(true); }}>
                       <FolderOpen className="w-3.5 h-3.5" /> {t("studioOpen")}
                     </Button>
                     <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={(e) => { e.stopPropagation(); requestNew(); }}>
@@ -6045,6 +6136,19 @@ export default function ContentStudioPage() {
         </div>
       </div>
 
+      {/* Hidden file input for project import */}
+      <input
+        ref={importInputRef}
+        type="file"
+        accept=".zip"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleImport(file);
+          e.target.value = "";
+        }}
+      />
+
       {/* Mobile: Panels Sheet (Layouts / Templates / Projects) */}
       {isMobile && (
         <Sheet open={mobilePanelOpen} onOpenChange={setMobilePanelOpen}>
@@ -6054,84 +6158,102 @@ export default function ContentStudioPage() {
             </SheetHeader>
             <Tabs value={sidebarTab} onValueChange={setSidebarTab} className="flex flex-col flex-1 min-h-0 mt-3">
               <TabsList className="w-full shrink-0">
-                <TabsTrigger value="layouts" className="flex-1 text-xs">{t("studioLayouts")}</TabsTrigger>
-                <TabsTrigger value="templates" className="flex-1 text-xs">{t("studioTemplates")}</TabsTrigger>
-                <TabsTrigger value="projects" className="flex-1 text-xs">{t("studioProjects")}</TabsTrigger>
+                <TabsTrigger value="new" className="flex-1 text-xs">{t("studioNewProject")}</TabsTrigger>
+                <TabsTrigger value="my" className="flex-1 text-xs">{t("studioMyProject")}</TabsTrigger>
               </TabsList>
-              <TabsContent value="layouts" className="flex-1 overflow-y-auto mt-3 pr-1">
-                {(() => {
-                  const filtered = studioSources.layouts.filter((lp) => !lp.aspect || lp.aspect === aspect);
-                  if (filtered.length === 0) return <p className="text-xs text-muted-foreground text-center py-6">{t("studioNoLayouts")}</p>;
-                  return (
-                    <>
-                      <p className="text-[10px] text-muted-foreground mb-2 px-1">
-                        {t("studioLayoutsForAspect")} <span className="font-medium text-foreground">{aspect}</span> · {filtered.length}
-                      </p>
-                      <div className={`grid gap-2 ${aspect === "9:16" ? "grid-cols-3" : "grid-cols-2"}`}>
-                        {filtered.map((lp) => (
-                          <button key={lp.id} onClick={() => { applyLayout(lp); setMobilePanelOpen(false); }} title={t(lp.nameKey as TranslationKey)}
-                            className="flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left">
-                            <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border ${aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
-                              <LayoutThumb zones={lp.zones} aspect={aspect} />
-                            </div>
-                            <div className="flex items-center justify-between gap-1">
-                              <p className="text-[11px] font-medium text-foreground truncate">{t(lp.nameKey as TranslationKey)}</p>
-                              <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0">{lp.zones.length}</Badge>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  );
-                })()}
-              </TabsContent>
-              <TabsContent value="templates" className="flex-1 overflow-y-auto mt-3 space-y-2 pr-1">
-                {studioSources.templates.map((tpl) => (
-                  <button key={tpl.id} onClick={() => { applyTemplate(tpl); setMobilePanelOpen(false); }}
-                    className="w-full flex items-center gap-3 p-3 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left">
-                    <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-foreground truncate">{t(tpl.nameKey as TranslationKey)}</p>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
-                        <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                  </button>
-                ))}
-              </TabsContent>
-              <TabsContent value="projects" className="flex-1 overflow-y-auto mt-3 space-y-2 pr-1">
-                {projects.length === 0 ? (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <FolderOpen className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                    <p className="text-xs">{t("studioNoProjects")}</p>
-                  </div>
-                ) : projects.map((p) => {
-                  const resBadge = getProjectResolutionBadge(p.zones);
-                  return (
-                    <div key={p.id} className={`flex items-center gap-3 p-3 rounded-lg border bg-card transition-colors ${currentProject?.id === p.id ? "border-primary" : "border-border"}`}>
-                      <button className="flex-1 text-left min-w-0" onClick={() => { handleLoad(p); setMobilePanelOpen(false); }}>
-                        <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
-                        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{p.aspect === "9:16" ? t("aspectPortrait") : t("aspectLandscape")}</Badge>
-                          {resBadge && (
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-primary/40 text-primary" title={resBadge.dims}>
-                              {resBadge.label}
-                            </Badge>
-                          )}
-                          <span className="text-[11px] text-muted-foreground">{new Date(p.updated_at).toLocaleDateString()}</span>
+
+              {/* New Project: Layout + Scene inner tabs */}
+              <TabsContent value="new" className="flex-1 flex flex-col min-h-0 mt-2">
+                <Tabs value={innerSidebarTab} onValueChange={setInnerSidebarTab} className="flex flex-col flex-1 min-h-0">
+                  <TabsList className="w-full shrink-0">
+                    <TabsTrigger value="layouts" className="flex-1 text-xs">{t("studioLayouts")}</TabsTrigger>
+                    <TabsTrigger value="scene" className="flex-1 text-xs">{t("studioScene")}</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="layouts" className="flex-1 overflow-y-auto mt-3 pr-1">
+                    {(() => {
+                      const filtered = studioSources.layouts.filter((lp) => !lp.aspect || lp.aspect === aspect);
+                      if (filtered.length === 0) return <p className="text-xs text-muted-foreground text-center py-6">{t("studioNoLayouts")}</p>;
+                      return (
+                        <>
+                          <p className="text-[10px] text-muted-foreground mb-2 px-1">
+                            {t("studioLayoutsForAspect")} <span className="font-medium text-foreground">{aspect}</span> · {filtered.length}
+                          </p>
+                          <div className={`grid gap-2 ${aspect === "9:16" ? "grid-cols-3" : "grid-cols-2"}`}>
+                            {filtered.map((lp) => (
+                              <button key={lp.id} onClick={() => { applyLayout(lp); setMobilePanelOpen(false); }} title={t(lp.nameKey as TranslationKey)}
+                                className="flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left">
+                                <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border ${aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
+                                  <LayoutThumb zones={lp.zones} aspect={aspect} />
+                                </div>
+                                <div className="flex items-center justify-between gap-1">
+                                  <p className="text-[11px] font-medium text-foreground truncate">{t(lp.nameKey as TranslationKey)}</p>
+                                  <Badge variant="secondary" className="text-[9px] px-1 py-0 shrink-0">{lp.zones.length}</Badge>
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </TabsContent>
+                  <TabsContent value="scene" className="flex-1 overflow-y-auto mt-3 space-y-2 pr-1">
+                    {studioSources.templates.map((tpl) => (
+                      <button key={tpl.id} onClick={() => { applyTemplate(tpl); setMobilePanelOpen(false); }}
+                        className="w-full flex items-center gap-3 p-3 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left">
+                        <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-foreground truncate">{t(tpl.nameKey as TranslationKey)}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
+                            <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
+                          </div>
                         </div>
+                        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
                       </button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleExport(p)} title={t("studioExportProject")}>
-                        <Download className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleDelete(p.id)}>
-                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                      </Button>
+                    ))}
+                  </TabsContent>
+                </Tabs>
+              </TabsContent>
+
+              {/* My Project: import + list */}
+              <TabsContent value="my" className="flex-1 flex flex-col min-h-0 mt-2">
+                <div className="shrink-0 mb-2">
+                  <Button variant="outline" size="sm" className="w-full gap-1.5 text-xs" onClick={() => importInputRef.current?.click()}>
+                    <Upload className="w-3.5 h-3.5" /> {t("studioImportProject")}
+                  </Button>
+                </div>
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                  {projects.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground">
+                      <FolderOpen className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                      <p className="text-xs">{t("studioNoProjects")}</p>
                     </div>
-                  );
-                })}
+                  ) : projects.map((p) => {
+                    const resBadge = getProjectResolutionBadge(p.zones);
+                    return (
+                      <div key={p.id} className={`flex items-center gap-3 p-3 rounded-lg border bg-card transition-colors ${currentProject?.id === p.id ? "border-primary" : "border-border"}`}>
+                        <button className="flex-1 text-left min-w-0" onClick={() => { handleLoad(p); setMobilePanelOpen(false); }}>
+                          <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{p.aspect === "9:16" ? t("aspectPortrait") : t("aspectLandscape")}</Badge>
+                            {resBadge && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-primary/40 text-primary" title={resBadge.dims}>
+                                {resBadge.label}
+                              </Badge>
+                            )}
+                            <span className="text-[11px] text-muted-foreground">{new Date(p.updated_at).toLocaleDateString()}</span>
+                          </div>
+                        </button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleExport(p)} title={t("studioExportProject")}>
+                          <Download className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => handleDelete(p.id)}>
+                          <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
               </TabsContent>
             </Tabs>
           </SheetContent>
