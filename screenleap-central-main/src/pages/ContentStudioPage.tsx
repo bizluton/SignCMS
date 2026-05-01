@@ -492,8 +492,8 @@ function SceneThumb({ zones }: { zones: SceneZone[] }) {
           }
           if (first?.url && first.type === "video") {
             return (
-              <div key={z.id} style={{ ...base, background: "#111" }} className="flex items-center justify-center">
-                <Film className="w-2 h-2 text-white/60" />
+              <div key={z.id} style={base}>
+                <VideoThumb src={first.url} name={first.name || ""} showPlayHint={false} className="w-full h-full" />
               </div>
             );
           }

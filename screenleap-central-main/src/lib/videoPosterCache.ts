@@ -6,7 +6,7 @@
 const DB_NAME = "video-poster-cache";
 const STORE = "posters";
 const DB_VERSION = 1;
-const SCHEMA_VERSION = 2; // bumped: seek to 0 instead of 0.1 for true first frame
+const SCHEMA_VERSION = 3; // bumped: seek to 25% duration instead of frame 0
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const MAX_BYTES = 20 * 1024 * 1024; // 20 MB cap
 const TARGET_BYTES = Math.floor(MAX_BYTES * 0.9);
@@ -221,12 +221,12 @@ export async function captureAndCachePoster(src: string, targetWidth = DEFAULT_T
     const timeout = window.setTimeout(() => finish(null), 8000);
 
     video.onloadedmetadata = () => {
-      // Seek to 0 to capture the true first frame. Some browsers need a tiny
-      // nudge to fire `seeked`, so fall back to a micro-seek if 0 doesn't trigger.
-      try { video.currentTime = 0; } catch { /* noop */ }
+      // Seek to 25% of the video (capped at 2s) to avoid black opening frames.
+      const seekTo = video.duration > 0 ? Math.min(video.duration * 0.25, 2) : 0.5;
+      try { video.currentTime = seekTo; } catch { /* noop */ }
       window.setTimeout(() => {
         if (settled) return;
-        try { if (video.currentTime === 0) video.currentTime = 0.001; } catch { /* noop */ }
+        try { if (video.currentTime === 0) video.currentTime = 0.5; } catch { /* noop */ }
       }, 200);
     };
     video.onseeked = () => {
