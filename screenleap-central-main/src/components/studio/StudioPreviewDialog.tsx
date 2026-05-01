@@ -113,7 +113,12 @@ export function StudioPreviewDialog({
     const vids = Array.from(stage.querySelectorAll<HTMLVideoElement>("video"));
     const auds = Array.from(stage.querySelectorAll<HTMLAudioElement>("audio"));
     if (playing) {
-      vids.forEach((v) => { v.muted = muteAll || (v.dataset.naturalMuted === "1"); v.play().catch(() => {}); });
+      vids.forEach((v) => {
+        v.muted = muteAll || (v.dataset.naturalMuted === "1");
+        const vol = parseFloat(v.dataset.volume ?? "1");
+        if (!isNaN(vol)) v.volume = Math.max(0, Math.min(1, vol));
+        v.play().catch(() => {});
+      });
       auds.forEach((a) => { a.muted = muteAll; a.play().catch(() => {}); });
     } else {
       vids.forEach((v) => { try { v.pause(); } catch { /* ignore */ } });

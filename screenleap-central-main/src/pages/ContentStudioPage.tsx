@@ -586,14 +586,17 @@ function CarouselPreview({ items, transition = "fade", fitMode = "cover-x", unmu
       // videos don't play audio in the background (which would duck the BGM).
       if (!isCurrent) return null;
       const isMuted = !unmuteVideo || !!item.muted;
+      const volFraction = Math.max(0, Math.min(1, (item.volume ?? 100) / 100));
       return (
         <video
           key={`${item.id}-${isMuted}`}
+          ref={(el) => { if (el) el.volume = volFraction; }}
           src={item.url}
           style={videoStyle}
           autoPlay
           muted={isMuted}
           data-natural-muted={isMuted ? "1" : "0"}
+          data-volume={volFraction}
           playsInline
           loop={items.length === 1}
         />
