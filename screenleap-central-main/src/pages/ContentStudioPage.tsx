@@ -4288,7 +4288,12 @@ export default function ContentStudioPage() {
       return;
     }
     const id = `overlay-${Date.now()}`;
-    const label = String.fromCharCode(65 + overlays.length); // A, B, C...
+    const usedLabels = new Set(overlays.map((o) => o.label.replace(/^OV-/, "")));
+    let label = "A";
+    for (let i = 0; i < 26; i++) {
+      const c = String.fromCharCode(65 + i);
+      if (!usedLabels.has(c)) { label = c; break; }
+    }
     // Adapt to actual canvas size so overlay always fits (handles narrow/tall portrait canvases)
     const rect = canvasRef.current?.getBoundingClientRect();
     const cw = rect?.width ?? 800;
@@ -4318,7 +4323,12 @@ export default function ContentStudioPage() {
       if (dir === "vertical" && o.w < 40) { toast.info("區塊太小，無法繼續分割"); return prev; }
       if (dir === "horizontal" && o.h < 40) { toast.info("區塊太小，無法繼續分割"); return prev; }
       const newId = `overlay-${Date.now()}`;
-      const nextLabel = String.fromCharCode(65 + prev.length);
+      const usedLabels = new Set(prev.map((o) => o.label.replace(/^OV-/, "")));
+      let nextLabel = "A";
+      for (let i = 0; i < 26; i++) {
+        const c = String.fromCharCode(65 + i);
+        if (!usedLabels.has(c)) { nextLabel = c; break; }
+      }
       const maxZ = prev.reduce((m, p) => Math.max(m, p.zIndex || 0), 0);
       let updated: OverlayBlock;
       let created: OverlayBlock;
