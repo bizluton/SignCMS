@@ -441,6 +441,76 @@ function LayoutThumb({ zones, aspect = "16:9" }: { zones: Omit<Zone, "content">[
   );
 }
 
+// ── Scene snapshot thumbnail (div-based, renders actual zone content) ─
+type SceneZone = { id: string; x: number; y: number; w: number; h: number; label: string; content?: unknown };
+function SceneThumb({ zones }: { zones: SceneZone[] }) {
+  return (
+    <div className="relative w-full h-full overflow-hidden bg-muted">
+      {zones.map((z) => {
+        const c = z.content as ZoneContent | undefined;
+        const base: React.CSSProperties = {
+          position: "absolute",
+          left: `${z.x}%`, top: `${z.y}%`,
+          width: `${z.w}%`, height: `${z.h}%`,
+          overflow: "hidden",
+        };
+
+        if (!c) {
+          return (
+            <div key={z.id} style={base} className="flex items-center justify-center bg-muted border border-border/30">
+              <span className="text-[5px] font-semibold text-muted-foreground">{z.label}</span>
+            </div>
+          );
+        }
+
+        if (c.type === "color") {
+          return <div key={z.id} style={{ ...base, background: c.bgColor || "hsl(var(--muted))" }} />;
+        }
+
+        if (c.type === "text") {
+          return (
+            <div key={z.id} style={{ ...base, background: c.bgColor || "hsl(var(--muted))" }}
+              className="flex items-center justify-center p-0.5">
+              <span style={{ color: c.textColor || "#fff", fontSize: "5px", lineHeight: 1.2,
+                textAlign: (c.textAlign as React.CSSProperties["textAlign"]) || "center",
+                display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical" as const,
+                overflow: "hidden", wordBreak: "break-all" }}>
+                {c.value}
+              </span>
+            </div>
+          );
+        }
+
+        if (c.type === "media" && Array.isArray(c.mediaItems) && c.mediaItems.length > 0) {
+          const first = c.mediaItems[0] as { type?: string; url?: string; name?: string };
+          if (first?.url && (first.type === "image" || first.url.startsWith("data:image"))) {
+            return (
+              <div key={z.id} style={base}>
+                <img src={first.url} alt={first.name || ""} style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" />
+              </div>
+            );
+          }
+          if (first?.url && first.type === "video") {
+            return (
+              <div key={z.id} style={{ ...base, background: "#111" }} className="flex items-center justify-center">
+                <Film className="w-2 h-2 text-white/60" />
+              </div>
+            );
+          }
+        }
+
+        // widget or fallback
+        return (
+          <div key={z.id} style={{ ...base, background: c.bgColor || "hsl(var(--muted)/0.6)" }}
+            className="flex items-center justify-center">
+            <span style={{ color: c.textColor || "hsl(var(--muted-foreground))", fontSize: "5px", fontWeight: 600 }}>{z.label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Shared layout/template presets ────────────────────────────────
 const STUDIO_ICON_MAP: Record<StudioIconKey, React.ReactNode> = {
   square: <Square className="w-4 h-4" />,
@@ -5574,7 +5644,7 @@ export default function ContentStudioPage() {
                             className="w-full flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card hover:bg-accent hover:border-primary/50 transition-colors text-left"
                           >
                             <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border group-hover:ring-primary/40 transition-all ${tpl.aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
-                              <LayoutThumb zones={tpl.zones} aspect={tpl.aspect} />
+                              <SceneThumb zones={tpl.zones} />
                             </div>
                             <div className="flex items-center justify-between gap-1">
                               <p className="text-[11px] font-medium text-foreground truncate">{t(tpl.nameKey as TranslationKey)}</p>
@@ -6313,7 +6383,7 @@ export default function ContentStudioPage() {
                               className="w-full flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left"
                             >
                               <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border ${tpl.aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
-                                <LayoutThumb zones={tpl.zones} aspect={tpl.aspect} />
+                                <SceneThumb zones={tpl.zones} />
                               </div>
                               <div className="flex items-center justify-between gap-1">
                                 <p className="text-[11px] font-medium text-foreground truncate">{t(tpl.nameKey as TranslationKey)}</p>
