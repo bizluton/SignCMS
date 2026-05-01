@@ -6,6 +6,7 @@ import { Loader2, ArrowLeft, Pause, Play, SkipForward, Volume2, VolumeX, Maximiz
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useScreenLicenseStatus } from "@/hooks/useScreenLicenseStatus";
+import { precacheMediaUrls, cleanupMediaCache } from "@/lib/playerSW";
 
 interface BgmTrack {
   id: string;
@@ -479,6 +480,15 @@ export default function PlayerPage() {
     }));
     setSchedules(parsed);
     setLoading(false);
+
+    // Tell the Service Worker to pre-download all media for this screen and
+    // evict anything no longer referenced.  No-op when SW is unavailable.
+    const allMediaUrls = parsed.flatMap(s => [
+      ...s.items.map(i => i.media_url).filter(Boolean),
+      ...s.bgm_tracks.map(b => b.url).filter(Boolean),
+    ]);
+    precacheMediaUrls(allMediaUrls);
+    cleanupMediaCache(allMediaUrls);
   }, [screenId, t, licenseLoading, licenseInfo?.licensed]);
 
   useEffect(() => {
