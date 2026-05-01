@@ -3374,14 +3374,14 @@ export default function ContentStudioPage() {
   };
   const DEFAULT_PAGE_TRANSITION: PageTransition = {
     mode: "auto",
-    seconds: 10,
+    seconds: 300,
     triggers: { gpio: false, remote: true, api: false },
   };
   const normalizePageTransition = (raw?: unknown): PageTransition => {
     if (!raw || typeof raw !== "object") return { ...DEFAULT_PAGE_TRANSITION, triggers: { ...DEFAULT_PAGE_TRANSITION.triggers } };
     const rec = raw as Record<string, unknown>;
     const mode = rec.mode === "fixed" || rec.mode === "trigger" ? rec.mode : "auto";
-    const seconds = typeof rec.seconds === "number" && rec.seconds > 0 ? Math.min(3600, rec.seconds) : 10;
+    const seconds = typeof rec.seconds === "number" && rec.seconds > 0 ? Math.min(3600, rec.seconds) : 300;
     const tr = (rec.triggers && typeof rec.triggers === "object") ? rec.triggers as Record<string, unknown> : {};
     return {
       mode,
@@ -4388,7 +4388,15 @@ export default function ContentStudioPage() {
         overlays: p.overlays,
       })),
       activePageId,
-      pageTransition: projectTransition,
+      pageTransition: {
+        ...projectTransition,
+        pageChannels: pagesSnapshot.map((p, i) => ({
+          id: p.id,
+          name: p.name,
+          gpioChannel: i,
+          remoteCode: String(i + 1).padStart(2, "0"),
+        })),
+      },
     };
     const zonesData = JSON.parse(JSON.stringify([
       metaEntry,
@@ -7334,23 +7342,47 @@ export default function ContentStudioPage() {
             )}
 
             {projectTransition.mode === "trigger" && (
-              <div className="space-y-2">
-                <Label className="text-xs font-medium">{t("studioPageTransitionTriggers")}</Label>
-                <div className="space-y-2 rounded-md border border-border p-3">
-                  {([
-                    { k: "gpio" as const, label: t("studioPageTriggerGpio") },
-                    { k: "remote" as const, label: t("studioPageTriggerRemote") },
-                    { k: "api" as const, label: t("studioPageTriggerApi") },
-                  ]).map((row) => (
-                    <div key={row.k} className="flex items-center justify-between">
-                      <span className="text-sm">{row.label}</span>
-                      <Switch
-                        checked={!!projectTransition.triggers[row.k]}
-                        onCheckedChange={(v) => updateProjectTransition({ triggers: { [row.k]: !!v } as Partial<PageTransition["triggers"]> })}
-                      />
-                    </div>
-                  ))}
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium">{t("studioPageTransitionTriggers")}</Label>
+                  <div className="space-y-2 rounded-md border border-border p-3">
+                    {([
+                      { k: "gpio" as const, label: t("studioPageTriggerGpio") },
+                      { k: "remote" as const, label: t("studioPageTriggerRemote") },
+                      { k: "api" as const, label: t("studioPageTriggerApi") },
+                    ]).map((row) => (
+                      <div key={row.k} className="flex items-center justify-between">
+                        <span className="text-sm">{row.label}</span>
+                        <Switch
+                          checked={!!projectTransition.triggers[row.k]}
+                          onCheckedChange={(v) => updateProjectTransition({ triggers: { [row.k]: !!v } as Partial<PageTransition["triggers"]> })}
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
+                {(projectTransition.triggers.gpio || projectTransition.triggers.remote) && pages.length > 0 && (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-medium">{t("studioPageTriggerChannels")}</Label>
+                    <div className="rounded-md border border-border divide-y divide-border text-xs">
+                      {pages.map((p, i) => (
+                        <div key={p.id} className="flex items-center justify-between px-3 py-1.5">
+                          <span className="font-medium truncate max-w-[140px]">{p.name}</span>
+                          <span className="text-muted-foreground tabular-nums flex gap-2 shrink-0">
+                            {projectTransition.triggers.gpio && <span>GPIO {i}</span>}
+                            {projectTransition.triggers.remote && <span>{t("studioPageTriggerRemoteCode")} {String(i + 1).padStart(2, "0")}</span>}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {pages.length <= 1 && projectTransition.mode !== "trigger" && (
+              <div className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
+                {t("studioPageTransitionOnlyMulti")}
               </div>
             )}
 
