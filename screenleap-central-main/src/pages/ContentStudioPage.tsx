@@ -542,13 +542,13 @@ function buildTemplatePresets(): TemplateItem[] {
 const INITIAL_LAYOUT_PRESETS = buildLayoutPresets();
 
 // ── Carousel Preview ───────────────────────────────────────────────
-function CarouselPreview({ items, transition = "fade", fitMode = "cover-x", unmuteVideo = false }: { items: MediaItem[]; transition?: CarouselTransition; fitMode?: "cover-x" | "cover-y" | "contain" | "stretch"; unmuteVideo?: boolean }) {
+function CarouselPreview({ items, transition = "fade", fitMode = "cover-x", unmuteVideo = false, playing = true }: { items: MediaItem[]; transition?: CarouselTransition; fitMode?: "cover-x" | "cover-y" | "contain" | "stretch"; unmuteVideo?: boolean; playing?: boolean }) {
   const [idx, setIdx] = useState(0);
   const [prevIdx, setPrevIdx] = useState(0);
   const [animating, setAnimating] = useState(false);
 
   useEffect(() => {
-    if (items.length <= 1) return;
+    if (!playing || items.length <= 1) return;
     const currentDuration = (items[idx]?.duration || 5) * 1000;
     const timer = setTimeout(() => {
       setPrevIdx(idx);
@@ -557,7 +557,7 @@ function CarouselPreview({ items, transition = "fade", fitMode = "cover-x", unmu
       setTimeout(() => setAnimating(false), 600);
     }, currentDuration);
     return () => clearTimeout(timer);
-  }, [items.length, idx, items]);
+  }, [playing, items.length, idx, items]);
 
   const videoStyle: React.CSSProperties = {
     width: "100%",
@@ -6868,74 +6868,78 @@ export default function ContentStudioPage() {
         totalDurationSec={(() => {
           const sumItems = (items: MediaItem[] | undefined) =>
             (items || []).reduce((s, it) => s + Math.max(1, Math.round(it.duration || 5)), 0);
-          // Total duration = Zone A (first zone) accumulated time only
-          const zoneA = zones[0];
-          const total = zoneA ? sumItems(zoneA.content?.mediaItems) : 0;
+          // Use the longest track across all zones and overlays
+          const durations = [
+            ...zones.map((z) => sumItems(z.content?.mediaItems)),
+            ...overlays.map((o) => sumItems(o.content?.mediaItems)),
+          ].filter((d) => d > 0);
+          const total = durations.length > 0 ? Math.max(...durations) : 0;
           return total > 0 ? total : 30;
         })()}
         bgmItems={bgmItems.map((b) => ({ id: b.id, url: b.url, name: b.name, duration: b.duration }))}
         bgmVolume={bgmVolume}
         bgmAudioSource={bgmAudioSource}
-      >
-        <div className="absolute inset-0" style={{ background: "hsl(0 0% 0%)" }}>
-          {/* Zones */}
-          {zones.map((zone) => {
-            const mItems = zone.content?.mediaItems || [];
-            const bg = zone.content?.bgColor || "hsl(0 0% 8%)";
-            return (
-              <div
-                key={zone.id}
-                className="absolute flex items-center justify-center overflow-hidden"
-                style={{
-                  left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.w}%`, height: `${zone.h}%`,
-                  background: bg,
-                }}
-              >
-                {zone.content?.type === "media" && mItems.length > 0 ? (
-                  <CarouselPreview items={mItems} transition={zone.content.carouselTransition || "fade"} fitMode={zone.content.fitMode || "cover-x"} unmuteVideo={bgmAudioSource !== "mute" && (bgmAudioSource === "bgm" || bgmAudioSource === `z-${zone.id}`)} />
-                ) : zone.content?.type === "widget" && zone.content.widgetConfig ? (
-                  <ZoneAnimatedWrapper animation={zone.content.widgetConfig.animation}>
-                    <WidgetZonePreview config={zone.content.widgetConfig} />
-                  </ZoneAnimatedWrapper>
-                ) : zone.content?.type === "text" && zone.content.value ? (
-                  <div className="p-3 w-full" style={{ color: zone.content.textColor || "hsl(0 0% 100%)", fontSize: zone.content.fontSize || 24, textAlign: zone.content.textAlign || "center" }}>
-                    <span className="font-bold leading-tight whitespace-pre-line">{zone.content.value}</span>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-          {/* Overlays */}
-          {overlays.map((overlay) => {
-            const mItems = overlay.content?.mediaItems || [];
-            const bg = overlay.content?.bgColor || "transparent";
-            return (
-              <div
-                key={overlay.id}
-                className="absolute flex items-center justify-center overflow-hidden rounded-lg"
-                style={{
-                  left: overlay.x, top: overlay.y, width: overlay.w, height: overlay.h,
-                  background: bg,
-                  opacity: (overlay.opacity ?? 100) / 100,
-                  zIndex: 30 + (overlay.zIndex ?? 0),
-                }}
-              >
-                {overlay.content?.type === "media" && mItems.length > 0 ? (
-                  <CarouselPreview items={mItems} transition={overlay.content.carouselTransition || "fade"} fitMode={overlay.content.fitMode || "cover-x"} unmuteVideo={bgmAudioSource !== "mute" && (bgmAudioSource === "bgm" || bgmAudioSource === `o-${overlay.id}`)} />
-                ) : overlay.content?.type === "widget" && overlay.content.widgetConfig ? (
-                  <ZoneAnimatedWrapper animation={overlay.content.widgetConfig.animation}>
-                    <WidgetZonePreview config={overlay.content.widgetConfig} />
-                  </ZoneAnimatedWrapper>
-                ) : overlay.content?.type === "text" && overlay.content.value ? (
-                  <div className="p-2 w-full" style={{ color: overlay.content.textColor || "hsl(0 0% 100%)", fontSize: overlay.content.fontSize || 20, textAlign: overlay.content.textAlign || "center" }}>
-                    <span className="font-bold leading-tight whitespace-pre-line">{overlay.content.value}</span>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-      </StudioPreviewDialog>
+        renderStage={(playing) => (
+          <div className="absolute inset-0" style={{ background: "hsl(0 0% 0%)" }}>
+            {/* Zones */}
+            {zones.map((zone) => {
+              const mItems = zone.content?.mediaItems || [];
+              const bg = zone.content?.bgColor || "hsl(0 0% 8%)";
+              return (
+                <div
+                  key={zone.id}
+                  className="absolute flex items-center justify-center overflow-hidden"
+                  style={{
+                    left: `${zone.x}%`, top: `${zone.y}%`, width: `${zone.w}%`, height: `${zone.h}%`,
+                    background: bg,
+                  }}
+                >
+                  {zone.content?.type === "media" && mItems.length > 0 ? (
+                    <CarouselPreview items={mItems} transition={zone.content.carouselTransition || "fade"} fitMode={zone.content.fitMode || "cover-x"} unmuteVideo={bgmAudioSource !== "mute" && (bgmAudioSource === "bgm" || bgmAudioSource === `z-${zone.id}`)} playing={playing} />
+                  ) : zone.content?.type === "widget" && zone.content.widgetConfig ? (
+                    <ZoneAnimatedWrapper animation={zone.content.widgetConfig.animation}>
+                      <WidgetZonePreview config={zone.content.widgetConfig} />
+                    </ZoneAnimatedWrapper>
+                  ) : zone.content?.type === "text" && zone.content.value ? (
+                    <div className="p-3 w-full" style={{ color: zone.content.textColor || "hsl(0 0% 100%)", fontSize: zone.content.fontSize || 24, textAlign: zone.content.textAlign || "center" }}>
+                      <span className="font-bold leading-tight whitespace-pre-line">{zone.content.value}</span>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+            {/* Overlays */}
+            {overlays.map((overlay) => {
+              const mItems = overlay.content?.mediaItems || [];
+              const bg = overlay.content?.bgColor || "transparent";
+              return (
+                <div
+                  key={overlay.id}
+                  className="absolute flex items-center justify-center overflow-hidden rounded-lg"
+                  style={{
+                    left: overlay.x, top: overlay.y, width: overlay.w, height: overlay.h,
+                    background: bg,
+                    opacity: (overlay.opacity ?? 100) / 100,
+                    zIndex: 30 + (overlay.zIndex ?? 0),
+                  }}
+                >
+                  {overlay.content?.type === "media" && mItems.length > 0 ? (
+                    <CarouselPreview items={mItems} transition={overlay.content.carouselTransition || "fade"} fitMode={overlay.content.fitMode || "cover-x"} unmuteVideo={bgmAudioSource !== "mute" && (bgmAudioSource === "bgm" || bgmAudioSource === `o-${overlay.id}`)} playing={playing} />
+                  ) : overlay.content?.type === "widget" && overlay.content.widgetConfig ? (
+                    <ZoneAnimatedWrapper animation={overlay.content.widgetConfig.animation}>
+                      <WidgetZonePreview config={overlay.content.widgetConfig} />
+                    </ZoneAnimatedWrapper>
+                  ) : overlay.content?.type === "text" && overlay.content.value ? (
+                    <div className="p-2 w-full" style={{ color: overlay.content.textColor || "hsl(0 0% 100%)", fontSize: overlay.content.fontSize || 20, textAlign: overlay.content.textAlign || "center" }}>
+                      <span className="font-bold leading-tight whitespace-pre-line">{overlay.content.value}</span>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      />
 
       {/* Unsaved-changes confirmation */}
       <AlertDialog open={pendingDestructiveAction !== null} onOpenChange={(o) => { if (!o) setPendingDestructiveAction(null); }}>

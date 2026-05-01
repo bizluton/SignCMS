@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, type ReactNode } from "react";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -26,8 +26,8 @@ interface StudioPreviewDialogProps {
   bgmItems: BgmItem[];
   bgmVolume: number;
   bgmAudioSource: string; // "bgm" plays the playlist, "mute" silences, others = use video sound (skipped here)
-  /** The stage content — exactly the zones + overlays JSX from the editor (no labels/handles). */
-  children: React.ReactNode;
+  /** Render the stage content with the current playing state so carousels can pause their timers. */
+  renderStage: (playing: boolean) => ReactNode;
 }
 
 export function StudioPreviewDialog({
@@ -40,7 +40,7 @@ export function StudioPreviewDialog({
   bgmItems,
   bgmVolume,
   bgmAudioSource,
-  children,
+  renderStage,
 }: StudioPreviewDialogProps) {
   const { t } = useLanguage();
   const totalSec = Math.max(1, Math.round(totalDurationSec || 30));
@@ -274,7 +274,7 @@ export function StudioPreviewDialog({
                   background: "hsl(0 0% 0%)",
                 }}
               >
-                {children}
+                {renderStage(playing)}
               </div>
             )}
           </div>
