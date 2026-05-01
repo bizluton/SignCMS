@@ -3561,6 +3561,9 @@ export default function ContentStudioPage() {
   const [pendingDestructiveAction, setPendingDestructiveAction] = useState<null | "new" | "load">(null);
   const [showPreviewSavePrompt, setShowPreviewSavePrompt] = useState(false);
 
+  // Scene delete confirmation state
+  const [sceneDeleteConfirm, setSceneDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
+
   // Export download dialog (manual click fallback, avoids iframe download blocking)
   const [exportDownload, setExportDownload] = useState<{ url: string; filename: string; sizeBytes: number } | null>(null);
 
@@ -4902,7 +4905,7 @@ export default function ContentStudioPage() {
 
       const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
-      const filename = `${sanitize(tpl.nameKey || "scene")}.zip`;
+      const filename = `SCENE_${sanitize(tpl.nameKey || "scene")}.zip`;
       try {
         const a = document.createElement("a");
         a.href = url; a.download = filename; a.rel = "noopener";
@@ -5932,7 +5935,7 @@ export default function ContentStudioPage() {
                                 <button
                                   type="button"
                                   className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-left"
-                                  onClick={() => { deleteUserScene(tpl.id); setScenesVersion((v) => v + 1); }}
+                                  onClick={() => setSceneDeleteConfirm({ id: tpl.id, name: t(tpl.nameKey as TranslationKey) || tpl.nameKey })}
                                 >
                                   <Trash2 className="w-3 h-3 shrink-0" /> {t("studioDeleteScene")}
                                 </button>
@@ -6683,7 +6686,7 @@ export default function ContentStudioPage() {
                                   <button
                                     type="button"
                                     className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-left"
-                                    onClick={() => { deleteUserScene(tpl.id); setScenesVersion((v) => v + 1); }}
+                                    onClick={() => setSceneDeleteConfirm({ id: tpl.id, name: t(tpl.nameKey as TranslationKey) || tpl.nameKey })}
                                   >
                                     <Trash2 className="w-3 h-3 shrink-0" /> {t("studioDeleteScene")}
                                   </button>
@@ -7254,6 +7257,32 @@ export default function ContentStudioPage() {
       </AlertDialog>
 
       {/* Save Dialog */}
+
+      {/* Scene delete confirmation dialog */}
+      <AlertDialog open={!!sceneDeleteConfirm} onOpenChange={(o) => { if (!o) setSceneDeleteConfirm(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("studioDeleteSceneConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("studioDeleteSceneConfirmDesc").replace("{name}", sceneDeleteConfirm?.name ?? "")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (!sceneDeleteConfirm) return;
+                deleteUserScene(sceneDeleteConfirm.id);
+                setScenesVersion((v) => v + 1);
+                setSceneDeleteConfirm(null);
+              }}
+            >
+              {t("studioDeleteScene")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Manual export download dialog (iframe-safe) */}
       <Dialog
