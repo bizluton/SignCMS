@@ -1942,7 +1942,12 @@ function ZoneTimeline({
                   className={`shrink-0 sticky left-0 z-10 w-24 px-2 py-2 text-left border-r border-border flex flex-col items-start justify-center gap-0.5 ${track.isActive ? "bg-primary/10" : "bg-card hover:bg-muted/50"}`}
                   title={track.label}
                 >
-                  <span className={`text-[10px] font-semibold truncate w-full ${track.isActive ? "text-primary" : "text-foreground"}`}>{track.label}</span>
+                  <span className={`text-[10px] font-semibold truncate w-full flex items-center gap-0.5 ${track.isActive ? "text-primary" : "text-foreground"}`}>
+                    {track.items.some((m) => m.type === "video") && (
+                      <Film className="w-2.5 h-2.5 shrink-0 text-destructive" />
+                    )}
+                    <span className="truncate">{track.label}</span>
+                  </span>
                   <span className="text-[9px] text-muted-foreground">{track.items.length} · {segments.reduce((s, x) => s + x.dur, 0)}s</span>
                 </button>
                 {/* Track content */}
@@ -3338,6 +3343,10 @@ export default function ContentStudioPage() {
   const [myPresets, setMyPresets] = useState<MyResPreset[]>(() => loadMyResPresets());
   const [presetSaveName, setPresetSaveName] = useState("");
   const [scenesVersion, setScenesVersion] = useState(0);
+  const [saveToSceneDialogOpen, setSaveToSceneDialogOpen] = useState(false);
+  const [saveToSceneDialogName, setSaveToSceneDialogName] = useState("");
+  const [saveToSceneFlashKey, setSaveToSceneFlashKey] = useState(0);
+  const [saveToScenePendingPage, setSaveToScenePendingPage] = useState<{ name: string; zones: Zone[]; aspect?: string } | null>(null);
   const studioSources = useMemo(() => {
     invalidateStudioSourceCache();
     return { layouts: buildLayoutPresets(), templates: buildTemplatePresets(), cache: getStudioSourceCacheStatus() };
@@ -3919,16 +3928,23 @@ export default function ContentStudioPage() {
       const m = typeof page.name === "string" ? page.name.match(/^版型\s*(\d+)$/) : null;
       return m ? `${t("studioPageTabPrefix")} ${m[1]}` : (page.name || t("studioPageTabPrefix"));
     })();
-    const input = window.prompt(t("studioSaveToSceneName"), displayName);
-    if (input == null) return;
-    const name = input.trim();
+    setSaveToScenePendingPage(page);
+    setSaveToSceneDialogName(displayName);
+    setSaveToSceneFlashKey(0);
+    setSaveToSceneDialogOpen(true);
+  }, [t]);
+
+  const commitSaveToScene = useCallback(() => {
+    if (!saveToScenePendingPage) return;
+    const name = saveToSceneDialogName.trim();
     if (!name) return;
     const nameLower = name.toLowerCase();
     const duplicate = studioSources.templates.some((tpl) => tpl.nameKey.toLowerCase() === nameLower);
     if (duplicate) {
-      toast.error(t("studioSceneNameDuplicate"));
+      setSaveToSceneFlashKey((k) => k + 1);
       return;
     }
+    const page = saveToScenePendingPage;
     const scene = {
       id: `user-scene-${Date.now()}`,
       nameKey: name,
@@ -3947,8 +3963,9 @@ export default function ContentStudioPage() {
     };
     saveUserScene(scene);
     setScenesVersion((v) => v + 1);
+    setSaveToSceneDialogOpen(false);
     toast.success(t("studioSaveToSceneSuccess"));
-  }, [t, aspect, bgmItems, bgmVolume, bgmAudioSource, studioSources.templates]);
+  }, [saveToScenePendingPage, saveToSceneDialogName, studioSources.templates, t, aspect, bgmItems, bgmVolume, bgmAudioSource]);
 
   // 切換 aspect：若目前版型不適用新比例，自動轉換為對應比例下最相近的版型，並盡量保留每個 zone 已編輯的內容
   const changeAspect = useCallback((next: AspectRatio) => {
@@ -5422,6 +5439,33 @@ export default function ContentStudioPage() {
           )}
         </div>
       )}
+
+      {/* Save-to-Scene dialog */}
+      <Dialog open={saveToSceneDialogOpen} onOpenChange={(o) => { if (!o) setSaveToSceneDialogOpen(false); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("studioSaveToScene")}</DialogTitle>
+          </DialogHeader>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1.5 block">{t("studioSaveToSceneName")}</label>
+            <Input
+              key={saveToSceneFlashKey}
+              value={saveToSceneDialogName}
+              onChange={(e) => setSaveToSceneDialogName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") commitSaveToScene(); }}
+              autoFocus
+              className={saveToSceneFlashKey > 0 ? "animate-[field-error-flash_0.5s_ease-in-out] border-destructive" : ""}
+            />
+            {saveToSceneFlashKey > 0 && (
+              <p className="text-xs text-destructive mt-1.5">{t("studioSceneNameDuplicate")}</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaveToSceneDialogOpen(false)}>{t("cancel")}</Button>
+            <Button onClick={commitSaveToScene} disabled={!saveToSceneDialogName.trim()}>{t("studioSaveToScene")}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Custom resolution dialog */}
       <Dialog open={showCustomResDialog} onOpenChange={setShowCustomResDialog}>

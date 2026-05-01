@@ -146,6 +146,10 @@ export default {
           "0%": { opacity: "0", transform: "translateY(-4px) scale(0.96)", filter: "blur(2px)" },
           "100%": { opacity: "1", transform: "translateY(0) scale(1)", filter: "blur(0)" },
         },
+        "field-error-flash": {
+          "0%, 100%": { borderColor: "hsl(var(--input))", boxShadow: "none" },
+          "30%, 70%": { borderColor: "hsl(var(--destructive))", boxShadow: "0 0 0 2px hsl(var(--destructive) / 0.35)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -165,6 +169,7 @@ export default {
         "studio-rail-arrow": "studio-rail-arrow 1.6s ease-in-out infinite",
         "studio-panel-expand": "studio-panel-expand 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards",
         "studio-toolbar-expand": "studio-toolbar-expand 0.24s cubic-bezier(0.22, 1, 0.36, 1) forwards",
+        "field-error-flash": "field-error-flash 0.5s ease-in-out",
       },
     },
   },
