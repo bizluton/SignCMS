@@ -591,7 +591,7 @@ function CarouselPreview({ items, transition = "fade", fitMode = "cover-x", unmu
           src={item.url}
           style={videoStyle}
           autoPlay
-          muted={!unmuteVideo}
+          muted={!unmuteVideo || !!item.muted}
           playsInline
           loop={items.length === 1}
         />
@@ -6890,7 +6890,7 @@ export default function ContentStudioPage() {
                 }}
               >
                 {zone.content?.type === "media" && mItems.length > 0 ? (
-                  <CarouselPreview items={mItems} transition={zone.content.carouselTransition || "fade"} fitMode={zone.content.fitMode || "cover-x"} unmuteVideo />
+                  <CarouselPreview items={mItems} transition={zone.content.carouselTransition || "fade"} fitMode={zone.content.fitMode || "cover-x"} unmuteVideo={bgmAudioSource === `z-${zone.id}`} />
                 ) : zone.content?.type === "widget" && zone.content.widgetConfig ? (
                   <ZoneAnimatedWrapper animation={zone.content.widgetConfig.animation}>
                     <WidgetZonePreview config={zone.content.widgetConfig} />
@@ -6919,7 +6919,7 @@ export default function ContentStudioPage() {
                 }}
               >
                 {overlay.content?.type === "media" && mItems.length > 0 ? (
-                  <CarouselPreview items={mItems} transition={overlay.content.carouselTransition || "fade"} fitMode={overlay.content.fitMode || "cover-x"} unmuteVideo />
+                  <CarouselPreview items={mItems} transition={overlay.content.carouselTransition || "fade"} fitMode={overlay.content.fitMode || "cover-x"} unmuteVideo={bgmAudioSource === `o-${overlay.id}`} />
                 ) : overlay.content?.type === "widget" && overlay.content.widgetConfig ? (
                   <ZoneAnimatedWrapper animation={overlay.content.widgetConfig.animation}>
                     <WidgetZonePreview config={overlay.content.widgetConfig} />
