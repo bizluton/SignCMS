@@ -2342,7 +2342,7 @@ function ZoneTimeline({
 }
 
 
-function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, activeOrgId, onMediaUploaded, hideContentPicker }: {
+function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, activeOrgId, onMediaUploaded, hideContentPicker, existingVideoZoneLabel }: {
   zone: Zone;
   onUpdate: (content: ZoneContent) => void;
   onClose: () => void;
@@ -2352,6 +2352,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
   activeOrgId?: string;
   onMediaUploaded?: () => Promise<void> | void;
   hideContentPicker?: boolean;
+  existingVideoZoneLabel?: string | null;
 }) {
   const { t } = useLanguage();
   const content: ZoneContent = zone.content || { type: "color", value: "", bgColor: "hsl(var(--muted))" };
@@ -2542,6 +2543,17 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
       (data || []).forEach((item) => mediaDetailMap.set(item.id, item));
     }
 
+    const hasIncomingVideo = Array.from(selectedPickerIds).some((pickerId) => {
+      const item = pickerItems.find((p) => p.id === pickerId);
+      if (!item || item.kind !== "media") return false;
+      const m = mediaDetailMap.get(item.raw.id);
+      return m?.type === "video";
+    });
+    if (hasIncomingVideo && existingVideoZoneLabel) {
+      toast.error(t("studioVideoZoneLimit").replace("{zone}", existingVideoZoneLabel));
+      return;
+    }
+
     const appendedItems: MediaItem[] = [];
 
     selectedItems.forEach((item) => {
@@ -2589,6 +2601,10 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
 
   const addMedia = (m: typeof dbMedia[0]) => {
     const isVideo = m.type === "video";
+    if (isVideo && existingVideoZoneLabel) {
+      toast.error(t("studioVideoZoneLimit").replace("{zone}", existingVideoZoneLabel));
+      return;
+    }
     const dur = isVideo ? (Math.round(getMediaDurationSec(m)) || 10) : 7;
     const newItem: MediaItem = {
       id: m.id,
@@ -3907,6 +3923,12 @@ export default function ContentStudioPage() {
     if (input == null) return;
     const name = input.trim();
     if (!name) return;
+    const nameLower = name.toLowerCase();
+    const duplicate = studioSources.templates.some((tpl) => tpl.nameKey.toLowerCase() === nameLower);
+    if (duplicate) {
+      toast.error(t("studioSceneNameDuplicate"));
+      return;
+    }
     const scene = {
       id: `user-scene-${Date.now()}`,
       nameKey: name,
@@ -3926,7 +3948,7 @@ export default function ContentStudioPage() {
     saveUserScene(scene);
     setScenesVersion((v) => v + 1);
     toast.success(t("studioSaveToSceneSuccess"));
-  }, [t, aspect, bgmItems, bgmVolume, bgmAudioSource]);
+  }, [t, aspect, bgmItems, bgmVolume, bgmAudioSource, studioSources.templates]);
 
   // 切換 aspect：若目前版型不適用新比例，自動轉換為對應比例下最相近的版型，並盡量保留每個 zone 已編輯的內容
   const changeAspect = useCallback((next: AspectRatio) => {
@@ -4182,6 +4204,16 @@ export default function ContentStudioPage() {
     if (appended.length === 0) return;
 
     if (targetZone) {
+      const hasIncomingVideo = appended.some((m) => m.type === "video");
+      if (hasIncomingVideo) {
+        const videoZone = zones.find(
+          (z) => z.id !== targetZone.id && z.content?.mediaItems?.some((m) => m.type === "video"),
+        );
+        if (videoZone) {
+          toast.error(t("studioVideoZoneLimit").replace("{zone}", videoZone.label));
+          return;
+        }
+      }
       const existing = targetZone.content?.mediaItems || [];
       updateZoneContent(targetZone.id, {
         ...(targetZone.content || { type: "color", value: "", bgColor: "hsl(var(--muted))" }),
@@ -5175,6 +5207,9 @@ export default function ContentStudioPage() {
   const activeOverlay = overlays.find((o) => o.id === selectedOverlay);
   const canEdit = !isMobile || mobileEditMode;
   const layoutPanelCollapsed = !isMobile && (layoutPanelManuallyCollapsed || ((!!activeZone || !!activeOverlay) && !layoutPanelOpen));
+  const existingVideoZoneLabel = activeZone
+    ? (zones.find((z) => z.id !== activeZone.id && z.content?.mediaItems?.some((m) => m.type === "video"))?.label ?? null)
+    : null;
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] overflow-hidden">
       {/* Header — desktop & tablet */}
@@ -6123,6 +6158,12 @@ export default function ContentStudioPage() {
                     {zone.label}
                   </span>
 
+                  {zone.content?.mediaItems?.some((m) => m.type === "video") && (
+                    <span className="absolute top-1.5 right-1.5 flex items-center gap-0.5 bg-destructive/90 text-destructive-foreground text-[9px] font-bold px-1.5 py-0.5 rounded shadow-sm">
+                      <Film className="w-2.5 h-2.5" />
+                    </span>
+                  )}
+
                   {canEdit && hasResizeHandle(zone, "right", zones) && (
                     <div className="absolute top-0 right-0 w-2 h-full cursor-col-resize z-20 group/handle hover:bg-primary/30 transition-colors" onMouseDown={(e) => handleResizeStart(e, zone.id, "right")}>
                       <div className="absolute top-1/2 right-0 -translate-y-1/2 w-1 h-8 rounded-full bg-primary/60 opacity-0 group-hover/handle:opacity-100 transition-opacity" />
@@ -6615,7 +6656,7 @@ export default function ContentStudioPage() {
             </SheetHeader>
             <div className="flex-1 overflow-y-auto p-4">
               {activeZone && (
-                <ZoneEditor zone={activeZone} onUpdate={(content) => updateZoneContent(activeZone.id, content)} onClose={() => setSelectedZone(null)} dbMedia={dbMedia} dbWidgets={dbWidgets} activeOrgId={activeOrgId} onMediaUploaded={loadMedia} isEmbedded />
+                <ZoneEditor zone={activeZone} onUpdate={(content) => updateZoneContent(activeZone.id, content)} onClose={() => setSelectedZone(null)} dbMedia={dbMedia} dbWidgets={dbWidgets} activeOrgId={activeOrgId} onMediaUploaded={loadMedia} isEmbedded existingVideoZoneLabel={existingVideoZoneLabel} />
               )}
             </div>
           </SheetContent>
