@@ -4220,14 +4220,15 @@ export default function ContentStudioPage() {
 
     if (appended.length === 0) return;
 
+    const hasIncomingVideo = appended.some((m) => m.type === "video");
+
     if (targetZone) {
-      const hasIncomingVideo = appended.some((m) => m.type === "video");
       if (hasIncomingVideo) {
-        const videoZone = zones.find(
-          (z) => z.id !== targetZone.id && z.content?.mediaItems?.some((m) => m.type === "video"),
-        );
-        if (videoZone) {
-          toast.error(t("studioVideoZoneLimit").replace("{zone}", videoZone.label));
+        const videoHolder =
+          zones.find((z) => z.id !== targetZone.id && z.content?.mediaItems?.some((m) => m.type === "video")) ??
+          overlays.find((o) => o.content?.mediaItems?.some((m) => m.type === "video"));
+        if (videoHolder) {
+          toast.error(t("studioVideoZoneLimit").replace("{zone}", videoHolder.label));
           return;
         }
       }
@@ -4240,6 +4241,15 @@ export default function ContentStudioPage() {
       });
       toast.success(t("studioAddedToZone").replace("{label}", targetZone.label));
     } else if (targetOverlay) {
+      if (hasIncomingVideo) {
+        const videoHolder =
+          zones.find((z) => z.content?.mediaItems?.some((m) => m.type === "video")) ??
+          overlays.find((o) => o.id !== targetOverlay.id && o.content?.mediaItems?.some((m) => m.type === "video"));
+        if (videoHolder) {
+          toast.error(t("studioVideoZoneLimit").replace("{zone}", videoHolder.label));
+          return;
+        }
+      }
       const existing = targetOverlay.content?.mediaItems || [];
       updateOverlayContent(targetOverlay.id, {
         ...(targetOverlay.content || { type: "color", value: "", bgColor: "transparent" }),
@@ -5224,9 +5234,23 @@ export default function ContentStudioPage() {
   const activeOverlay = overlays.find((o) => o.id === selectedOverlay);
   const canEdit = !isMobile || mobileEditMode;
   const layoutPanelCollapsed = !isMobile && (layoutPanelManuallyCollapsed || ((!!activeZone || !!activeOverlay) && !layoutPanelOpen));
-  const existingVideoZoneLabel = activeZone
-    ? (zones.find((z) => z.id !== activeZone.id && z.content?.mediaItems?.some((m) => m.type === "video"))?.label ?? null)
-    : null;
+  const existingVideoZoneLabel = (() => {
+    if (activeZone) {
+      return (
+        zones.find((z) => z.id !== activeZone.id && z.content?.mediaItems?.some((m) => m.type === "video"))?.label ??
+        overlays.find((o) => o.content?.mediaItems?.some((m) => m.type === "video"))?.label ??
+        null
+      );
+    }
+    if (activeOverlay) {
+      return (
+        zones.find((z) => z.content?.mediaItems?.some((m) => m.type === "video"))?.label ??
+        overlays.find((o) => o.id !== activeOverlay.id && o.content?.mediaItems?.some((m) => m.type === "video"))?.label ??
+        null
+      );
+    }
+    return null;
+  })();
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] max-h-[calc(100vh-4rem)] overflow-hidden">
       {/* Header — desktop & tablet */}
@@ -6752,7 +6776,7 @@ export default function ContentStudioPage() {
                   <div className="pt-2 border-t border-border">
                     <ZoneEditor zone={{ id: activeOverlay.id, x: 0, y: 0, w: 100, h: 100, label: activeOverlay.label, content: activeOverlay.content }}
                       onUpdate={(content) => updateOverlayContent(activeOverlay.id, content)}
-                      onClose={() => setSelectedOverlay(null)} dbMedia={dbMedia} dbWidgets={dbWidgets} activeOrgId={activeOrgId} onMediaUploaded={loadMedia} isEmbedded />
+                      onClose={() => setSelectedOverlay(null)} dbMedia={dbMedia} dbWidgets={dbWidgets} activeOrgId={activeOrgId} onMediaUploaded={loadMedia} isEmbedded existingVideoZoneLabel={existingVideoZoneLabel} />
                   </div>
                 </>
               )}
