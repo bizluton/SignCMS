@@ -3,6 +3,28 @@
 //   (org rules NOT disabled by per-screen override) UNION (screen-specific rules linked to the screen)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
+// ─── Module-level rule cache ────────────────────────────────────────────────
+// Deno isolate instances handle multiple requests, so module-level Maps persist
+// across calls within the same instance.  TTL of 5 minutes means a rule change
+// takes at most 5 min to propagate — acceptable for IoT digital-signage triggers.
+// The cache is keyed independently for token verification, rules, and overrides
+// so a cache miss on one doesn't invalidate the others.
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+interface CacheEntry<T> { data: T; ts: number }
+function isFresh<T>(e: CacheEntry<T> | undefined): e is CacheEntry<T> {
+  return !!e && Date.now() - e.ts < CACHE_TTL_MS;
+}
+
+// org_id → { webhook_token }
+const orgTokenCache = new Map<string, CacheEntry<string>>();
+// `${orgId}:${trigger_source}:${trigger_key}` → rule rows
+const orgRulesCache = new Map<string, CacheEntry<any[]>>();
+// screen_id → linked rule rows
+const screenRulesCache = new Map<string, CacheEntry<any[]>>();
+// screen_id → override rows
+const overridesCache = new Map<string, CacheEntry<any[]>>();
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-webhook-token, x-debug-id",
@@ -130,40 +152,51 @@ Deno.serve(async (req) => {
     });
   }
 
-  // Look up org and verify token matches
-  const { data: orgRow, error: orgErr } = await supabase
-    .from("organizations")
-    .select("id, webhook_token")
-    .eq("id", body.org_id)
-    .maybeSingle();
+  // Look up org and verify token matches (cached for CACHE_TTL_MS)
+  let storedToken: string;
+  const cachedToken = orgTokenCache.get(body.org_id);
+  if (isFresh(cachedToken)) {
+    storedToken = cachedToken.data;
+  } else {
+    const { data: orgRow, error: orgErr } = await supabase
+      .from("organizations")
+      .select("id, webhook_token")
+      .eq("id", body.org_id)
+      .maybeSingle();
 
-  if (orgErr) {
-    return new Response(JSON.stringify({
-      error: "org_lookup_failed",
-      message: orgErr.message,
-    }), {
-      status: 500, headers: responseHeaders,
-    });
-  }
+    if (orgErr) {
+      return new Response(JSON.stringify({
+        error: "org_lookup_failed",
+        message: orgErr.message,
+      }), {
+        status: 500, headers: responseHeaders,
+      });
+    }
 
-  if (!orgRow) {
-    return new Response(JSON.stringify({
-      error: "org_not_found",
-      message: `Organization '${body.org_id}' does not exist.`,
-    }), {
-      status: 404, headers: responseHeaders,
-    });
+    if (!orgRow) {
+      return new Response(JSON.stringify({
+        error: "org_not_found",
+        message: `Organization '${body.org_id}' does not exist.`,
+      }), {
+        status: 404, headers: responseHeaders,
+      });
+    }
+
+    storedToken = orgRow.webhook_token || "";
+    orgTokenCache.set(body.org_id, { data: storedToken, ts: Date.now() });
   }
 
   // Constant-time comparison to mitigate timing attacks
   const a = providedToken;
-  const b = orgRow.webhook_token || "";
+  const b = storedToken;
   let mismatch = a.length !== b.length ? 1 : 0;
   const len = Math.max(a.length, b.length);
   for (let i = 0; i < len; i++) {
     mismatch |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
   }
   if (mismatch !== 0) {
+    // Evict the cached token so a freshly-rotated token works on the next request.
+    orgTokenCache.delete(body.org_id);
     // Best-effort audit log of failed auth
     try {
       await supabase.from("smart_trigger_logs").insert({
@@ -188,50 +221,77 @@ Deno.serve(async (req) => {
   // ===== End auth =====
 
   try {
-    // 1) Org-scope rules for this org/source/key
-    const orgQuery = supabase
-      .from("smart_trigger_rules")
-      .select("*")
-      .eq("org_id", body.org_id)
-      .eq("scope", "org")
-      .eq("trigger_source", body.trigger_source)
-      .eq("enabled", true);
-    if (body.trigger_key) orgQuery.eq("trigger_key", body.trigger_key);
+    // 1) Org-scope rules for this org/source/key (cached)
+    const orgRulesKey = `${body.org_id}:${body.trigger_source}:${body.trigger_key ?? ""}`;
+    let orgRules_data: any[];
+    const cachedOrgRules = orgRulesCache.get(orgRulesKey);
+    if (isFresh(cachedOrgRules)) {
+      orgRules_data = cachedOrgRules.data;
+    } else {
+      const orgQuery = supabase
+        .from("smart_trigger_rules")
+        .select("*")
+        .eq("org_id", body.org_id)
+        .eq("scope", "org")
+        .eq("trigger_source", body.trigger_source)
+        .eq("enabled", true);
+      if (body.trigger_key) orgQuery.eq("trigger_key", body.trigger_key);
+      const orgRes = await orgQuery;
+      if (orgRes.error) throw orgRes.error;
+      orgRules_data = orgRes.data || [];
+      orgRulesCache.set(orgRulesKey, { data: orgRules_data, ts: Date.now() });
+    }
 
-    // 2) Screen-specific rules linked via the relation table (only if screen_id provided)
-    const screenLinkPromise = body.screen_id
-      ? supabase
+    // 2) Screen-specific linked rules (cached per screenId)
+    let screenLink_data: any[];
+    if (body.screen_id) {
+      const cachedLink = screenRulesCache.get(body.screen_id);
+      if (isFresh(cachedLink)) {
+        screenLink_data = cachedLink.data;
+      } else {
+        const linkRes = await supabase
           .from("screen_smart_trigger_rules")
           .select("smart_trigger_rules(*)")
-          .eq("screen_id", body.screen_id)
-      : Promise.resolve({ data: [], error: null } as any);
+          .eq("screen_id", body.screen_id);
+        if (linkRes.error) throw linkRes.error;
+        screenLink_data = linkRes.data || [];
+        screenRulesCache.set(body.screen_id, { data: screenLink_data, ts: Date.now() });
+      }
+    } else {
+      screenLink_data = [];
+    }
 
-    // 3) Per-screen overrides for this screen
-    const overridesPromise = body.screen_id
-      ? supabase
+    // 3) Per-screen overrides (cached per screenId)
+    let overrides_data: any[];
+    if (body.screen_id) {
+      const cachedOvr = overridesCache.get(body.screen_id);
+      if (isFresh(cachedOvr)) {
+        overrides_data = cachedOvr.data;
+      } else {
+        const ovrRes = await supabase
           .from("screen_smart_trigger_overrides")
           .select("rule_id, enabled")
-          .eq("screen_id", body.screen_id)
-      : Promise.resolve({ data: [], error: null } as any);
-
-    const [orgRes, linkRes, ovrRes] = await Promise.all([orgQuery, screenLinkPromise, overridesPromise]);
-
-    if (orgRes.error) throw orgRes.error;
-    if (linkRes.error) throw linkRes.error;
-    if (ovrRes.error) throw ovrRes.error;
+          .eq("screen_id", body.screen_id);
+        if (ovrRes.error) throw ovrRes.error;
+        overrides_data = ovrRes.data || [];
+        overridesCache.set(body.screen_id, { data: overrides_data, ts: Date.now() });
+      }
+    } else {
+      overrides_data = [];
+    }
 
     // Build override map: rule_id -> enabled
     const overrideMap = new Map<string, boolean>();
-    for (const o of (ovrRes.data || []) as any[]) overrideMap.set(o.rule_id, o.enabled);
+    for (const o of overrides_data as any[]) overrideMap.set(o.rule_id, o.enabled);
 
     // Org rules NOT disabled by per-screen override
-    const orgRules = ((orgRes.data || []) as any[]).filter((r) => {
+    const orgRules = (orgRules_data as any[]).filter((r) => {
       const ov = overrideMap.get(r.id);
       return ov === undefined ? true : ov === true;
     });
 
     // Screen-specific rules: filter by source/key/enabled
-    const screenRules = ((linkRes.data || []) as any[])
+    const screenRules = (screenLink_data as any[])
       .map((row) => row.smart_trigger_rules)
       .filter((r) => r && r.enabled && r.trigger_source === body.trigger_source &&
         (!body.trigger_key || r.trigger_key === body.trigger_key));

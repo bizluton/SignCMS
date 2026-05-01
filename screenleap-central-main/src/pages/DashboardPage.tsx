@@ -37,7 +37,9 @@ const TOOLTIP_STYLE = {
   fontSize: 13,
 };
 
-const AUTO_REFRESH_INTERVAL = 30_000;
+// Poll every 60 s (was 30 s). Skip entirely when the tab is hidden so
+// 70 simultaneous admin sessions don't hammer the DB while nobody is watching.
+const AUTO_REFRESH_INTERVAL = 60_000;
 
 // Compact ring-progress component (semantic colors)
 function HealthRing({ value, total, onClick, title }: { value: number; total: number; onClick?: () => void; title?: string }) {
@@ -157,8 +159,14 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchData();
-    const timer = setInterval(fetchData, AUTO_REFRESH_INTERVAL);
-    return () => clearInterval(timer);
+    const tick = () => { if (!document.hidden) fetchData(); };
+    const onVisible = () => { if (!document.hidden) fetchData(); };
+    const timer = setInterval(tick, AUTO_REFRESH_INTERVAL);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [fetchData]);
 
   const onlineCount = useMemo(() => screens.filter((s) => s.online).length, [screens]);
