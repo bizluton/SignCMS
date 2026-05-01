@@ -585,13 +585,15 @@ function CarouselPreview({ items, transition = "fade", fitMode = "cover-x", unmu
       // Only mount + autoplay the video for the currently visible slide so off-screen
       // videos don't play audio in the background (which would duck the BGM).
       if (!isCurrent) return null;
+      const isMuted = !unmuteVideo || !!item.muted;
       return (
         <video
-          key={item.id}
+          key={`${item.id}-${isMuted}`}
           src={item.url}
           style={videoStyle}
           autoPlay
-          muted={!unmuteVideo || !!item.muted}
+          muted={isMuted}
+          data-natural-muted={isMuted ? "1" : "0"}
           playsInline
           loop={items.length === 1}
         />
@@ -6890,7 +6892,7 @@ export default function ContentStudioPage() {
                 }}
               >
                 {zone.content?.type === "media" && mItems.length > 0 ? (
-                  <CarouselPreview items={mItems} transition={zone.content.carouselTransition || "fade"} fitMode={zone.content.fitMode || "cover-x"} unmuteVideo={bgmAudioSource === `z-${zone.id}`} />
+                  <CarouselPreview items={mItems} transition={zone.content.carouselTransition || "fade"} fitMode={zone.content.fitMode || "cover-x"} unmuteVideo={bgmAudioSource !== "mute" && (bgmAudioSource === "bgm" || bgmAudioSource === `z-${zone.id}`)} />
                 ) : zone.content?.type === "widget" && zone.content.widgetConfig ? (
                   <ZoneAnimatedWrapper animation={zone.content.widgetConfig.animation}>
                     <WidgetZonePreview config={zone.content.widgetConfig} />
@@ -6919,7 +6921,7 @@ export default function ContentStudioPage() {
                 }}
               >
                 {overlay.content?.type === "media" && mItems.length > 0 ? (
-                  <CarouselPreview items={mItems} transition={overlay.content.carouselTransition || "fade"} fitMode={overlay.content.fitMode || "cover-x"} unmuteVideo={bgmAudioSource === `o-${overlay.id}`} />
+                  <CarouselPreview items={mItems} transition={overlay.content.carouselTransition || "fade"} fitMode={overlay.content.fitMode || "cover-x"} unmuteVideo={bgmAudioSource !== "mute" && (bgmAudioSource === "bgm" || bgmAudioSource === `o-${overlay.id}`)} />
                 ) : overlay.content?.type === "widget" && overlay.content.widgetConfig ? (
                   <ZoneAnimatedWrapper animation={overlay.content.widgetConfig.animation}>
                     <WidgetZonePreview config={overlay.content.widgetConfig} />
