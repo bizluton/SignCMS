@@ -21,11 +21,19 @@ export interface ScreenLicenseInfo {
 
 /**
  * Subscribes to the live device-license status of a single screen.
- * Re-checks via the `check_screen_license_status` RPC whenever any
- * device_licenses row changes (we filter client-side because we don't yet
- * know the matching license_id ahead of time).
+ * Re-checks via the `check_screen_license_status` RPC whenever a
+ * device_licenses row for this screen's org changes.
+ *
+ * Pass `orgId` so the Realtime filter is scoped to the org — without it the
+ * subscription would broadcast to ALL screens across ALL orgs on every single
+ * license change (thundering-herd risk at 10 K+ screens).  When orgId is not
+ * yet known (e.g. still loading) the subscription is held back until it
+ * becomes available; the initial RPC check still runs immediately.
  */
-export function useScreenLicenseStatus(screenId: string | null | undefined) {
+export function useScreenLicenseStatus(
+  screenId: string | null | undefined,
+  orgId?: string | null,
+) {
   const [info, setInfo] = useState<ScreenLicenseInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const mounted = useRef(true);
@@ -57,14 +65,23 @@ export function useScreenLicenseStatus(screenId: string | null | undefined) {
     };
   }, [refresh]);
 
-  // Realtime: any change on device_licenses → re-check this screen's status.
+  // Realtime: any change on device_licenses for THIS org → re-check status.
+  // Scoped to orgId so a single revocation only wakes screens in the same org
+  // instead of broadcasting to every screen globally.
+  // We skip subscribing until orgId is known to avoid an unfiltered global
+  // subscription (which would be replaced anyway once orgId arrives).
   useEffect(() => {
-    if (!screenId) return;
+    if (!screenId || !orgId) return;
     const channel = supabase
-      .channel(`screen-license-${screenId}`)
+      .channel(`screen-license-${screenId}-${orgId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "device_licenses" },
+        {
+          event: "*",
+          schema: "public",
+          table: "device_licenses",
+          filter: `org_id=eq.${orgId}`,
+        },
         () => {
           refresh();
         },
@@ -73,7 +90,7 @@ export function useScreenLicenseStatus(screenId: string | null | undefined) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [screenId, refresh]);
+  }, [screenId, orgId, refresh]);
 
   return { info, loading, refresh };
 }

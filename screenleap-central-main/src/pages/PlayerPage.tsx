@@ -99,7 +99,13 @@ export default function PlayerPage() {
   const { screenId } = useParams<{ screenId: string }>();
   const navigate = useNavigate();
   const { t, language } = useLanguage();
-  const { info: licenseInfo, loading: licenseLoading } = useScreenLicenseStatus(screenId || null);
+  // Pass screen?.org_id so the Realtime subscription is scoped to this org
+  // only (avoids a thundering-herd re-check across all 10 K screens whenever
+  // any single license is revoked globally).
+  const { info: licenseInfo, loading: licenseLoading } = useScreenLicenseStatus(
+    screenId || null,
+    screen?.org_id,
+  );
   const [screen, setScreen] = useState<ScreenInfo | null>(null);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,6 +116,14 @@ export default function PlayerPage() {
   const [elapsedSec, setElapsedSec] = useState(0);
   const itemStartRef = useRef<number>(Date.now());
   const lastLoggedRef = useRef<string>("");
+  // Tracks the wall-clock time of the last smart-trigger poll so we only
+  // fetch log rows that are newer than the previous check.
+  const lastPollAtRef = useRef<string>(new Date().toISOString());
+  // Buffer playback_log entries; flushed in batch every 60 s to reduce write volume.
+  const playbackBufferRef = useRef<Array<{
+    media_id: string; media_name: string; screen_id: string;
+    org_id: string; duration_seconds: number; played_at: string;
+  }>>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -232,62 +246,56 @@ export default function PlayerPage() {
     }, dur * 1000);
   }, [screenId, t]);
 
-  // Subscribe to smart_trigger_logs inserts that target this screen.
-  // We listen to ALL inserts for this org-screen and filter by success client-side
-  // (Realtime postgres_changes filter only supports a single eq comparator).
+  // Poll for smart-trigger overrides every 10 seconds instead of maintaining
+  // a persistent Realtime channel.  At 10 K screens, two Realtime channels per
+  // screen would exhaust Supabase connection limits; polling at 10 s gives a
+  // worst-case 10 s override latency which is acceptable for digital signage.
+  //
+  // We wait until `screen` is available so we know the org_id (needed to
+  // scope the query to org-wide NULL-screen_id rules correctly).
   useEffect(() => {
-    if (!screenId) return;
-    const channel = supabase
-      .channel(`smart-trigger-logs-${screenId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "smart_trigger_logs",
-          filter: `screen_id=eq.${screenId}`,
-        },
-        (payload) => {
-          const row = payload.new as Record<string, unknown>;
-          applyTriggerOverride({
-            id: String(row.id ?? ""),
-            rule_id: row.rule_id != null ? String(row.rule_id) : null,
-            screen_id: row.screen_id != null ? String(row.screen_id) : null,
-            success: Boolean(row.success),
-            trigger_key: row.trigger_key != null ? String(row.trigger_key) : null,
-            debug_id: row.debug_id != null ? String(row.debug_id) : null,
-          });
-        },
-      )
-      // Org-scope rules fire with screen_id = NULL when the webhook caller
-      // omits it; still react to those for this screen's org.
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "smart_trigger_logs",
-          filter: `screen_id=is.null`,
-        },
-        (payload) => {
-          const row = payload.new as Record<string, unknown>;
-          // Only apply when this screen belongs to the same org as the log.
-          if (!screen || row.org_id !== screen.org_id) return;
-          applyTriggerOverride({
-            id: String(row.id ?? ""),
-            rule_id: row.rule_id != null ? String(row.rule_id) : null,
-            screen_id: row.screen_id != null ? String(row.screen_id) : null,
-            success: Boolean(row.success),
-            trigger_key: row.trigger_key != null ? String(row.trigger_key) : null,
-            debug_id: row.debug_id != null ? String(row.debug_id) : null,
-          });
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
+    if (!screenId || !screen) return;
+    const orgId = screen.org_id;
+
+    const poll = async () => {
+      const since = lastPollAtRef.current;
+      // Capture the poll timestamp BEFORE the query so no event falls through
+      // the gap between query execution and updating the cursor.
+      const pollTime = new Date().toISOString();
+
+      const { data, error } = await supabase
+        .from("smart_trigger_logs")
+        .select("id, rule_id, screen_id, org_id, success, trigger_key, debug_id")
+        .or(`screen_id.eq.${screenId},screen_id.is.null`)
+        .eq("org_id", orgId)
+        .eq("success", true)
+        .gte("created_at", since)
+        .order("created_at", { ascending: true });
+
+      // Only advance the cursor on a successful fetch so a transient network
+      // error doesn't silently skip events.
+      if (!error) lastPollAtRef.current = pollTime;
+
+      for (const row of (data || []) as Array<Record<string, unknown>>) {
+        // org-scope rows (screen_id IS NULL) are already filtered to this org
+        // by the .eq("org_id") above, so no extra check needed here.
+        await applyTriggerOverride({
+          id: String(row.id ?? ""),
+          rule_id: row.rule_id != null ? String(row.rule_id) : null,
+          screen_id: row.screen_id != null ? String(row.screen_id) : null,
+          success: Boolean(row.success),
+          trigger_key: row.trigger_key != null ? String(row.trigger_key) : null,
+          debug_id: row.debug_id != null ? String(row.debug_id) : null,
+        });
+      }
     };
-  }, [screenId, screen?.org_id, applyTriggerOverride, screen]);
+
+    // Run once immediately to catch any trigger that fired while the player
+    // was loading, then repeat on the 10-second interval.
+    poll();
+    const intervalId = setInterval(poll, 10_000);
+    return () => clearInterval(intervalId);
+  }, [screenId, screen?.org_id, applyTriggerOverride]);
 
   // Cleanup timer on unmount
   useEffect(() => () => {
@@ -583,24 +591,41 @@ export default function PlayerPage() {
     setProgress(0);
   }, [currentItem?.id]);
 
+  // Flush buffered playback entries to the DB in a single batch INSERT.
+  const flushPlaybackBuffer = useCallback(async () => {
+    const batch = playbackBufferRef.current.splice(0);
+    if (batch.length === 0) return;
+    try {
+      await supabase.from("playback_logs").insert(batch);
+    } catch {
+      // Re-queue on failure so events aren't silently lost.
+      playbackBufferRef.current.unshift(...batch);
+    }
+  }, []);
+
+  // Flush every 60 s and on unmount to limit write volume at scale.
+  useEffect(() => {
+    const id = setInterval(flushPlaybackBuffer, 60_000);
+    return () => {
+      clearInterval(id);
+      flushPlaybackBuffer();
+    };
+  }, [flushPlaybackBuffer]);
+
   // Log playback when finishing one item
-  const logPlayback = useCallback(async (item: PlaylistItem, durationSec: number) => {
+  const logPlayback = useCallback((item: PlaylistItem, durationSec: number) => {
     if (!screen || !item.media_id) return;
     const key = `${item.id}-${itemStartRef.current}`;
     if (lastLoggedRef.current === key) return; // dedupe
     lastLoggedRef.current = key;
-    try {
-      await supabase.from("playback_logs").insert({
-        media_id: item.media_id,
-        media_name: item.media_name,
-        screen_id: screen.id,
-        org_id: screen.org_id,
-        duration_seconds: Math.max(1, Math.round(durationSec)),
-        played_at: new Date().toISOString(),
-      });
-    } catch {
-      /* silent */
-    }
+    playbackBufferRef.current.push({
+      media_id: item.media_id,
+      media_name: item.media_name,
+      screen_id: screen.id,
+      org_id: screen.org_id,
+      duration_seconds: Math.max(1, Math.round(durationSec)),
+      played_at: new Date().toISOString(),
+    });
   }, [screen]);
 
   // Advance handler
