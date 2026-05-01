@@ -1043,6 +1043,7 @@ const translations = {
   studioTimelineBgmPickerEmpty: { zh: "素材庫尚無音訊素材，請先到媒體庫上傳", en: "No audio in your library. Upload audio in Media Library first.", ja: "音声素材がありません。先にメディアライブラリでアップロードしてください。" },
   studioTimelineBgmPickerNoMatch: { zh: "找不到符合的音訊", en: "No matching audio", ja: "一致する音声がありません" },
   studioTimelineBgmPickerConfirm: { zh: "加入 ({n})", en: "Add ({n})", ja: "追加 ({n})" },
+  studioTimelineBgmAlreadyAdded: { zh: "已在清單中", en: "Already in playlist", ja: "プレイリスト済" },
   studioTimelineBgmPreviewPlay: { zh: "試聽", en: "Preview", ja: "試聴" },
   studioTimelineBgmPreviewStop: { zh: "停止試聽", en: "Stop preview", ja: "試聴停止" },
   studioTimelineBgmPreviewError: { zh: "無法播放此音訊", en: "Unable to play this audio", ja: "この音声を再生できません" },

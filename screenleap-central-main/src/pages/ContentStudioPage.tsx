@@ -2152,16 +2152,16 @@ function ZoneTimeline({
       )}
       {/* BGM picker dialog — audio-only, opened from BGM track header */}
       <Dialog open={bgmPickerOpen} onOpenChange={(o) => { setBgmPickerOpen(o); if (!o) { stopBgmPreview(); setBgmPickerSelected(new Set()); setBgmPickerSearch(""); } }}>
-        <DialogContent className="sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Music className="w-4 h-4 text-accent-foreground" />
-              {t("studioTimelineBgmPickerTitle")}
-            </DialogTitle>
-            <DialogDescription>{t("studioTimelineBgmPickerDesc")}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden">
+          <div className="shrink-0 px-6 pt-6 pb-3">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Music className="w-4 h-4 text-accent-foreground" />
+                {t("studioTimelineBgmPickerTitle")}
+              </DialogTitle>
+              <DialogDescription>{t("studioTimelineBgmPickerDesc")}</DialogDescription>
+            </DialogHeader>
+            <div className="flex items-center gap-2 mt-3">
               <div className="relative flex-1">
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                 <Input
@@ -2196,72 +2196,77 @@ function ZoneTimeline({
                 {bgmUploading ? t("mediaUploading") : t("studioTimelineBgmUpload")}
               </Button>
             </div>
-            <div className="max-h-[50vh] overflow-y-auto border border-border rounded-md divide-y divide-border">
-              {filteredAudioMedia.length === 0 ? (
-                <div className="p-6 text-center text-xs text-muted-foreground">
-                  {audioOnlyMedia.length === 0
-                    ? t("studioTimelineBgmPickerEmpty")
-                    : t("studioTimelineBgmPickerNoMatch")}
-                </div>
-              ) : (
-                filteredAudioMedia.map((m) => {
-                  const checked = bgmPickerSelected.has(m.id);
-                  const displayName = (m.original_name && m.original_name.trim()) || m.name;
-                  const isPlaying = bgmPreviewId === m.id;
-                  const toggleSelect = () => {
-                    setBgmPickerSelected((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(m.id)) next.delete(m.id); else next.add(m.id);
-                      return next;
-                    });
-                  };
-                  return (
-                    <div
-                      key={m.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={toggleSelect}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleSelect(); } }}
-                      className={`w-full px-3 py-2 flex items-center gap-3 text-left hover:bg-muted/50 transition-colors cursor-pointer ${checked ? "bg-accent/10" : ""}`}
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto border-y border-border divide-y divide-border mx-6">
+            {filteredAudioMedia.length === 0 ? (
+              <div className="p-6 text-center text-xs text-muted-foreground">
+                {audioOnlyMedia.length === 0
+                  ? t("studioTimelineBgmPickerEmpty")
+                  : t("studioTimelineBgmPickerNoMatch")}
+              </div>
+            ) : (
+              filteredAudioMedia.map((m) => {
+                const alreadyAdded = bgmItems.some((b) => b.id === m.id);
+                const checked = bgmPickerSelected.has(m.id);
+                const displayName = (m.original_name && m.original_name.trim()) || m.name;
+                const isPlaying = bgmPreviewId === m.id;
+                const toggleSelect = () => {
+                  if (alreadyAdded) return;
+                  setBgmPickerSelected((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(m.id)) next.delete(m.id); else next.add(m.id);
+                    return next;
+                  });
+                };
+                return (
+                  <div
+                    key={m.id}
+                    role="button"
+                    tabIndex={alreadyAdded ? -1 : 0}
+                    onClick={toggleSelect}
+                    onKeyDown={(e) => { if (!alreadyAdded && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); toggleSelect(); } }}
+                    className={`w-full px-3 py-2 flex items-center gap-3 text-left transition-colors ${alreadyAdded ? "opacity-40 cursor-not-allowed" : "hover:bg-muted/50 cursor-pointer"} ${checked ? "bg-accent/10" : ""}`}
+                  >
+                    <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${alreadyAdded ? "border-border bg-muted" : checked ? "bg-primary border-primary" : "border-border"}`}>
+                      {alreadyAdded ? <Check className="w-3 h-3 text-muted-foreground" /> : checked && <Check className="w-3 h-3 text-primary-foreground" />}
+                    </div>
+                    <Button
+                      type="button"
+                      variant={isPlaying ? "default" : "ghost"}
+                      size="icon"
+                      className="h-7 w-7 shrink-0"
+                      title={isPlaying ? t("studioTimelineBgmPreviewStop") : t("studioTimelineBgmPreviewPlay")}
+                      onClick={(e) => { e.stopPropagation(); togglePreview(m.id, m.url || ""); }}
                     >
-                      <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${checked ? "bg-primary border-primary" : "border-border"}`}>
-                        {checked && <Check className="w-3 h-3 text-primary-foreground" />}
-                      </div>
-                      <Button
-                        type="button"
-                        variant={isPlaying ? "default" : "ghost"}
-                        size="icon"
-                        className="h-7 w-7 shrink-0"
-                        title={isPlaying ? t("studioTimelineBgmPreviewStop") : t("studioTimelineBgmPreviewPlay")}
-                        onClick={(e) => { e.stopPropagation(); togglePreview(m.id, m.url || ""); }}
-                      >
-                        {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-                      </Button>
-                      <Music className="w-4 h-4 text-accent-foreground shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-medium text-foreground truncate">{displayName}</div>
-                        <div className="text-[10px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
-                          <span className="font-mono uppercase">{getBgmFormatLabel(m)}</span>
-                          {(() => { const d = formatMediaDuration(m); return d ? (
-                            <>
-                              <span>·</span>
-                              <span>{d}</span>
-                            </>
-                          ) : null; })()}
-                        </div>
+                      {isPlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                    </Button>
+                    <Music className="w-4 h-4 text-accent-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-foreground truncate">{displayName}</div>
+                      <div className="text-[10px] text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                        <span className="font-mono uppercase">{getBgmFormatLabel(m)}</span>
+                        {(() => { const d = formatMediaDuration(m); return d ? (
+                          <>
+                            <span>·</span>
+                            <span>{d}</span>
+                          </>
+                        ) : null; })()}
+                        {alreadyAdded && <span className="text-[9px] text-muted-foreground">· {t("studioTimelineBgmAlreadyAdded")}</span>}
                       </div>
                     </div>
-                  );
-                })
-              )}
-            </div>
+                  </div>
+                );
+              })
+            )}
           </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setBgmPickerOpen(false)}>{t("studioRenameSkip")}</Button>
-            <Button onClick={confirmAddBgmFromPicker} disabled={bgmPickerSelected.size === 0}>
-              {t("studioTimelineBgmPickerConfirm").replace("{n}", String(bgmPickerSelected.size))}
-            </Button>
-          </DialogFooter>
+          <div className="shrink-0 px-6 py-4">
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setBgmPickerOpen(false)}>{t("cancel")}</Button>
+              <Button onClick={confirmAddBgmFromPicker} disabled={bgmPickerSelected.size === 0}>
+                {t("studioTimelineBgmPickerConfirm").replace("{n}", String(bgmPickerSelected.size))}
+              </Button>
+            </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
@@ -4582,7 +4587,7 @@ export default function ContentStudioPage() {
 
       const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
-      const filename = `${sanitize(proj.name || "project")}.zip`;
+      const filename = `PJM_${sanitize(proj.name || "project")}.zip`;
       // Try direct download first
       try {
         const a = document.createElement("a");
