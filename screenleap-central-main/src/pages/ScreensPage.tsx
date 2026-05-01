@@ -293,13 +293,21 @@ export default function ScreensPage() {
   useEffect(() => {
     refreshLicenseStatuses(screens.map((s) => s.id));
   }, [screens.map((s) => s.id).join(","), refreshLicenseStatuses]);
-  // Realtime: any device_license change → refresh statuses for currently shown screens.
+  // Realtime: device_license change in THIS org → refresh statuses for shown screens.
+  // Filter scoped to activeOrgId so a revocation in org A doesn't trigger
+  // refreshLicenseStatuses() (N RPC calls) in every admin session across all orgs.
   useEffect(() => {
+    if (!activeOrgId) return;
     const channel = supabase
-      .channel("screens-license-watch")
+      .channel(`screens-license-watch:${activeOrgId}`)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "device_licenses" },
+        {
+          event: "*",
+          schema: "public",
+          table: "device_licenses",
+          filter: `org_id=eq.${activeOrgId}`,
+        },
         () => {
           refreshLicenseStatuses(screens.map((s) => s.id));
         },
@@ -308,7 +316,7 @@ export default function ScreensPage() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [screens.map((s) => s.id).join(","), refreshLicenseStatuses]);
+  }, [activeOrgId, screens.map((s) => s.id).join(","), refreshLicenseStatuses]);
 
   // Connected player (default channel) per screen
   const [playerByScreen, setPlayerByScreen] = useState<Record<string, string>>({});

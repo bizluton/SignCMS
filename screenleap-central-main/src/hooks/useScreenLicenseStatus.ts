@@ -20,15 +20,16 @@ export interface ScreenLicenseInfo {
 }
 
 /**
- * Subscribes to the live device-license status of a single screen.
- * Re-checks via the `check_screen_license_status` RPC whenever a
- * device_licenses row for this screen's org changes.
+ * Polls the device-license status of a single screen every 60 seconds.
  *
- * Pass `orgId` so the Realtime filter is scoped to the org — without it the
- * subscription would broadcast to ALL screens across ALL orgs on every single
- * license change (thundering-herd risk at 10 K+ screens).  When orgId is not
- * yet known (e.g. still loading) the subscription is held back until it
- * becomes available; the initial RPC check still runs immediately.
+ * Why polling instead of Realtime:
+ *   At 10 K screens each holding one postgres_changes channel the Supabase
+ *   Realtime connection limit (Pro: 500, Team: 3 000) is blown long before we
+ *   reach scale.  License revocations are rare, admin-initiated events;
+ *   a worst-case 60-second propagation delay is acceptable for digital signage.
+ *
+ * The `orgId` parameter is kept for API compatibility but is no longer used
+ * to open a Realtime subscription.  Callers may still pass it safely.
  */
 export function useScreenLicenseStatus(
   screenId: string | null | undefined,
@@ -56,6 +57,7 @@ export function useScreenLicenseStatus(
     setLoading(false);
   }, [screenId]);
 
+  // Initial fetch
   useEffect(() => {
     mounted.current = true;
     setLoading(true);
@@ -65,32 +67,17 @@ export function useScreenLicenseStatus(
     };
   }, [refresh]);
 
-  // Realtime: any change on device_licenses for THIS org → re-check status.
-  // Scoped to orgId so a single revocation only wakes screens in the same org
-  // instead of broadcasting to every screen globally.
-  // We skip subscribing until orgId is known to avoid an unfiltered global
-  // subscription (which would be replaced anyway once orgId arrives).
+  // Poll every 60 s — covers revocations within one minute while keeping
+  // the Realtime connection count at zero for player screens.
   useEffect(() => {
-    if (!screenId || !orgId) return;
-    const channel = supabase
-      .channel(`screen-license-${screenId}-${orgId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "device_licenses",
-          filter: `org_id=eq.${orgId}`,
-        },
-        () => {
-          refresh();
-        },
-      )
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [screenId, orgId, refresh]);
+    if (!screenId) return;
+    const id = setInterval(refresh, 60_000);
+    return () => clearInterval(id);
+  }, [screenId, refresh]);
+
+  // orgId is accepted but intentionally unused — retained so existing call
+  // sites (PlayerPage) don't need a signature change.
+  void orgId;
 
   return { info, loading, refresh };
 }
