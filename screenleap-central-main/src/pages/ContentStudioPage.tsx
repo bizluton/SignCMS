@@ -60,6 +60,8 @@ import {
   getStudioLayouts,
   getStudioTemplates,
   invalidateStudioSourceCache,
+  saveUserScene,
+  deleteUserScene,
   type StudioIconKey,
 } from "@/lib/studioData";
 import { type TranslationKey } from "@/contexts/translations";
@@ -3248,10 +3250,12 @@ export default function ContentStudioPage() {
   const [lastCustomRes, setLastCustomRes] = useState<StoredCustomRes | null>(() => loadStoredCustomRes());
   const [myPresets, setMyPresets] = useState<MyResPreset[]>(() => loadMyResPresets());
   const [presetSaveName, setPresetSaveName] = useState("");
+  const [scenesVersion, setScenesVersion] = useState(0);
   const studioSources = useMemo(() => {
     invalidateStudioSourceCache();
     return { layouts: buildLayoutPresets(), templates: buildTemplatePresets(), cache: getStudioSourceCacheStatus() };
-  }, [STUDIO_DATA_VERSION]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [STUDIO_DATA_VERSION, scenesVersion]);
   const studioCacheLoadedAt = useMemo(
     () => new Intl.DateTimeFormat(language, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(studioSources.cache.loadedAt)),
     [language, studioSources.cache.loadedAt],
@@ -3817,6 +3821,33 @@ export default function ContentStudioPage() {
       return next;
     });
   }, [activePageId, t]);
+
+  const handleSaveToScene = useCallback((page: { name: string; zones: Zone[]; aspect?: string }) => {
+    const displayName = (() => {
+      const m = typeof page.name === "string" ? page.name.match(/^版型\s*(\d+)$/) : null;
+      return m ? `${t("studioPageTabPrefix")} ${m[1]}` : (page.name || t("studioPageTabPrefix"));
+    })();
+    const input = window.prompt(t("studioSaveToSceneName"), displayName);
+    if (input == null) return;
+    const name = input.trim();
+    if (!name) return;
+    const scene = {
+      id: `user-scene-${Date.now()}`,
+      nameKey: name,
+      iconKey: "layoutGrid" as const,
+      color: "hsl(220 60% 50%)",
+      aspect: (aspect as "16:9" | "9:16"),
+      zones: page.zones.map((z) => ({
+        id: z.id,
+        x: z.x, y: z.y, w: z.w, h: z.h,
+        label: z.label,
+        content: z.content as import("@/lib/studioPresets").StudioZoneContent | undefined,
+      })),
+    };
+    saveUserScene(scene);
+    setScenesVersion((v) => v + 1);
+    toast.success(t("studioSaveToSceneSuccess"));
+  }, [t, aspect]);
 
   // 切換 aspect：若目前版型不適用新比例，自動轉換為對應比例下最相近的版型，並盡量保留每個 zone 已編輯的內容
   const changeAspect = useCallback((next: AspectRatio) => {
@@ -5523,18 +5554,27 @@ export default function ContentStudioPage() {
                   })()}
                 </TabsContent>
                 <TabsContent value="scene" className="flex-1 overflow-y-auto mt-3 space-y-2 pr-1">
+                  {studioSources.templates.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-8">{t("studioNoProjects")}</p>
+                  )}
                   {studioSources.templates.map((tpl) => (
-                    <button key={tpl.id} onClick={() => applyTemplate(tpl)} className="w-full flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent transition-colors text-left group">
-                      <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{t(tpl.nameKey as TranslationKey)}</p>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
-                          <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
+                    <div key={tpl.id} className="flex items-center gap-2 group">
+                      <button onClick={() => applyTemplate(tpl)} className="flex-1 flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent transition-colors text-left">
+                        <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground truncate">{t(tpl.nameKey as TranslationKey)}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
+                            <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
+                          </div>
                         </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 ml-auto text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                    </button>
+                      </button>
+                      {tpl.id.startsWith("user-scene-") && (
+                        <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => { deleteUserScene(tpl.id); setScenesVersion((v) => v + 1); }} title={t("studioDeleteScene")}>
+                          <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                        </Button>
+                      )}
+                    </div>
                   ))}
                 </TabsContent>
               </Tabs>
@@ -5654,41 +5694,63 @@ export default function ContentStudioPage() {
                           : "bg-muted/40 border-transparent text-muted-foreground hover:bg-muted/70 hover:text-foreground"
                       } ${dragOverPageId === p.id && dragPageId && dragPageId !== p.id ? "ring-2 ring-primary/60" : ""} ${dragPageId === p.id ? "opacity-50" : ""}`}
                     >
-                      <Layers className={`w-3 h-3 transition-all duration-200 ${isActive ? "opacity-100 text-primary" : "opacity-70"}`} />
-                      <span
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          // 顯示已翻譯的預設名稱（例如「版型 1」→「Template 1」），讓使用者看到的與頁籤上一致
+                      <Layers className={`w-3 h-3 shrink-0 transition-all duration-200 ${isActive ? "opacity-100 text-primary" : "opacity-70"}`} />
+                      <span className="select-none">
+                        {(() => {
                           const m = typeof p.name === "string" ? p.name.match(/^版型\s*(\d+)$/) : null;
-                          const displayName = m ? `${t("studioPageTabPrefix")} ${m[1]}` : p.name;
-                          const input = window.prompt(t("studioRenamePage"), displayName);
-                          if (input == null) return;
-                          const trimmed = input.trim();
-                          // 若使用者未修改（仍為翻譯後的預設名稱），存回標準的「版型 N」以維持跨語系一致
-                          const prefix = t("studioPageTabPrefix");
-                          const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                          const re = new RegExp(`^${escaped}\\s*(\\d+)$`);
-                          const km = trimmed.match(re);
-                          renamePage(p.id, km ? `版型 ${km[1]}` : trimmed);
-                        }}
-                        className="select-none"
-                      >
-                         {(() => {
-                           const m = typeof p.name === "string" ? p.name.match(/^版型\s*(\d+)$/) : null;
-                           if (m) return `${t("studioPageTabPrefix")} ${m[1]}`;
-                           return p.name || `${t("studioPageTabPrefix")} ${idx + 1}`;
-                         })()}
+                          if (m) return `${t("studioPageTabPrefix")} ${m[1]}`;
+                          return p.name || `${t("studioPageTabPrefix")} ${idx + 1}`;
+                        })()}
                       </span>
-                      {pages.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); deletePage(p.id); }}
-                          className="ml-0.5 w-4 h-4 inline-flex items-center justify-center rounded hover:bg-destructive/15 hover:text-destructive opacity-60 group-hover:opacity-100 transition-opacity"
-                          aria-label={t("studioDeletePage")}
-                          title={t("studioDeletePage")}
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
+                      {canEdit && (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              onClick={(e) => e.stopPropagation()}
+                              className="ml-0.5 w-4 h-4 inline-flex items-center justify-center rounded hover:bg-accent opacity-0 group-hover:opacity-100 transition-opacity"
+                              aria-label="Edit"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent side="bottom" align="start" className="w-40 p-1" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent transition-colors text-left"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const m = typeof p.name === "string" ? p.name.match(/^版型\s*(\d+)$/) : null;
+                                const displayName = m ? `${t("studioPageTabPrefix")} ${m[1]}` : p.name;
+                                const input = window.prompt(t("studioRenamePage"), displayName);
+                                if (input == null) return;
+                                const trimmed = input.trim();
+                                const prefix = t("studioPageTabPrefix");
+                                const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                                const km = trimmed.match(new RegExp(`^${escaped}\\s*(\\d+)$`));
+                                renamePage(p.id, km ? `版型 ${km[1]}` : trimmed);
+                              }}
+                            >
+                              <Edit3 className="w-3 h-3 shrink-0" /> {t("studioRenamePage")}
+                            </button>
+                            <button
+                              type="button"
+                              className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-accent transition-colors text-left"
+                              onClick={(e) => { e.stopPropagation(); handleSaveToScene(pages.find((pg) => pg.id === p.id) ?? p); }}
+                            >
+                              <Layers className="w-3 h-3 shrink-0" /> {t("studioSaveToScene")}
+                            </button>
+                            {pages.length > 1 && (
+                              <button
+                                type="button"
+                                className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-left"
+                                onClick={(e) => { e.stopPropagation(); deletePage(p.id); }}
+                              >
+                                <Trash2 className="w-3 h-3 shrink-0" /> {t("studioDeletePage")}
+                              </button>
+                            )}
+                          </PopoverContent>
+                        </Popover>
                       )}
                       {isActive && (
                         <span
@@ -5698,9 +5760,8 @@ export default function ContentStudioPage() {
                       )}
                     </div>
                       </TooltipTrigger>
-                      <TooltipContent side="bottom" className="flex flex-col gap-0.5 text-xs">
+                      <TooltipContent side="bottom" className="text-xs">
                         <span className="font-medium">{p.name}</span>
-                        <span className="text-muted-foreground">{t("studioRenamePageHint")}</span>
                       </TooltipContent>
                     </Tooltip>
                   );
@@ -6197,19 +6258,28 @@ export default function ContentStudioPage() {
                     })()}
                   </TabsContent>
                   <TabsContent value="scene" className="flex-1 overflow-y-auto mt-3 space-y-2 pr-1">
+                    {studioSources.templates.length === 0 && (
+                      <p className="text-xs text-muted-foreground text-center py-8">{t("studioNoProjects")}</p>
+                    )}
                     {studioSources.templates.map((tpl) => (
-                      <button key={tpl.id} onClick={() => { applyTemplate(tpl); setMobilePanelOpen(false); }}
-                        className="w-full flex items-center gap-3 p-3 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left">
-                        <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-foreground truncate">{t(tpl.nameKey as TranslationKey)}</p>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
-                            <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
+                      <div key={tpl.id} className="flex items-center gap-2">
+                        <button onClick={() => { applyTemplate(tpl); setMobilePanelOpen(false); }}
+                          className="flex-1 flex items-center gap-3 p-3 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left">
+                          <div className="w-10 h-10 rounded-md flex items-center justify-center shrink-0 text-white" style={{ background: tpl.color }}>{tpl.icon}</div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-foreground truncate">{t(tpl.nameKey as TranslationKey)}</p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">{tpl.aspect}</Badge>
+                              <span className="text-[11px] text-muted-foreground">{tpl.zones.length} {t("studioZones")}</span>
+                            </div>
                           </div>
-                        </div>
-                        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                      </button>
+                        </button>
+                        {tpl.id.startsWith("user-scene-") && (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => { deleteUserScene(tpl.id); setScenesVersion((v) => v + 1); }} title={t("studioDeleteScene")}>
+                            <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                          </Button>
+                        )}
+                      </div>
                     ))}
                   </TabsContent>
                 </Tabs>

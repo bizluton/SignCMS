@@ -31,12 +31,35 @@ let studioSourceCache: {
   templates: StudioTemplatePreset[];
 } | null = null;
 
+const USER_SCENES_KEY = "signcms:user-scenes";
+
+function getUserScenes(): StudioTemplatePreset[] {
+  try {
+    const raw = window.localStorage.getItem(USER_SCENES_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as StudioTemplatePreset[];
+  } catch { return []; }
+}
+
+export function saveUserScene(scene: StudioTemplatePreset): void {
+  const scenes = getUserScenes().filter((s) => s.id !== scene.id);
+  scenes.unshift(scene);
+  try { window.localStorage.setItem(USER_SCENES_KEY, JSON.stringify(scenes)); } catch { /* noop */ }
+  studioSourceCache = null;
+}
+
+export function deleteUserScene(id: string): void {
+  const scenes = getUserScenes().filter((s) => s.id !== id);
+  try { window.localStorage.setItem(USER_SCENES_KEY, JSON.stringify(scenes)); } catch { /* noop */ }
+  studioSourceCache = null;
+}
+
 function buildStudioSourceCache() {
   studioSourceCache = {
     version: STUDIO_DATA_VERSION,
     loadedAt: new Date().toISOString(),
     layouts: [...STUDIO_SOURCE.layouts],
-    templates: [...STUDIO_SOURCE.templates],
+    templates: [...STUDIO_SOURCE.templates, ...getUserScenes()],
   };
   return studioSourceCache;
 }

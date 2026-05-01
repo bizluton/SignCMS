@@ -168,31 +168,4 @@ export const STUDIO_LAYOUT_PRESETS: StudioLayoutPreset[] = [
   ]},
 ];
 
-export const STUDIO_TEMPLATE_PRESETS: StudioTemplatePreset[] = [
-  { id: "t-food", nameKey: "studioTplFood", iconKey: "utensils", color: "hsl(15 80% 55%)", aspect: "16:9", zones: [
-    { id: "z1", x: 0, y: 0, w: 60, h: 100, label: "A", content: { type: "color", value: "", bgColor: "hsl(15 80% 55%)" } },
-    { id: "z2", x: 60, y: 0, w: 40, h: 60, label: "B", content: { type: "text", value: "🍕 今日特餐 50% OFF", fontSize: 28, textColor: "hsl(0 0% 100%)", bgColor: "hsl(15 70% 45%)" } },
-    { id: "z3", x: 60, y: 60, w: 40, h: 40, label: "C", content: { type: "text", value: "限時優惠", fontSize: 20, textColor: "hsl(0 0% 100%)", bgColor: "hsl(15 60% 35%)" } },
-  ]},
-  { id: "t-holiday", nameKey: "studioTplHoliday", iconKey: "partyPopper", color: "hsl(340 75% 55%)", aspect: "16:9", zones: [
-    { id: "z1", x: 0, y: 0, w: 100, h: 70, label: "A", content: { type: "text", value: "🎉 新年快樂！", fontSize: 48, textColor: "hsl(45 100% 60%)", bgColor: "hsl(340 75% 50%)" } },
-    { id: "z2", x: 0, y: 70, w: 100, h: 30, label: "B", content: { type: "text", value: "全館消費滿千送百 🧧", fontSize: 22, textColor: "hsl(0 0% 100%)", bgColor: "hsl(340 65% 40%)" } },
-  ]},
-  { id: "t-newproduct", nameKey: "studioTplNew", iconKey: "shoppingBag", color: "hsl(210 80% 55%)", aspect: "9:16", zones: [
-    { id: "z1", x: 0, y: 0, w: 100, h: 55, label: "A", content: { type: "color", value: "", bgColor: "hsl(210 80% 55%)" } },
-    { id: "z2", x: 0, y: 55, w: 100, h: 25, label: "B", content: { type: "text", value: "✨ 新品上市", fontSize: 36, textColor: "hsl(0 0% 100%)", bgColor: "hsl(210 70% 45%)" } },
-    { id: "z3", x: 0, y: 80, w: 100, h: 20, label: "C", content: { type: "text", value: "即日起限量發售", fontSize: 18, textColor: "hsl(210 20% 90%)", bgColor: "hsl(210 60% 35%)" } },
-  ]},
-  { id: "t-summer", nameKey: "studioTplSummer", iconKey: "sun", color: "hsl(38 90% 55%)", aspect: "16:9", zones: [
-    { id: "z1", x: 0, y: 0, w: 100, h: 100, label: "A", content: { type: "text", value: "☀️ 夏日祭典\n冰品買一送一", fontSize: 40, textColor: "hsl(0 0% 100%)", bgColor: "hsl(38 85% 50%)" } },
-  ]},
-  { id: "t-gift", nameKey: "studioTplGift", iconKey: "gift", color: "hsl(280 60% 55%)", aspect: "16:9", zones: [
-    { id: "z1", x: 0, y: 0, w: 50, h: 100, label: "A", content: { type: "color", value: "", bgColor: "hsl(280 60% 50%)" } },
-    { id: "z2", x: 50, y: 0, w: 50, h: 100, label: "B", content: { type: "text", value: "🎁 禮品卡\n滿額贈送", fontSize: 32, textColor: "hsl(0 0% 100%)", bgColor: "hsl(280 50% 40%)" } },
-  ]},
-  { id: "t-coffee", nameKey: "studioTplCoffee", iconKey: "coffee", color: "hsl(25 60% 40%)", aspect: "9:16", zones: [
-    { id: "z1", x: 0, y: 0, w: 100, h: 40, label: "A", content: { type: "text", value: "☕", fontSize: 72, textColor: "hsl(25 30% 90%)", bgColor: "hsl(25 50% 30%)" } },
-    { id: "z2", x: 0, y: 40, w: 100, h: 35, label: "B", content: { type: "text", value: "手沖咖啡\n第二杯半價", fontSize: 28, textColor: "hsl(0 0% 100%)", bgColor: "hsl(25 55% 35%)" } },
-    { id: "z3", x: 0, y: 75, w: 100, h: 25, label: "C", content: { type: "text", value: "每日 14:00-17:00", fontSize: 18, textColor: "hsl(25 20% 80%)", bgColor: "hsl(25 40% 25%)" } },
-  ]},
-];
+export const STUDIO_TEMPLATE_PRESETS: StudioTemplatePreset[] = [];
