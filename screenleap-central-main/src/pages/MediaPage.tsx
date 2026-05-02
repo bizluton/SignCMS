@@ -91,7 +91,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
@@ -445,6 +445,9 @@ const MediaPage = () => {
   const [deleteUsage, setDeleteUsage] = useState<{ schedules: string[]; projects: string[] } | null>(null);
   const [checkingUsage, setCheckingUsage] = useState(false);
   const [widgetDialogOpen, setWidgetDialogOpen] = useState(false);
+  const [widgetDialogMode, setWidgetDialogMode] = useState<"catalog" | "custom">("catalog");
+  const [selectedCatalogWidgetId, setSelectedCatalogWidgetId] = useState<string | null>(null);
+  const [widgetAddName, setWidgetAddName] = useState("");
   const [widgetForm, setWidgetForm] = useState(defaultWidgetForm);
   const [orgLicense, setOrgLicense] = useState<{ license_plan: string; license_expires_at: string } | null>(null);
   const [teammateIds, setTeammateIds] = useState<Set<string>>(new Set());
@@ -1459,26 +1462,45 @@ const MediaPage = () => {
   };
 
   const handleCreateWidget = async () => {
-    if (!widgetForm.name.trim()) { toast.error(t("widgetFillRequired")); return; }
-    const config: WidgetConfig = {
-      widgetType: widgetForm.widgetType, url: widgetForm.url, text: widgetForm.text,
-      speed: widgetForm.speed, format: widgetForm.format, clockStyle: widgetForm.clockStyle,
-      showDate: widgetForm.showDate, timezone: widgetForm.timezone, bgColor: widgetForm.bgColor,
-      textColor: widgetForm.textColor, qrcodeContent: widgetForm.qrcodeContent,
-      targetDate: widgetForm.targetDate, countdownTitle: widgetForm.countdownTitle,
-      youtubeUrl: widgetForm.youtubeUrl, city: widgetForm.city, fontSize: widgetForm.fontSize,
-      qrcodeSize: widgetForm.qrcodeSize, animation: widgetForm.animation,
-    };
     const widgetOrgId = activeOrgId || defaultOrgId;
     if (!widgetOrgId) { toast.error(t("teamSelectOrg")); return; }
-    const { error } = await supabase.from("media_items").insert({
-      name: widgetForm.name.trim(), type: "widget",
-      url: "widget://" + JSON.stringify(config),
-      thumbnail: "",
-      uploaded_by: user?.id,
-      org_id: widgetOrgId,
-    });
-    if (error) { toast.error(translatePlanLimitError(error, t)); } else {
+
+    if (widgetDialogMode === "catalog") {
+      const selected = catalogWidgets.find((w) => w.id === selectedCatalogWidgetId);
+      if (!selected) { toast.error(t("widgetNoCatalogSelected")); return; }
+      const name = widgetAddName.trim() || selected.name;
+      const { error } = await supabase.from("media_items").insert({
+        name, type: "widget",
+        url: "widget://" + JSON.stringify(selected.config),
+        thumbnail: selected.thumbnail || "",
+        uploaded_by: user?.id,
+        org_id: widgetOrgId,
+      });
+      if (error) { toast.error(translatePlanLimitError(error, t)); return; }
+      toast.success(t("widgetCreated"));
+      setWidgetDialogOpen(false);
+      setSelectedCatalogWidgetId(null);
+      setWidgetAddName("");
+      fetchMedia();
+    } else {
+      if (!widgetForm.name.trim()) { toast.error(t("widgetFillRequired")); return; }
+      const config: WidgetConfig = {
+        widgetType: widgetForm.widgetType, url: widgetForm.url, text: widgetForm.text,
+        speed: widgetForm.speed, format: widgetForm.format, clockStyle: widgetForm.clockStyle,
+        showDate: widgetForm.showDate, timezone: widgetForm.timezone, bgColor: widgetForm.bgColor,
+        textColor: widgetForm.textColor, qrcodeContent: widgetForm.qrcodeContent,
+        targetDate: widgetForm.targetDate, countdownTitle: widgetForm.countdownTitle,
+        youtubeUrl: widgetForm.youtubeUrl, city: widgetForm.city, fontSize: widgetForm.fontSize,
+        qrcodeSize: widgetForm.qrcodeSize, animation: widgetForm.animation,
+      };
+      const { error } = await supabase.from("media_items").insert({
+        name: widgetForm.name.trim(), type: "widget",
+        url: "widget://" + JSON.stringify(config),
+        thumbnail: "",
+        uploaded_by: user?.id,
+        org_id: widgetOrgId,
+      });
+      if (error) { toast.error(translatePlanLimitError(error, t)); return; }
       toast.success(t("widgetCreated"));
       setWidgetDialogOpen(false);
       setWidgetForm({ ...defaultWidgetForm });
@@ -2263,149 +2285,208 @@ const MediaPage = () => {
       </AlertDialog>
 
       {/* Widget Creation Dialog */}
-      <Dialog open={widgetDialogOpen} onOpenChange={setWidgetDialogOpen}>
-        <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col">
+      <Dialog open={widgetDialogOpen} onOpenChange={(open) => {
+        setWidgetDialogOpen(open);
+        if (!open) { setSelectedCatalogWidgetId(null); setWidgetAddName(""); setWidgetDialogMode("catalog"); }
+      }}>
+        <DialogContent className="sm:max-w-xl max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2"><Code2 className="w-5 h-5 text-primary" />{t("mediaAddWidget")}</DialogTitle>
             <DialogDescription className="sr-only">{t("mediaAddWidget")}</DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2 overflow-y-auto flex-1 pr-1 min-h-0">
-            <div className="space-y-2">
-              <Label>{t("widgetName")} *</Label>
-              <Input value={widgetForm.name} onChange={(e) => setWidgetForm({ ...widgetForm, name: e.target.value })} placeholder={t("widgetNamePlaceholder")} />
-            </div>
-            <div className="space-y-2">
-              <Label>{t("widgetType")}</Label>
-              <div className="grid grid-cols-4 gap-2">
-                {(["clock", "date", "webpage", "marquee", "qrcode", "countdown", "youtube", "weather"] as WidgetSubType[]).map((wt) => {
-                  const Icon = WIDGET_ICONS[wt];
-                  const labels: Record<WidgetSubType, string> = { date: t("widgetDate"), clock: t("widgetClock"), webpage: t("widgetWebpage"), marquee: t("widgetMarquee"), qrcode: t("widgetQrcode"), countdown: t("widgetCountdown"), youtube: t("widgetYoutube"), weather: t("widgetWeather") };
-                  return (
-                    <button key={wt} type="button" onClick={() => setWidgetForm({ ...widgetForm, widgetType: wt })}
-                      className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 transition-all text-center ${widgetForm.widgetType === wt ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}>
-                      <Icon className={`w-6 h-6 ${widgetForm.widgetType === wt ? "text-primary" : "text-muted-foreground"}`} />
-                      <span className="text-xs font-medium">{labels[wt]}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
 
-            {widgetForm.widgetType === "clock" && (
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  <Label>{t("widgetClockStyle")}</Label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => setWidgetForm({ ...widgetForm, clockStyle: "digital" })}
-                      className={`p-2.5 rounded-lg border-2 text-sm ${widgetForm.clockStyle === "digital" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border hover:border-primary/40"}`}>{t("widgetDigital")}</button>
-                    <button type="button" onClick={() => setWidgetForm({ ...widgetForm, clockStyle: "analog" })}
-                      className={`p-2.5 rounded-lg border-2 text-sm ${widgetForm.clockStyle === "analog" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border hover:border-primary/40"}`}>{t("widgetAnalog")}</button>
-                  </div>
+          <Tabs value={widgetDialogMode} onValueChange={(v) => setWidgetDialogMode(v as "catalog" | "custom")} className="flex flex-col flex-1 min-h-0">
+            <TabsList className="w-full shrink-0">
+              <TabsTrigger value="catalog" className="flex-1">{t("widgetFromCatalog")}</TabsTrigger>
+              <TabsTrigger value="custom" className="flex-1">{t("widgetCustomCreate")}</TabsTrigger>
+            </TabsList>
+
+            {/* ── Catalog picker ── */}
+            <TabsContent value="catalog" className="flex flex-col gap-4 overflow-y-auto flex-1 min-h-0 mt-3 pr-1">
+              <p className="text-sm text-muted-foreground shrink-0">{t("widgetPickFromCatalog")}</p>
+              {catalogWidgets.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">{t("widgetCatalogEmpty")}</p>
+              ) : (
+                <div className="grid grid-cols-3 gap-3 shrink-0">
+                  {catalogWidgets.map((w) => {
+                    const wt = (w.config.widgetType as string) ?? "";
+                    const Icon = WIDGET_ICONS[wt as WidgetSubType] ?? Code2;
+                    const isSelected = w.id === selectedCatalogWidgetId;
+                    return (
+                      <button
+                        key={w.id}
+                        type="button"
+                        onClick={() => { setSelectedCatalogWidgetId(w.id); setWidgetAddName(w.name); }}
+                        className={`rounded-xl border-2 overflow-hidden text-left transition-all ${isSelected ? "border-primary ring-2 ring-primary/30" : "border-border hover:border-primary/40"}`}
+                      >
+                        <div className="aspect-video relative bg-muted flex items-center justify-center overflow-hidden">
+                          {w.thumbnail ? (
+                            <img src={w.thumbnail} alt={w.name} className="w-full h-full object-cover" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
+                              <Icon className="w-7 h-7 text-slate-400" />
+                            </div>
+                          )}
+                          {isSelected && (
+                            <div className="absolute inset-0 bg-primary/10 flex items-center justify-center">
+                              <div className="rounded-full bg-primary text-primary-foreground p-1"><Plus className="w-4 h-4" /></div>
+                            </div>
+                          )}
+                        </div>
+                        <div className="px-2 py-1.5">
+                          <p className="text-xs font-medium truncate">{w.name}</p>
+                          {w.scope === "user" && <Badge variant="outline" className="text-[9px] py-0 px-1 mt-0.5">{t("widgetMgmtScopeOrg")}</Badge>}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
-                {widgetForm.clockStyle === "digital" && (
+              )}
+              {selectedCatalogWidgetId && (
+                <div className="space-y-2 shrink-0">
+                  <Label>{t("widgetName")}</Label>
+                  <Input
+                    value={widgetAddName}
+                    onChange={(e) => setWidgetAddName(e.target.value)}
+                    placeholder={t("widgetNamePlaceholder")}
+                  />
+                </div>
+              )}
+            </TabsContent>
+
+            {/* ── Create custom ── */}
+            <TabsContent value="custom" className="flex flex-col gap-4 overflow-y-auto flex-1 min-h-0 mt-3 pr-1">
+              <div className="space-y-2">
+                <Label>{t("widgetName")} *</Label>
+                <Input value={widgetForm.name} onChange={(e) => setWidgetForm({ ...widgetForm, name: e.target.value })} placeholder={t("widgetNamePlaceholder")} />
+              </div>
+              <div className="space-y-2">
+                <Label>{t("widgetType")}</Label>
+                <div className="grid grid-cols-4 gap-2">
+                  {(["clock", "date", "webpage", "marquee", "qrcode", "countdown", "youtube", "weather"] as WidgetSubType[]).map((wt) => {
+                    const Icon = WIDGET_ICONS[wt];
+                    const labels: Record<WidgetSubType, string> = { date: t("widgetDate"), clock: t("widgetClock"), webpage: t("widgetWebpage"), marquee: t("widgetMarquee"), qrcode: t("widgetQrcode"), countdown: t("widgetCountdown"), youtube: t("widgetYoutube"), weather: t("widgetWeather") };
+                    return (
+                      <button key={wt} type="button" onClick={() => setWidgetForm({ ...widgetForm, widgetType: wt })}
+                        className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 transition-all text-center ${widgetForm.widgetType === wt ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}>
+                        <Icon className={`w-6 h-6 ${widgetForm.widgetType === wt ? "text-primary" : "text-muted-foreground"}`} />
+                        <span className="text-xs font-medium">{labels[wt]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {widgetForm.widgetType === "clock" && (
+                <div className="space-y-3">
                   <div className="space-y-2">
-                    <Label>{t("widgetFormat")}</Label>
-                    <Select value={widgetForm.format} onValueChange={(v) => setWidgetForm({ ...widgetForm, format: v as "12" | "24" })}>
+                    <Label>{t("widgetClockStyle")}</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => setWidgetForm({ ...widgetForm, clockStyle: "digital" })}
+                        className={`p-2.5 rounded-lg border-2 text-sm ${widgetForm.clockStyle === "digital" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border hover:border-primary/40"}`}>{t("widgetDigital")}</button>
+                      <button type="button" onClick={() => setWidgetForm({ ...widgetForm, clockStyle: "analog" })}
+                        className={`p-2.5 rounded-lg border-2 text-sm ${widgetForm.clockStyle === "analog" ? "border-primary bg-primary/5 text-primary font-medium" : "border-border hover:border-primary/40"}`}>{t("widgetAnalog")}</button>
+                    </div>
+                  </div>
+                  {widgetForm.clockStyle === "digital" && (
+                    <div className="space-y-2">
+                      <Label>{t("widgetFormat")}</Label>
+                      <Select value={widgetForm.format} onValueChange={(v) => setWidgetForm({ ...widgetForm, format: v as "12" | "24" })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="24">{t("widgetFormat24")}</SelectItem>
+                          <SelectItem value="12">{t("widgetFormat12")}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <Label>{t("widgetShowDate")}</Label>
+                    <Switch checked={widgetForm.showDate} onCheckedChange={(v) => setWidgetForm({ ...widgetForm, showDate: v })} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t("widgetTimezone")}</Label>
+                    <Select value={widgetForm.timezone} onValueChange={(v) => setWidgetForm({ ...widgetForm, timezone: v })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="24">{t("widgetFormat24")}</SelectItem>
-                        <SelectItem value="12">{t("widgetFormat12")}</SelectItem>
+                      <SelectContent className="max-h-60">
+                        {TIMEZONE_OPTIONS.map((tz) => (<SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>))}
                       </SelectContent>
                     </Select>
                   </div>
-                )}
-                <div className="flex items-center justify-between">
-                  <Label>{t("widgetShowDate")}</Label>
-                  <Switch checked={widgetForm.showDate} onCheckedChange={(v) => setWidgetForm({ ...widgetForm, showDate: v })} />
+                </div>
+              )}
+              {widgetForm.widgetType === "webpage" && (
+                <div className="space-y-2"><Label>{t("widgetUrl")}</Label><Input value={widgetForm.url} onChange={(e) => setWidgetForm({ ...widgetForm, url: e.target.value })} placeholder={t("widgetUrlPlaceholder")} /></div>
+              )}
+              {widgetForm.widgetType === "marquee" && (
+                <>
+                  <div className="space-y-2"><Label>{t("widgetText")}</Label><Input value={widgetForm.text} onChange={(e) => setWidgetForm({ ...widgetForm, text: e.target.value })} placeholder={t("widgetTextPlaceholder")} /></div>
+                  <div className="space-y-2">
+                    <Label>{t("widgetSpeed")}</Label>
+                    <Select value={widgetForm.speed} onValueChange={(v) => setWidgetForm({ ...widgetForm, speed: v as "slow" | "normal" | "fast" })}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="slow">{t("widgetSpeedSlow")}</SelectItem>
+                        <SelectItem value="normal">{t("widgetSpeedNormal")}</SelectItem>
+                        <SelectItem value="fast">{t("widgetSpeedFast")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+              {widgetForm.widgetType === "qrcode" && (
+                <div className="space-y-2"><Label>{t("widgetQrcodeContent")}</Label><Input value={widgetForm.qrcodeContent} onChange={(e) => setWidgetForm({ ...widgetForm, qrcodeContent: e.target.value })} placeholder={t("widgetQrcodePlaceholder")} /></div>
+              )}
+              {widgetForm.widgetType === "countdown" && (
+                <>
+                  <div className="space-y-2"><Label>{t("widgetCountdownTitle")}</Label><Input value={widgetForm.countdownTitle} onChange={(e) => setWidgetForm({ ...widgetForm, countdownTitle: e.target.value })} placeholder={t("widgetCountdownTitlePlaceholder")} /></div>
+                  <div className="space-y-2"><Label>{t("widgetTargetDate")}</Label><Input type="datetime-local" value={widgetForm.targetDate} onChange={(e) => setWidgetForm({ ...widgetForm, targetDate: e.target.value })} /></div>
+                </>
+              )}
+              {widgetForm.widgetType === "youtube" && (
+                <div className="space-y-2"><Label>{t("widgetYoutubeUrl")}</Label><Input value={widgetForm.youtubeUrl} onChange={(e) => setWidgetForm({ ...widgetForm, youtubeUrl: e.target.value })} placeholder={t("widgetYoutubeUrlPlaceholder")} /></div>
+              )}
+              {widgetForm.widgetType === "weather" && (
+                <div className="space-y-2"><Label>{t("widgetCity")}</Label><Input value={widgetForm.city} onChange={(e) => setWidgetForm({ ...widgetForm, city: e.target.value })} placeholder={t("widgetCityPlaceholder")} /></div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>{t("widgetBgColor")}</Label>
+                  <div className="flex items-center gap-2">
+                    <input type="color" value={widgetForm.bgColor} onChange={(e) => setWidgetForm({ ...widgetForm, bgColor: e.target.value })} className="w-8 h-8 rounded border border-border cursor-pointer" />
+                    <Input value={widgetForm.bgColor} onChange={(e) => setWidgetForm({ ...widgetForm, bgColor: e.target.value })} className="flex-1" />
+                  </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>{t("widgetTimezone")}</Label>
-                  <Select value={widgetForm.timezone} onValueChange={(v) => setWidgetForm({ ...widgetForm, timezone: v })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent className="max-h-60">
-                      {TIMEZONE_OPTIONS.map((tz) => (<SelectItem key={tz.value} value={tz.value}>{tz.label}</SelectItem>))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            )}
-
-            {widgetForm.widgetType === "webpage" && (
-              <div className="space-y-2"><Label>{t("widgetUrl")}</Label><Input value={widgetForm.url} onChange={(e) => setWidgetForm({ ...widgetForm, url: e.target.value })} placeholder={t("widgetUrlPlaceholder")} /></div>
-            )}
-
-            {widgetForm.widgetType === "marquee" && (
-              <>
-                <div className="space-y-2"><Label>{t("widgetText")}</Label><Input value={widgetForm.text} onChange={(e) => setWidgetForm({ ...widgetForm, text: e.target.value })} placeholder={t("widgetTextPlaceholder")} /></div>
-                <div className="space-y-2">
-                  <Label>{t("widgetSpeed")}</Label>
-                  <Select value={widgetForm.speed} onValueChange={(v) => setWidgetForm({ ...widgetForm, speed: v as "slow" | "normal" | "fast" })}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="slow">{t("widgetSpeedSlow")}</SelectItem>
-                      <SelectItem value="normal">{t("widgetSpeedNormal")}</SelectItem>
-                      <SelectItem value="fast">{t("widgetSpeedFast")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </>
-            )}
-
-            {widgetForm.widgetType === "qrcode" && (
-              <div className="space-y-2"><Label>{t("widgetQrcodeContent")}</Label><Input value={widgetForm.qrcodeContent} onChange={(e) => setWidgetForm({ ...widgetForm, qrcodeContent: e.target.value })} placeholder={t("widgetQrcodePlaceholder")} /></div>
-            )}
-
-            {widgetForm.widgetType === "countdown" && (
-              <>
-                <div className="space-y-2"><Label>{t("widgetCountdownTitle")}</Label><Input value={widgetForm.countdownTitle} onChange={(e) => setWidgetForm({ ...widgetForm, countdownTitle: e.target.value })} placeholder={t("widgetCountdownTitlePlaceholder")} /></div>
-                <div className="space-y-2"><Label>{t("widgetTargetDate")}</Label><Input type="datetime-local" value={widgetForm.targetDate} onChange={(e) => setWidgetForm({ ...widgetForm, targetDate: e.target.value })} /></div>
-              </>
-            )}
-
-            {widgetForm.widgetType === "youtube" && (
-              <div className="space-y-2"><Label>{t("widgetYoutubeUrl")}</Label><Input value={widgetForm.youtubeUrl} onChange={(e) => setWidgetForm({ ...widgetForm, youtubeUrl: e.target.value })} placeholder={t("widgetYoutubeUrlPlaceholder")} /></div>
-            )}
-
-            {widgetForm.widgetType === "weather" && (
-              <div className="space-y-2"><Label>{t("widgetCity")}</Label><Input value={widgetForm.city} onChange={(e) => setWidgetForm({ ...widgetForm, city: e.target.value })} placeholder={t("widgetCityPlaceholder")} /></div>
-            )}
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>{t("widgetBgColor")}</Label>
-                <div className="flex items-center gap-2">
-                  <input type="color" value={widgetForm.bgColor} onChange={(e) => setWidgetForm({ ...widgetForm, bgColor: e.target.value })} className="w-8 h-8 rounded border border-border cursor-pointer" />
-                  <Input value={widgetForm.bgColor} onChange={(e) => setWidgetForm({ ...widgetForm, bgColor: e.target.value })} className="flex-1" />
+                  <Label>{t("widgetTextColor")}</Label>
+                  <div className="flex items-center gap-2">
+                    <input type="color" value={widgetForm.textColor} onChange={(e) => setWidgetForm({ ...widgetForm, textColor: e.target.value })} className="w-8 h-8 rounded border border-border cursor-pointer" />
+                    <Input value={widgetForm.textColor} onChange={(e) => setWidgetForm({ ...widgetForm, textColor: e.target.value })} className="flex-1" />
+                  </div>
                 </div>
               </div>
               <div className="space-y-2">
-                <Label>{t("widgetTextColor")}</Label>
-                <div className="flex items-center gap-2">
-                  <input type="color" value={widgetForm.textColor} onChange={(e) => setWidgetForm({ ...widgetForm, textColor: e.target.value })} className="w-8 h-8 rounded border border-border cursor-pointer" />
-                  <Input value={widgetForm.textColor} onChange={(e) => setWidgetForm({ ...widgetForm, textColor: e.target.value })} className="flex-1" />
+                <Label>{t("widgetLivePreview")}</Label>
+                <div className="aspect-video rounded-lg overflow-hidden border border-border bg-muted/30">
+                  <WidgetPreviewCard config={{
+                    widgetType: widgetForm.widgetType, url: widgetForm.url, text: widgetForm.text,
+                    speed: widgetForm.speed, format: widgetForm.format, clockStyle: widgetForm.clockStyle,
+                    showDate: widgetForm.showDate, timezone: widgetForm.timezone, bgColor: widgetForm.bgColor,
+                    textColor: widgetForm.textColor, qrcodeContent: widgetForm.qrcodeContent,
+                    targetDate: widgetForm.targetDate, countdownTitle: widgetForm.countdownTitle,
+                    youtubeUrl: widgetForm.youtubeUrl, city: widgetForm.city, fontSize: widgetForm.fontSize,
+                    qrcodeSize: widgetForm.qrcodeSize, animation: widgetForm.animation,
+                  }} />
                 </div>
               </div>
-            </div>
+            </TabsContent>
+          </Tabs>
 
-            {/* Live Preview */}
-            <div className="space-y-2">
-              <Label>{t("widgetLivePreview")}</Label>
-              <div className="aspect-video rounded-lg overflow-hidden border border-border bg-muted/30">
-                <WidgetPreviewCard config={{
-                  widgetType: widgetForm.widgetType, url: widgetForm.url, text: widgetForm.text,
-                  speed: widgetForm.speed, format: widgetForm.format, clockStyle: widgetForm.clockStyle,
-                  showDate: widgetForm.showDate, timezone: widgetForm.timezone, bgColor: widgetForm.bgColor,
-                  textColor: widgetForm.textColor, qrcodeContent: widgetForm.qrcodeContent,
-                  targetDate: widgetForm.targetDate, countdownTitle: widgetForm.countdownTitle,
-                  youtubeUrl: widgetForm.youtubeUrl, city: widgetForm.city, fontSize: widgetForm.fontSize,
-                  qrcodeSize: widgetForm.qrcodeSize, animation: widgetForm.animation,
-                }} />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 pt-2 border-t">
             <DialogClose asChild><Button variant="outline">{t("cancel")}</Button></DialogClose>
-            <Button onClick={handleCreateWidget} className="gap-2"><Plus className="w-4 h-4" />{t("mediaAddWidget")}</Button>
+            <Button onClick={handleCreateWidget} className="gap-2">
+              <Plus className="w-4 h-4" />
+              {widgetDialogMode === "catalog" ? t("widgetAddToLibrary") : t("mediaAddWidget")}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
