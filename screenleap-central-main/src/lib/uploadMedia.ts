@@ -6,6 +6,7 @@ import {
   validateImageSpec,
   validateVideoSpec,
   tryNormalizeImage,
+  convertToWebP,
 } from "@/lib/fileHash";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -115,6 +116,15 @@ export async function uploadMediaFile(
       return { ok: false, errorCode: code, errorDetail: spec.detail };
     }
     if (spec.ok && spec.warning === "tooSmall" && !warning) warning = "image_too_small";
+
+    // Convert to WebP for better compression (skip if already WebP or normalization already ran).
+    if (workingFile.type !== "image/webp") {
+      const webpFile = await convertToWebP(workingFile);
+      if (webpFile) {
+        workingFile = webpFile;
+        if (!warning) warning = "image_auto_converted";
+      }
+    }
   }
 
   if (isVideo) {

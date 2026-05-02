@@ -159,9 +159,59 @@ export async function validateImageSpec(
 }
 
 /**
- * Try to auto-normalize an image: re-encode as sRGB JPEG via canvas (browser converts
+ * Convert any browser-decodable image to WebP at the given quality.
+ * Falls back to JPEG if the browser does not support WebP encoding.
+ * Does NOT resize — use tryNormalizeImage for oversized images.
+ * Returns null if the image cannot be decoded.
+ */
+export async function convertToWebP(file: File, quality = 0.85): Promise<File | null> {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.decoding = "async";
+  const loaded = await new Promise<boolean>((resolve) => {
+    img.onload = () => resolve(true);
+    img.onerror = () => resolve(false);
+    img.src = url;
+  });
+  if (!loaded || !img.naturalWidth || !img.naturalHeight) {
+    URL.revokeObjectURL(url);
+    return null;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth;
+  canvas.height = img.naturalHeight;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) { URL.revokeObjectURL(url); return null; }
+  ctx.drawImage(img, 0, 0);
+  URL.revokeObjectURL(url);
+
+  const baseName = file.name.replace(/\.[^.]+$/, "");
+
+  // Try WebP first; fall back to JPEG if browser returns empty blob.
+  const webpBlob = await new Promise<Blob | null>((res) =>
+    canvas.toBlob((b) => res(b), "image/webp", quality)
+  );
+  if (webpBlob && webpBlob.size > 0 && webpBlob.type === "image/webp") {
+    return new File([webpBlob], `${baseName}.webp`, { type: "image/webp" });
+  }
+
+  // JPEG fallback (white background for images with alpha).
+  const ctx2 = canvas.getContext("2d")!;
+  ctx2.globalCompositeOperation = "destination-over";
+  ctx2.fillStyle = "#ffffff";
+  ctx2.fillRect(0, 0, canvas.width, canvas.height);
+  const jpegBlob = await new Promise<Blob | null>((res) =>
+    canvas.toBlob((b) => res(b), "image/jpeg", quality)
+  );
+  if (!jpegBlob) return null;
+  return new File([jpegBlob], `${baseName}.jpg`, { type: "image/jpeg" });
+}
+
+/**
+ * Try to auto-normalize an image: re-encode as WebP via canvas (browser converts
  * color space automatically when drawing), downscale to fit ≤ 3840×2160, and binary-search
- * the JPEG quality so the output is ≤ 5 MB.
+ * the quality so the output is ≤ 5 MB.
  *
  * Returns the normalized File on success, or null if the source image cannot be decoded
  * (e.g. exotic CMYK that the browser can't open) or no quality satisfies the size budget.
@@ -197,14 +247,24 @@ export async function tryNormalizeImage(file: File): Promise<File | null> {
     URL.revokeObjectURL(url);
     return null;
   }
-  // 白底，避免 PNG 透明被當黑色（JPEG 不支援 alpha）
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, w, h);
   ctx.drawImage(img, 0, 0, w, h);
   URL.revokeObjectURL(url);
 
+  // Detect WebP encoding support once.
+  const supportsWebP = await new Promise<boolean>((res) =>
+    canvas.toBlob((b) => res(!!(b && b.size > 0 && b.type === "image/webp")), "image/webp", 0.8)
+  );
+  const mime = supportsWebP ? "image/webp" : "image/jpeg";
+
+  // For JPEG fallback: fill white background (no alpha support).
+  if (!supportsWebP) {
+    ctx.globalCompositeOperation = "destination-over";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, w, h);
+  }
+
   const toBlob = (q: number): Promise<Blob | null> =>
-    new Promise((res) => canvas.toBlob((b) => res(b), "image/jpeg", q));
+    new Promise((res) => canvas.toBlob((b) => res(b), mime, q));
 
   // Binary search quality 0.5–0.95 for largest blob that fits maxBytes.
   let lo = 0.5;
@@ -230,8 +290,9 @@ export async function tryNormalizeImage(file: File): Promise<File | null> {
   if (!best) return null;
 
   const baseName = file.name.replace(/\.[^.]+$/, "");
-  return new File([best], `${baseName}.jpg`, {
-    type: "image/jpeg",
+  const ext = supportsWebP ? "webp" : "jpg";
+  return new File([best], `${baseName}.${ext}`, {
+    type: mime,
     lastModified: Date.now(),
   });
 }

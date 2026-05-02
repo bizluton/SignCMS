@@ -16,7 +16,7 @@ import {
   checkMediaReferencesBatch,
   type MediaProjectRef,
 } from "@/lib/referenceCheck";
-import { computeFileMd5, isAcceptableImage, isAcceptableVideo, isAcceptableAudio, validateVideoSpec, validateImageSpec, tryNormalizeImage } from "@/lib/fileHash";
+import { computeFileMd5, isAcceptableImage, isAcceptableVideo, isAcceptableAudio, validateVideoSpec, validateImageSpec, tryNormalizeImage, convertToWebP } from "@/lib/fileHash";
 import { probeVideoMeta } from "@/lib/videoTranscode";
 import {
   formatBytes as formatMediaBytes,
@@ -1168,6 +1168,12 @@ const MediaPage = () => {
       // Upload via edge function (bypasses REST payload limit)
       const uploadOrgId = activeOrgId || defaultOrgId;
       if (!uploadOrgId) { toast.error(t("teamSelectOrg")); setUploading(false); event.target.value = ""; return; }
+
+      // Convert image to WebP for better compression (skip if already WebP).
+      if (isImage && workingFile.type !== "image/webp") {
+        const webpFile = await convertToWebP(workingFile);
+        if (webpFile) workingFile = webpFile;
+      }
 
       // Compute MD5 of the file (used as the storage filename + duplicate-detection key)
       const md5 = await computeFileMd5(workingFile);
