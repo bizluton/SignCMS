@@ -116,6 +116,7 @@ interface DbMediaItem {
   mime_type?: string | null;
   source_codec?: string | null;
   source_container?: string | null;
+  transcode_status?: string | null;
   created_at?: string;
 }
 
@@ -838,7 +839,17 @@ function MediaLibraryDock({
 
   const clearSelection = () => { setSelectedIds(new Set()); lastClickedIdRef.current = null; };
 
+  const isVideoNotReady = (item: typeof items[number]): boolean => {
+    if (item.kind !== "media" || item.type !== "video") return false;
+    const s = (item.raw as DbMediaItem).transcode_status;
+    return s === "pending_transcode" || s === "transcoding" || s === "failed";
+  };
+
   const handleItemClick = (item: typeof items[number], e: React.MouseEvent) => {
+    if (isVideoNotReady(item)) {
+      toast.warning(t("transcodeUploadNote"));
+      return;
+    }
     const isMeta = e.ctrlKey || e.metaKey;
     const isShift = e.shiftKey;
 
@@ -894,11 +905,12 @@ function MediaLibraryDock({
   };
 
   const onPickerItemDragStart = (e: React.DragEvent, item: typeof items[number]) => {
+    if (isVideoNotReady(item)) { e.preventDefault(); return; }
     try {
       // If the dragged item is part of an active multi-selection, drag the whole set
       const useMulti = selectedIds.size > 1 && selectedIds.has(item.id);
       const dragItems = useMulti
-        ? filtered.filter((i) => selectedIds.has(i.id))
+        ? filtered.filter((i) => selectedIds.has(i.id) && !isVideoNotReady(i))
         : [item];
 
       const payloadArr = dragItems.map((i) => ({ kind: i.kind, raw: i.raw }));
@@ -1123,17 +1135,20 @@ function MediaLibraryDock({
             {filtered.map((item) => {
               const typeBadge = item.kind === "widget" ? "WGT" : item.type === "video" ? "VID" : "IMG";
               const badgeBg = item.kind === "widget" ? "bg-muted-foreground/80" : item.type === "video" ? "bg-destructive/80" : "bg-blue-500/80";
+              const notReady = isVideoNotReady(item);
+              const tsStatus = notReady ? (item.raw as DbMediaItem).transcode_status : null;
+              const statusLabel = tsStatus === "transcoding" ? t("transcodeStatusProcessing") : tsStatus === "failed" ? t("transcodeStatusFailed") : tsStatus ? t("transcodeStatusPending") : undefined;
               return (
                 <button
                   key={item.id}
                   type="button"
-                  draggable
+                  draggable={!notReady}
                   onDragStart={(e) => onPickerItemDragStart(e, item)}
                   onMouseEnter={(e) => scheduleHoverPreview(e, item)}
                   onMouseLeave={cancelHoverPreview}
                   aria-label={`${item.name} (${typeBadge})`}
-                  title={`${item.name}${item.kind === "media" ? `\n${item.raw.name}` : ""}`}
-                  className={`group relative aspect-video rounded-md overflow-hidden border-2 transition-all ${selectedIds.has(item.id) ? "border-primary ring-2 ring-primary/40" : "border-transparent hover:border-primary/60"} ${selectedZoneLabel ? "cursor-pointer" : "cursor-grab opacity-90"}`}
+                  title={notReady ? `${item.name}\n${statusLabel}` : `${item.name}${item.kind === "media" ? `\n${item.raw.name}` : ""}`}
+                  className={`group relative aspect-video rounded-md overflow-hidden border-2 transition-all ${notReady ? "opacity-60 cursor-not-allowed border-transparent" : selectedIds.has(item.id) ? "border-primary ring-2 ring-primary/40" : `border-transparent hover:border-primary/60 ${selectedZoneLabel ? "cursor-pointer" : "cursor-grab opacity-90"}`}`}
                   onClick={(e) => handleItemClick(item, e)}
                 >
                   {item.kind === "media" && item.type === "video" && item.raw?.url ? (
@@ -1149,7 +1164,12 @@ function MediaLibraryDock({
                     <div className="absolute inset-0 flex items-center justify-center bg-muted">{item.icon}</div>
                   )}
                   <span className={`absolute bottom-0.5 right-0.5 ${badgeBg} text-white text-[8px] font-bold px-1 py-0.5 rounded leading-none`}>{typeBadge}</span>
-                  {selectedZoneLabel && (
+                  {notReady && statusLabel && (
+                    <span className={`absolute top-0.5 left-0.5 text-white text-[8px] font-bold px-1 py-0.5 rounded leading-none ${tsStatus === "failed" ? "bg-destructive/90" : "bg-yellow-600/90"}`}>
+                      {statusLabel}
+                    </span>
+                  )}
+                  {!notReady && selectedZoneLabel && (
                     <span className="pointer-events-none absolute inset-0 bg-primary/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                       <Plus className="w-6 h-6 text-primary-foreground drop-shadow" />
                     </span>
@@ -1166,19 +1186,21 @@ function MediaLibraryDock({
             {filtered.map((item, idx) => {
               const typeBadge = item.kind === "widget" ? "WGT" : item.type === "video" ? "VID" : "IMG";
               const badgeBg = item.kind === "widget" ? "bg-muted-foreground/80" : item.type === "video" ? "bg-destructive/80" : "bg-blue-500/80";
-              // Border tweaks: every row has a bottom border (last row none); right column never gets right border, left column gets right border on lg+
               const isLeftCol = idx % 2 === 0;
+              const notReady = isVideoNotReady(item);
+              const tsStatus = notReady ? (item.raw as DbMediaItem).transcode_status : null;
+              const statusLabel = tsStatus === "transcoding" ? t("transcodeStatusProcessing") : tsStatus === "failed" ? t("transcodeStatusFailed") : tsStatus ? t("transcodeStatusPending") : undefined;
               return (
                 <button
                   key={item.id}
                   type="button"
-                  draggable
+                  draggable={!notReady}
                   onDragStart={(e) => onPickerItemDragStart(e, item)}
                   onMouseEnter={(e) => scheduleHoverPreview(e, item)}
                   onMouseLeave={cancelHoverPreview}
                   aria-label={`${item.name} (${typeBadge})`}
-                  title={`${item.name}${item.kind === "media" ? `\n${item.raw.name}` : ""}`}
-                  className={`group flex items-center gap-2 px-2 py-1.5 text-left transition-colors border-b border-border last:border-b-0 ${variant !== "side" && isLeftCol ? "lg:border-r" : ""} ${selectedIds.has(item.id) ? "bg-primary/15 ring-1 ring-primary/50 ring-inset" : ""} ${selectedZoneLabel ? "cursor-pointer hover:bg-primary/10" : "cursor-grab hover:bg-primary/10"}`}
+                  title={notReady ? `${item.name}\n${statusLabel}` : `${item.name}${item.kind === "media" ? `\n${item.raw.name}` : ""}`}
+                  className={`group flex items-center gap-2 px-2 py-1.5 text-left transition-colors border-b border-border last:border-b-0 ${variant !== "side" && isLeftCol ? "lg:border-r" : ""} ${notReady ? "opacity-60 cursor-not-allowed" : `${selectedIds.has(item.id) ? "bg-primary/15 ring-1 ring-primary/50 ring-inset" : ""} ${selectedZoneLabel ? "cursor-pointer hover:bg-primary/10" : "cursor-grab hover:bg-primary/10"}`}`}
                   onClick={(e) => handleItemClick(item, e)}
                 >
                   <div className="relative w-10 h-10 shrink-0 rounded overflow-hidden bg-muted border border-border">
@@ -1192,13 +1214,14 @@ function MediaLibraryDock({
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-medium text-foreground truncate" lang="zh-Hant" style={{ fontFamily: "'PingFang TC','Microsoft JhengHei','Noto Sans TC',sans-serif" }}>{item.name}</div>
-                    {item.kind === "media" && item.raw?.name && item.raw.name !== item.name && (
+                    {notReady && statusLabel ? (
+                      <div className={`text-[10px] font-medium truncate ${tsStatus === "failed" ? "text-destructive" : "text-yellow-600"}`}>{statusLabel}</div>
+                    ) : item.kind === "media" && item.raw?.name && item.raw.name !== item.name && (
                       <div className="text-[10px] text-muted-foreground/80 truncate" lang="zh-Hant" style={{ fontFamily: "'PingFang TC','Microsoft JhengHei','Noto Sans TC',sans-serif" }}>{item.raw.name}</div>
                     )}
                   </div>
-                  {item.kind === "media" && (() => {
+                  {!notReady && item.kind === "media" && (() => {
                     const m = item.raw as DbMediaItem;
-                    // Prefer numeric fields, fallback to legacy text strings.
                     const totalSec = Math.round(getMediaDurationSec(m));
                     const durStr = totalSec > 0 ? `${totalSec}s` : "";
                     const sizeStr = formatBytesCompact(getMediaSizeBytes(m));
@@ -1218,7 +1241,7 @@ function MediaLibraryDock({
                     );
                   })()}
                   <span className={`shrink-0 ${badgeBg} text-white text-[8px] font-bold px-1 py-0.5 rounded leading-none`}>{typeBadge}</span>
-                  {selectedZoneLabel && (
+                  {!notReady && selectedZoneLabel && (
                     <Plus className="w-3.5 h-3.5 text-primary opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                   )}
                 </button>
@@ -3691,7 +3714,7 @@ export default function ContentStudioPage() {
   const loadMedia = useCallback(async () => {
     let mediaQ = supabase
       .from("media_items")
-      .select("id, name, original_name, type, url, thumbnail, size_bytes, width, height, duration_seconds, mime_type, created_at")
+      .select("id, name, original_name, type, url, thumbnail, size_bytes, width, height, duration_seconds, mime_type, transcode_status, created_at")
       .neq("type", "widget")
       .order("created_at", { ascending: false });
 
