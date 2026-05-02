@@ -25,7 +25,6 @@ const ALLOW_LIST = new Set<string>([
   "navAppStore",
   "planLimitApps",
   "planUsageApps",
-  "widgetMgmtScopeAppDesc",
   // Self-reference: this page's own copy must literally name the audited
   // tokens (store / shop / branch / 店家 / 店舗 / 團隊 / Team / チーム),
   // so excluding them prevents the page from auditing itself.

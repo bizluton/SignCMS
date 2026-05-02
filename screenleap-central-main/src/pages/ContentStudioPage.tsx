@@ -768,6 +768,7 @@ function MediaLibraryDock({
     let lastUploadedId: string | null = null;
     let lastFileName = "";
     let successCount = 0;
+    let pendingTranscodeCount = 0;
     for (const file of files) {
       const result = await uploadMediaFile(file, { orgId: activeOrgId });
       if (!result.ok) {
@@ -781,20 +782,20 @@ function MediaLibraryDock({
           : code === "image_cmyk" ? `${t("mediaImageSpecCmyk")}（${result.errorDetail || ""}）`
           : code === "image_auto_convert_failed" ? t("mediaImageAutoConvertFailed")
           : code === "video_resolution" ? `${t("mediaVideoSpecResolution")}（${result.errorDetail || ""}）`
-          : code === "video_bitrate" ? `${t("mediaVideoSpecBitrate")}（${result.errorDetail || ""}）`
-          : code === "video_fps" ? `${t("mediaVideoSpecFps")}（${result.errorDetail || ""}）`
           : code === "duplicate_file" ? `${t("mediaDuplicate")}: ${result.duplicateName || file.name}`
           : result.errorDetail || t("mediaUnsupported");
         toast.error(`${file.name}：${msg}`);
         continue;
       }
       successCount++;
+      if (result.data?.transcodeStatus === "pending_transcode") pendingTranscodeCount++;
       lastUploadedId = result.data!.id;
       lastFileName = file.name;
     }
     setIsUploading(false);
     if (successCount > 0) {
       toast.success(`${t("mediaUploaded")}：${successCount}`);
+      if (pendingTranscodeCount > 0) toast.warning(t("transcodeUploadNote"), { duration: 6000 });
       await onMediaUploaded?.();
       if (lastUploadedId && files.length === 1) {
         const baseName = lastFileName.replace(/\.[^.]+$/, "");
@@ -2477,6 +2478,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
     let lastUploadedId: string | null = null;
     let lastFileName = "";
     let successCount = 0;
+    let pendingTranscodeCount = 0;
 
     for (const file of files) {
       const result = await uploadMediaFile(file, { orgId: activeOrgId });
@@ -2491,14 +2493,13 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
           : code === "image_cmyk" ? `${t("mediaImageSpecCmyk")}（${result.errorDetail || ""}）`
           : code === "image_auto_convert_failed" ? t("mediaImageAutoConvertFailed")
           : code === "video_resolution" ? `${t("mediaVideoSpecResolution")}（${result.errorDetail || ""}）`
-          : code === "video_bitrate" ? `${t("mediaVideoSpecBitrate")}（${result.errorDetail || ""}）`
-          : code === "video_fps" ? `${t("mediaVideoSpecFps")}（${result.errorDetail || ""}）`
           : code === "duplicate_file" ? `${t("mediaDuplicate")}: ${result.duplicateName || file.name}`
           : result.errorDetail || t("mediaUnsupported");
         toast.error(`${file.name}：${msg}`);
         continue;
       }
       successCount++;
+      if (result.data?.transcodeStatus === "pending_transcode") pendingTranscodeCount++;
       lastUploadedId = result.data!.id;
       lastFileName = file.name;
     }
@@ -2507,6 +2508,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
 
     if (successCount > 0) {
       toast.success(`${t("mediaUploaded")}：${successCount}`);
+      if (pendingTranscodeCount > 0) toast.warning(t("transcodeUploadNote"), { duration: 6000 });
       await onMediaUploaded?.();
       // Auto-select newly uploaded item(s) by media-{id} so they're queued for adding
       if (lastUploadedId) {

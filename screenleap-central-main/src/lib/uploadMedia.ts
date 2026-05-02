@@ -4,10 +4,10 @@ import {
   isAcceptableImage,
   isAcceptableVideo,
   validateImageSpec,
-  validateVideoSpec,
   tryNormalizeImage,
   convertToWebP,
 } from "@/lib/fileHash";
+import { probeVideoMeta } from "@/lib/videoTranscode";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
 
@@ -21,8 +21,6 @@ export type UploadMediaErrorCode =
   | "image_cmyk"
   | "image_auto_convert_failed"
   | "video_resolution"
-  | "video_bitrate"
-  | "video_fps"
   | "duplicate_file"
   | "media_capacity_exceeded"
   | "network"
@@ -30,7 +28,7 @@ export type UploadMediaErrorCode =
 
 export interface UploadMediaResult {
   ok: boolean;
-  data?: { id: string; original_name: string; type: "image" | "video" };
+  data?: { id: string; original_name: string; type: "image" | "video"; transcodeStatus?: string };
   errorCode?: UploadMediaErrorCode;
   errorDetail?: string;
   /** Original filename of the duplicate (when errorCode === 'duplicate_file'). */
@@ -75,6 +73,11 @@ export async function uploadMediaFile(
   let width = 0;
   let height = 0;
   let durationSec = 0;
+  let needsTranscode = false;
+  let sourceFps = 0;
+  let sourceBitrate = 0;
+  let sourceCodec = "";
+  let sourceContainer = "";
 
   if (isImage) {
     const probeImage = (f: File) =>
@@ -119,8 +122,9 @@ export async function uploadMediaFile(
   }
 
   if (isVideo) {
+    // Get duration (and fallback dimensions) from the HTML video element.
     const objectUrl = URL.createObjectURL(workingFile);
-    const videoMeta = await new Promise<{ width: number; height: number; durationSec: number }>((resolve) => {
+    const htmlMeta = await new Promise<{ width: number; height: number; durationSec: number }>((resolve) => {
       const video = document.createElement("video");
       video.preload = "metadata";
       video.muted = true;
@@ -132,11 +136,9 @@ export async function uploadMediaFile(
         clearTimeout(timer);
         const raw = video.duration;
         const valid = Number.isFinite(raw) && raw > 0;
-        const w = video.videoWidth || 0;
-        const h = video.videoHeight || 0;
         resolve({
-          width: w,
-          height: h,
+          width: video.videoWidth || 0,
+          height: video.videoHeight || 0,
           durationSec: valid ? raw : 0,
         });
         URL.revokeObjectURL(objectUrl);
@@ -149,22 +151,30 @@ export async function uploadMediaFile(
       video.src = objectUrl;
     });
 
-    width = videoMeta.width;
-    height = videoMeta.height;
-    durationSec = videoMeta.durationSec;
+    durationSec = htmlMeta.durationSec;
 
-    const spec = await validateVideoSpec(workingFile, {
-      width: videoMeta.width,
-      height: videoMeta.height,
-      durationSec: videoMeta.durationSec,
-    });
-    if (spec.ok === false) {
-      const code: UploadMediaErrorCode =
-        spec.reason === "resolution" ? "video_resolution"
-        : spec.reason === "bitrate" ? "video_bitrate"
-        : "video_fps";
-      return { ok: false, errorCode: code, errorDetail: spec.detail };
+    // Deep probe via MediaInfo.js WASM to detect codec, fps, bitrate.
+    const probeMeta = await probeVideoMeta(workingFile);
+
+    // Prefer WASM dimensions; fall back to HTML element values.
+    width = probeMeta.width > 0 ? probeMeta.width : htmlMeta.width;
+    height = probeMeta.height > 0 ? probeMeta.height : htmlMeta.height;
+
+    // Resolution > 4K is a hard rejection — Mux capped-1080p would silently downscale.
+    if (width > 3840 || height > 2160) {
+      return {
+        ok: false,
+        errorCode: "video_resolution",
+        errorDetail: `${width}×${height} > 3840×2160`,
+      };
     }
+
+    // High bitrate / fps / non-h264 codec → route through Mux transcoding instead of blocking.
+    needsTranscode = probeMeta.needsTranscode;
+    sourceFps = probeMeta.fps;
+    sourceBitrate = probeMeta.bitrate;
+    sourceCodec = probeMeta.codec;
+    sourceContainer = probeMeta.container;
   }
 
   // MD5 dedup pre-check (within org, exclude soft-deleted records)
@@ -196,6 +206,13 @@ export async function uploadMediaFile(
   if (height > 0) formData.append("height", String(height));
   if (durationSec > 0) formData.append("duration_seconds", String(durationSec));
   formData.append("org_id", options.orgId);
+  if (isVideo) {
+    if (needsTranscode) formData.append("needs_transcode", "true");
+    if (sourceFps > 0) formData.append("source_fps", String(sourceFps));
+    if (sourceBitrate > 0) formData.append("source_bitrate", String(sourceBitrate));
+    if (sourceCodec) formData.append("source_codec", sourceCodec);
+    if (sourceContainer) formData.append("source_container", sourceContainer);
+  }
 
   const session = await supabase.auth.getSession();
   const accessToken = session.data.session?.access_token;
@@ -223,6 +240,7 @@ export async function uploadMediaFile(
         id: result.id,
         original_name: options.displayName?.trim() || file.name,
         type: isImage ? "image" : "video",
+        transcodeStatus: result.transcode_status as string | undefined,
       },
     };
   } catch (err) {
