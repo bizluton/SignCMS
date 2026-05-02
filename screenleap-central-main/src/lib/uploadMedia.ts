@@ -166,7 +166,7 @@ export async function uploadMediaFile(
     }
   }
 
-  // MD5 dedup pre-check (within org)
+  // MD5 dedup pre-check (within org, exclude soft-deleted records)
   const md5 = await computeFileMd5(workingFile);
   const dup = await supabase
     .from("media_items")
@@ -174,6 +174,7 @@ export async function uploadMediaFile(
     .eq("org_id", options.orgId)
     .eq("md5", md5)
     .eq("size_bytes", workingFile.size)
+    .is("deleted_at", null)
     .limit(1)
     .maybeSingle();
   if (dup?.data) {

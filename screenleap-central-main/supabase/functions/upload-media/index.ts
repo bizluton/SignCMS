@@ -140,13 +140,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Server-side duplicate check (org-scoped)
+    // Server-side duplicate check (org-scoped, exclude soft-deleted records)
     const { data: dupRow } = await supabase
       .from("media_items")
       .select("id, original_name")
       .eq("org_id", orgId)
       .eq("md5", md5)
       .eq("size_bytes", file.size)
+      .is("deleted_at", null)
       .limit(1)
       .maybeSingle();
 
