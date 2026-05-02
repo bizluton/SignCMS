@@ -125,6 +125,7 @@ export default function WidgetManagement() {
   const { user } = useAuth();
   const { isSystemAdmin } = useIsSystemAdmin();
   const zipInputRef = useRef<HTMLInputElement>(null);
+  const thumbInputRef = useRef<HTMLInputElement>(null);
 
   const [rows, setRows] = useState<WidgetRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -288,6 +289,17 @@ export default function WidgetManagement() {
       setImporting(false);
       if (zipInputRef.current) zipInputRef.current.value = "";
     }
+  };
+
+  // ── Thumbnail file upload ──────────────────────────────────────────────────
+  const handleThumbFile = (file: File) => {
+    if (file.size > THUMBNAIL_MAX_BYTES) {
+      toast.error(t("widgetMgmtThumbTooBig"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setForm((f) => ({ ...f, thumbnail: reader.result as string }));
+    reader.readAsDataURL(file);
   };
 
   // ── Create / Edit ──────────────────────────────────────────────────────────
@@ -479,36 +491,54 @@ export default function WidgetManagement() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>{t("widgetMgmtOrder")}</Label>
-                <Input
-                  type="number"
-                  value={form.sort_order}
-                  onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })}
-                />
-              </div>
-              <div>
-                <Label>{t("widgetMgmtThumbnail")}</Label>
-                <Input
-                  value={form.thumbnail}
-                  onChange={(e) => setForm({ ...form, thumbnail: e.target.value })}
-                  placeholder="https://..."
-                />
-              </div>
+            <div>
+              <Label>{t("widgetMgmtOrder")}</Label>
+              <Input
+                type="number"
+                value={form.sort_order}
+                onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })}
+                className="w-32"
+              />
             </div>
 
-            {/* Thumbnail preview */}
-            {form.thumbnail && (
-              <div className="rounded-lg overflow-hidden border w-full aspect-video bg-muted">
-                <img
-                  src={form.thumbnail}
-                  alt="thumbnail preview"
-                  className="w-full h-full object-cover"
-                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-                />
-              </div>
-            )}
+            {/* Thumbnail upload */}
+            <div className="space-y-2">
+              <Label>{t("widgetMgmtThumbnail")}</Label>
+              <input
+                ref={thumbInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleThumbFile(f); if (thumbInputRef.current) thumbInputRef.current.value = ""; }}
+              />
+              {form.thumbnail ? (
+                <div className="relative rounded-lg overflow-hidden border w-full aspect-video bg-muted group">
+                  <img
+                    src={form.thumbnail}
+                    alt="thumbnail preview"
+                    className="w-full h-full object-cover"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                  />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+                    <Button size="sm" variant="secondary" onClick={() => thumbInputRef.current?.click()}>
+                      <Upload className="w-3.5 h-3.5 mr-1" />{t("widgetMgmtUploadThumb")}
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => setForm((f) => ({ ...f, thumbnail: "" }))}>
+                      {t("widgetMgmtClearThumb")}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => thumbInputRef.current?.click()}
+                  className="w-full aspect-video rounded-lg border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-2 text-muted-foreground hover:border-muted-foreground/60 hover:bg-muted/50 transition-colors"
+                >
+                  <Upload className="w-6 h-6" />
+                  <span className="text-sm">{t("widgetMgmtUploadThumb")}</span>
+                </button>
+              )}
+            </div>
 
             <div>
               <Label>{t("widgetMgmtConfig")} (JSON)</Label>
