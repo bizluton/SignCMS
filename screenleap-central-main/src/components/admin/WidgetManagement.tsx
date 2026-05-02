@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import JSZip from "jszip";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -49,6 +49,8 @@ const WIDGET_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
 
 const THUMBNAIL_MAX_BYTES = 200 * 1024; // 200 KB
 
+interface OrgOption { id: string; name: string; }
+
 const emptyForm = {
   name: "",
   name_zh: "",
@@ -58,15 +60,19 @@ const emptyForm = {
   config_json: "{}",
   thumbnail: "",
   sort_order: 0,
+  scope: "system" as "system" | "user",
+  org_id: "",
 };
 
 // ── Widget Card ──────────────────────────────────────────────────────────────
 function WidgetCard({
   row,
+  orgName,
   onEdit,
   onDelete,
 }: {
   row: WidgetRow;
+  orgName?: string;
   onEdit: (r: WidgetRow) => void;
   onDelete: (id: string) => void;
 }) {
@@ -85,6 +91,12 @@ function WidgetCard({
         ) : (
           <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
             <Icon className="w-9 h-9 text-slate-400" />
+          </div>
+        )}
+        {/* Org badge on user-scope cards */}
+        {row.scope === "user" && orgName && (
+          <div className="absolute top-2 left-2">
+            <Badge className="text-[10px] py-0 px-1.5 bg-amber-500/90 text-white border-0">{orgName}</Badge>
           </div>
         )}
         {/* Action buttons — appear on hover */}
@@ -128,6 +140,7 @@ export default function WidgetManagement() {
   const thumbInputRef = useRef<HTMLInputElement>(null);
 
   const [rows, setRows] = useState<WidgetRow[]>([]);
+  const [orgs, setOrgs] = useState<OrgOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<WidgetRow | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -136,20 +149,25 @@ export default function WidgetManagement() {
   const [importing, setImporting] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const reload = async () => {
+  const loadOrgs = useCallback(async () => {
+    const { data } = await supabase.from("organizations").select("id, name").order("name");
+    setOrgs((data || []) as OrgOption[]);
+  }, []);
+
+  const reload = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
       .from("widgets")
       .select("id, scope, name, name_i18n, widget_type, config, thumbnail, app_id, org_id, sort_order, created_at")
-      .eq("scope", "system")
+      .order("scope", { ascending: true })
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: false });
     if (error) toast.error(error.message);
     else setRows((data || []) as WidgetRow[]);
     setLoading(false);
-  };
+  }, []);
 
-  useEffect(() => { reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { reload(); loadOrgs(); }, [reload, loadOrgs]);
 
   // ── Zip import ─────────────────────────────────────────────────────────────
   const handleZipFile = async (file: File) => {
@@ -321,19 +339,22 @@ export default function WidgetManagement() {
       config_json: JSON.stringify(row.config || {}, null, 2),
       thumbnail: row.thumbnail || "",
       sort_order: row.sort_order ?? 0,
+      scope: row.scope === "user" ? "user" : "system",
+      org_id: row.org_id || "",
     });
     setDialogOpen(true);
   };
 
   const handleSave = async () => {
     if (!form.name.trim()) { toast.error(t("widgetMgmtNameRequired")); return; }
+    if (form.scope === "user" && !form.org_id) { toast.error(t("widgetMgmtOrgRequired")); return; }
     let config: Record<string, unknown>;
     try { config = JSON.parse(form.config_json) as Record<string, unknown>; }
     catch { toast.error(t("widgetMgmtInvalidJson")); return; }
 
     setSaving(true);
     const payload: Record<string, unknown> = {
-      scope: "system",
+      scope: form.scope,
       name: form.name.trim(),
       name_i18n: {
         zh: form.name_zh.trim() || form.name.trim(),
@@ -344,6 +365,7 @@ export default function WidgetManagement() {
       config,
       thumbnail: form.thumbnail.trim(),
       app_id: null,
+      org_id: form.scope === "user" ? form.org_id : null,
       sort_order: Number(form.sort_order) || 0,
     };
 
@@ -446,7 +468,13 @@ export default function WidgetManagement() {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {rows.map((r) => (
-              <WidgetCard key={r.id} row={r} onEdit={openEdit} onDelete={setDeleteId} />
+              <WidgetCard
+                key={r.id}
+                row={r}
+                orgName={r.org_id ? (orgs.find((o) => o.id === r.org_id)?.name ?? r.org_id) : undefined}
+                onEdit={openEdit}
+                onDelete={setDeleteId}
+              />
             ))}
           </div>
         )}
@@ -460,6 +488,34 @@ export default function WidgetManagement() {
             <DialogDescription>{t("widgetMgmtDialogDesc")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {/* Visibility (scope) */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>{t("widgetMgmtScope")}</Label>
+                <Select
+                  value={form.scope}
+                  onValueChange={(v) => setForm({ ...form, scope: v as "system" | "user", org_id: "" })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="system">{t("widgetMgmtScopeSystem")}</SelectItem>
+                    <SelectItem value="user">{t("widgetMgmtScopeOrg")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {form.scope === "user" && (
+                <div>
+                  <Label>{t("widgetMgmtOrg")} *</Label>
+                  <Select value={form.org_id} onValueChange={(v) => setForm({ ...form, org_id: v })}>
+                    <SelectTrigger><SelectValue placeholder={t("widgetMgmtOrgRequired")} /></SelectTrigger>
+                    <SelectContent>
+                      {orgs.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>{t("widgetMgmtName")} *</Label>
