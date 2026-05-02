@@ -160,25 +160,30 @@ export default function WidgetManagement() {
     try {
       const zip = await JSZip.loadAsync(file);
 
-      // Read manifest.json
-      const manifestFile = zip.file("manifest.json");
-      if (!manifestFile) {
+      // Read manifest.json (search root and one level deep)
+      const manifestEntry =
+        zip.file("manifest.json") ??
+        zip.file(/(?:^|\/)[^/]+\/manifest\.json$/)[0] ??
+        null;
+      if (!manifestEntry) {
         toast.error(t("widgetMgmtZipNoManifest"));
         return;
       }
       let manifest: Record<string, unknown>;
       try {
-        manifest = JSON.parse(await manifestFile.async("string")) as Record<string, unknown>;
+        manifest = JSON.parse(await manifestEntry.async("string")) as Record<string, unknown>;
       } catch {
         toast.error(t("widgetMgmtZipInvalidManifest"));
         return;
       }
 
       const name = (manifest.name as string)?.trim();
-      const widgetType = (manifest.widget_type as string)?.trim();
-      const config = manifest.config;
+      const htmlFilePath = (manifest.html_file as string | undefined)?.trim();
+      // widget_type defaults to "webpage" when an html_file is declared
+      const widgetType = ((manifest.widget_type as string)?.trim()) || (htmlFilePath ? "webpage" : "");
+      let config = manifest.config as Record<string, unknown> | undefined;
 
-      if (!name || !widgetType || !config || typeof config !== "object") {
+      if (!name || !widgetType) {
         toast.error(t("widgetMgmtZipInvalidManifest"));
         return;
       }
@@ -186,10 +191,56 @@ export default function WidgetManagement() {
         toast.error(`${t("widgetMgmtZipInvalidType")}: ${widgetType}`);
         return;
       }
+      if (!config || typeof config !== "object") config = {};
 
-      // Optional thumbnail — first matching image file at root
+      // ── Upload embedded HTML file to Supabase Storage ──────────────────
+      let htmlPublicUrl = "";
+      if (htmlFilePath) {
+        const htmlEntry =
+          zip.file(htmlFilePath) ??
+          zip.file(new RegExp(`(^|/)${htmlFilePath.split("/").pop()}$`))[0] ??
+          null;
+        if (htmlEntry) {
+          const htmlBytes = await htmlEntry.async("arraybuffer");
+          const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+          const storagePath = `widget-assets/${slug}-${Date.now()}.html`;
+          const { error: uploadErr } = await supabase.storage
+            .from("media")
+            .upload(storagePath, htmlBytes, {
+              contentType: "text/html; charset=utf-8",
+              cacheControl: "31536000",
+              upsert: false,
+            });
+          if (uploadErr) {
+            toast.error(`HTML upload failed: ${uploadErr.message}`);
+            return;
+          }
+          const { data: pub } = supabase.storage.from("media").getPublicUrl(storagePath);
+          htmlPublicUrl = pub.publicUrl;
+        }
+      }
+
+      // Replace {{html_url}} placeholder anywhere in config values
+      const resolveUrl = (val: unknown): unknown => {
+        if (typeof val === "string") return val.replace(/\{\{html_url\}\}/g, htmlPublicUrl);
+        if (Array.isArray(val)) return val.map(resolveUrl);
+        if (val !== null && typeof val === "object") {
+          return Object.fromEntries(
+            Object.entries(val as Record<string, unknown>).map(([k, v]) => [k, resolveUrl(v)])
+          );
+        }
+        return val;
+      };
+      config = resolveUrl(config) as Record<string, unknown>;
+
+      // If html was uploaded but config.url still empty, auto-set it
+      if (htmlPublicUrl && !config.url) config = { ...config, url: htmlPublicUrl };
+      // Ensure widgetType inside config is populated
+      if (!config.widgetType) config = { ...config, widgetType };
+
+      // ── Thumbnail ──────────────────────────────────────────────────────
       let thumbnail = "";
-      const thumbEntry = zip.file(/^thumbnail\.(png|jpe?g|webp)$/i)[0];
+      const thumbEntry = zip.file(/(?:^|\/)thumbnail\.(png|jpe?g|webp)$/i)[0];
       if (thumbEntry) {
         const blob = await thumbEntry.async("blob");
         if (blob.size > THUMBNAIL_MAX_BYTES) {
@@ -203,7 +254,7 @@ export default function WidgetManagement() {
         }
       }
 
-      // name_i18n — optional; fall back to name
+      // ── name_i18n ──────────────────────────────────────────────────────
       const rawI18n = manifest.name_i18n as Record<string, string> | undefined;
       const name_i18n = {
         zh: rawI18n?.zh?.trim() || name,
@@ -216,7 +267,7 @@ export default function WidgetManagement() {
         name,
         name_i18n,
         widget_type: widgetType,
-        config: config as Record<string, unknown>,
+        config,
         thumbnail,
         app_id: null,
         sort_order: Number(manifest.sort_order) || 0,
