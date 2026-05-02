@@ -1,31 +1,50 @@
 /**
  * transcode-callback
- * Called by the self-hosted ffmpeg worker when a transcode job finishes.
+ * Handles Mux webhook events for video transcoding.
  *
- * On success:
- *   1. Downloads the transcoded file from output_url (worker's S3/R2)
- *   2. Overwrites the Supabase Storage object at the original path
- *   3. Updates media_items (url, size_bytes, dimensions, duration, status)
+ * Flow:
+ *   video.asset.static_renditions.ready →
+ *     1. Download highest-quality MP4 from Mux stream URL
+ *     2. Upload to Supabase Storage (same path as original, .mp4 extension)
+ *     3. Update media_items (url, size, dimensions, duration, status=ready)
+ *     4. DELETE Mux asset to avoid ongoing storage charges
  *
- * On failure:
- *   - Sets transcode_status = 'failed', writes transcode_error
+ *   video.asset.errored → transcode_status = 'failed'
  *
- * Security: HMAC-SHA256 request signature + 5-min timestamp window.
+ * Security: Mux webhook signature (HMAC-SHA256) verified before any processing.
+ * Header format: mux-signature: t=<unix_seconds>,v1=<hex>
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.99.3";
 
-const HMAC_TOLERANCE_MS = 5 * 60 * 1000;
 const BUCKET = "media";
+const SIG_TOLERANCE_SECS = 300; // 5-minute replay window
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-signature, x-timestamp",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, mux-signature",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-async function verifyHmac(secret: string, timestamp: string, rawBody: string, sig: string): Promise<boolean> {
+async function verifyMuxSignature(
+  secret: string,
+  rawBody: string,
+  sigHeader: string,
+): Promise<boolean> {
+  // "t=<timestamp>,v1=<hex>"
+  const parts: Record<string, string> = {};
+  for (const segment of sigHeader.split(",")) {
+    const eq = segment.indexOf("=");
+    if (eq > 0) parts[segment.slice(0, eq)] = segment.slice(eq + 1);
+  }
+  const { t: timestamp, v1: sig } = parts;
+  if (!timestamp || !sig) return false;
+
   const tsNum = Number(timestamp);
-  if (!Number.isFinite(tsNum) || Math.abs(Date.now() - tsNum) > HMAC_TOLERANCE_MS) return false;
+  if (!Number.isFinite(tsNum) || Math.abs(Date.now() / 1000 - tsNum) > SIG_TOLERANCE_SECS) {
+    return false;
+  }
+
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -33,98 +52,155 @@ async function verifyHmac(secret: string, timestamp: string, rawBody: string, si
     false,
     ["sign"],
   );
-  const expected = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(timestamp + "." + rawBody));
-  const expectedHex = Array.from(new Uint8Array(expected)).map((b) => b.toString(16).padStart(2, "0")).join("");
-  // Timing-safe compare
+  const expected = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    new TextEncoder().encode(`${timestamp}.${rawBody}`),
+  );
+  const expectedHex = Array.from(new Uint8Array(expected))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
   if (expectedHex.length !== sig.length) return false;
   let diff = 0;
-  for (let i = 0; i < expectedHex.length; i++) diff |= expectedHex.charCodeAt(i) ^ sig.charCodeAt(i);
+  for (let i = 0; i < expectedHex.length; i++) {
+    diff |= expectedHex.charCodeAt(i) ^ sig.charCodeAt(i);
+  }
   return diff === 0;
+}
+
+interface MuxStaticFile {
+  name: string;  // e.g. "high.mp4"
+  ext: string;
+  height: number;
+  width: number;
+  bitrate: number;
+  filesize: number;
+}
+
+interface MuxPayload {
+  type: string;
+  data: {
+    id: string;
+    status?: string;
+    passthrough?: string;
+    duration?: number;
+    playback_ids?: Array<{ id: string; policy: string }>;
+    static_renditions?: {
+      status: string;
+      files?: MuxStaticFile[];
+    };
+    tracks?: Array<{ type: string; max_width?: number; max_height?: number }>;
+    errors?: { type: string; messages: string[] };
+  };
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const json = (body: unknown, status = 200) =>
-    new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
 
   try {
-    const hmacSecret = Deno.env.get("TRANSCODE_HMAC_SECRET");
-    if (!hmacSecret) {
-      console.error("TRANSCODE_HMAC_SECRET not set");
+    const webhookSecret = Deno.env.get("MUX_WEBHOOK_SECRET");
+    if (!webhookSecret) {
+      console.error("MUX_WEBHOOK_SECRET not set");
       return json({ error: "server_misconfigured" }, 500);
     }
 
     const rawBody = await req.text();
-    const sig = req.headers.get("x-signature") ?? "";
-    const timestamp = req.headers.get("x-timestamp") ?? "";
+    const sigHeader = req.headers.get("mux-signature") ?? "";
 
-    if (!(await verifyHmac(hmacSecret, timestamp, rawBody, sig))) {
+    if (!(await verifyMuxSignature(webhookSecret, rawBody, sigHeader))) {
       return json({ error: "invalid_signature" }, 401);
     }
 
-    let payload: {
-      job_id: string;
-      status: "done" | "failed" | "progress";
-      // done
-      output_url?: string;
-      duration_seconds?: number;
-      size_bytes?: number;
-      width?: number;
-      height?: number;
-      storage_key?: string;
-      // failed
-      error?: string;
-    };
+    let payload: MuxPayload;
     try {
       payload = JSON.parse(rawBody);
     } catch {
       return json({ error: "invalid_json" }, 400);
     }
 
-    // Progress callbacks are fire-and-forget — acknowledge and skip DB write
-    if (payload.status === "progress") return json({ ok: true });
+    const { type: eventType, data } = payload;
+
+    // Only handle static renditions ready / asset errored; ack everything else
+    const isStaticReady =
+      eventType === "video.asset.static_renditions.ready" ||
+      // video.asset.ready can also carry finished static_renditions for short clips
+      (eventType === "video.asset.ready" && data.static_renditions?.status === "ready");
+
+    if (!isStaticReady && eventType !== "video.asset.errored") {
+      return json({ ok: true });
+    }
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    const mediaId = payload.job_id;
+    const mediaId = data.passthrough;
+    const muxAssetId = data.id;
 
-    if (payload.status === "failed") {
+    if (!mediaId) {
+      console.error("Mux webhook missing passthrough (media_id), asset:", muxAssetId);
+      return json({ ok: true });
+    }
+
+    if (eventType === "video.asset.errored") {
+      const errMsg = data.errors?.messages?.join("; ") ?? "Mux transcoding error";
       await supabase
         .from("media_items")
-        .update({ transcode_status: "failed", transcode_error: payload.error ?? "Unknown error" })
+        .update({ transcode_status: "failed", transcode_error: errMsg })
         .eq("id", mediaId);
       return json({ ok: true });
     }
 
-    // status === "done"
-    if (!payload.output_url) return json({ error: "missing output_url" }, 400);
+    // --- static renditions ready ---
 
-    // Fetch current media item to get the storage path
+    const playbackId = data.playback_ids?.find((p) => p.policy === "public")?.id;
+    const mp4Files = (data.static_renditions?.files ?? [])
+      .filter((f) => f.ext === "mp4")
+      .sort((a, b) => b.height - a.height); // highest quality first
+
+    if (!playbackId || mp4Files.length === 0) {
+      console.error("No public playback ID or MP4 files in payload for asset:", muxAssetId);
+      await supabase
+        .from("media_items")
+        .update({ transcode_status: "failed", transcode_error: "mux_no_mp4_renditions" })
+        .eq("id", mediaId);
+      return json({ error: "no_renditions" }, 422);
+    }
+
+    const bestFile = mp4Files[0];
+    const mp4Url = `https://stream.mux.com/${playbackId}/${bestFile.name}`;
+
     const { data: item, error: itemError } = await supabase
       .from("media_items")
-      .select("id, url, org_id, md5")
+      .select("id, org_id, md5")
       .eq("id", mediaId)
       .maybeSingle();
     if (itemError || !item) return json({ error: "media_not_found" }, 404);
 
-    // Download the transcoded file from worker's S3/R2
-    const dlRes = await fetch(payload.output_url);
+    // Download MP4 from Mux CDN
+    const dlRes = await fetch(mp4Url);
     if (!dlRes.ok) {
-      const txt = await dlRes.text().catch(() => "");
-      console.error("Failed to download transcoded file:", dlRes.status, txt.slice(0, 200));
+      console.error("Failed to download from Mux:", dlRes.status, mp4Url);
       await supabase
         .from("media_items")
-        .update({ transcode_status: "failed", transcode_error: `download_failed_${dlRes.status}` })
+        .update({
+          transcode_status: "failed",
+          transcode_error: `mux_download_failed_${dlRes.status}`,
+        })
         .eq("id", mediaId);
       return json({ error: "download_failed" }, 502);
     }
     const fileBytes = await dlRes.arrayBuffer();
 
-    // Overwrite in Supabase Storage: keep the same path but use .mp4 extension
+    // Overwrite in Supabase Storage
     const storagePath = `${item.org_id}/${item.md5}.mp4`;
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
@@ -135,7 +211,7 @@ Deno.serve(async (req) => {
       });
 
     if (uploadError) {
-      console.error("Storage re-upload error:", uploadError);
+      console.error("Storage upload error:", uploadError);
       await supabase
         .from("media_items")
         .update({ transcode_status: "failed", transcode_error: "storage_upload_failed" })
@@ -146,22 +222,31 @@ Deno.serve(async (req) => {
     const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
     const newUrl = pub.publicUrl;
 
-    // Update media_items with final transcoded metadata
+    const videoTrack = data.tracks?.find((t) => t.type === "video");
+
     await supabase
       .from("media_items")
       .update({
         url: newUrl,
-        thumbnail: "",  // video thumbnail regeneration is client-side
+        thumbnail: "",
         mime_type: "video/mp4",
-        size_bytes: payload.size_bytes ?? fileBytes.byteLength,
-        width: payload.width ?? null,
-        height: payload.height ?? null,
-        duration_seconds: payload.duration_seconds ?? null,
+        size_bytes: bestFile.filesize || fileBytes.byteLength,
+        width: videoTrack?.max_width ?? bestFile.width ?? null,
+        height: videoTrack?.max_height ?? bestFile.height ?? null,
+        duration_seconds: data.duration ?? null,
         transcode_status: "ready",
         transcode_completed_at: new Date().toISOString(),
         transcode_error: null,
       })
       .eq("id", mediaId);
+
+    // Delete the Mux asset now that we have our own copy in Supabase Storage
+    const muxTokenId = Deno.env.get("MUX_TOKEN_ID")!;
+    const muxTokenSecret = Deno.env.get("MUX_TOKEN_SECRET")!;
+    await fetch(`https://api.mux.com/video/v1/assets/${muxAssetId}`, {
+      method: "DELETE",
+      headers: { "Authorization": `Basic ${btoa(`${muxTokenId}:${muxTokenSecret}`)}` },
+    }).catch((e) => console.error("Mux asset delete error:", e));
 
     return json({ ok: true });
   } catch (err) {
