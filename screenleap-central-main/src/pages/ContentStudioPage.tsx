@@ -80,6 +80,17 @@ import {
 
 // ── Types ──────────────────────────────────────────────────────────
 
+interface WidgetParamDef {
+  key: string;
+  label: string;
+  label_zh?: string;
+  type: "text" | "select" | "color" | "toggle" | "number";
+  default?: unknown;
+  options?: Array<{ value: string; label: string; label_zh?: string }>;
+  min?: number;
+  max?: number;
+}
+
 interface WidgetConfig {
   widgetType?: string;
   text?: string;
@@ -99,6 +110,8 @@ interface WidgetConfig {
   textColor?: string;
   fontSize?: string;
   animation?: string;
+  paramsSchema?: WidgetParamDef[];
+  params?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -3073,9 +3086,66 @@ function WidgetZonePreview({ config }: { config: WidgetConfig }) {
   return <WidgetZonePreviewBody config={config} now={now} />;
 }
 
+// ── Dynamic param control (for HTML/catalog widgets with paramsSchema) ──
+function DynamicParamControl({ param, value, onChange, lang }: {
+  param: WidgetParamDef;
+  value: unknown;
+  onChange: (v: unknown) => void;
+  lang: string;
+}) {
+  const label = ((lang === "zh" || lang === "zh-TW") && param.label_zh) ? param.label_zh : param.label;
+  if (param.type === "select" && param.options) {
+    return (
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{label}</Label>
+        <Select value={String(value ?? param.default ?? "")} onValueChange={onChange}>
+          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {param.options.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {((lang === "zh" || lang === "zh-TW") && opt.label_zh) ? opt.label_zh : opt.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+    );
+  }
+  if (param.type === "toggle") {
+    return (
+      <div className="flex items-center justify-between pt-1">
+        <Label className="text-[10px]">{label}</Label>
+        <Switch checked={!!value} onCheckedChange={onChange} />
+      </div>
+    );
+  }
+  if (param.type === "color") {
+    return (
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{label}</Label>
+        <Input type="color" value={String(value ?? param.default ?? "#000000")} onChange={(e) => onChange(e.target.value)} className="h-7 p-0.5" />
+      </div>
+    );
+  }
+  if (param.type === "number") {
+    return (
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{label}</Label>
+        <Input type="number" value={String(value ?? param.default ?? "")} min={param.min} max={param.max} onChange={(e) => onChange(Number(e.target.value))} className="h-7 text-xs" />
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      <Label className="text-[10px] text-muted-foreground">{label}</Label>
+      <Input value={String(value ?? param.default ?? "")} onChange={(e) => onChange(e.target.value)} className="h-7 text-xs" />
+    </div>
+  );
+}
+
 // ── Widget Item Settings (timeline popover) ────────────────────────
 function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChange: (next: WidgetConfig) => void }) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const wt = config?.widgetType as string | undefined;
   const set = (patch: Record<string, unknown>) => onChange({ ...config, ...patch });
 
@@ -3108,6 +3178,19 @@ function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChan
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetUrl")}</Label>
           <Input value={config.url || ""} onChange={(e) => set({ url: e.target.value })} placeholder={t("widgetUrlPlaceholder")} className="h-7 text-xs" />
+          {config.paramsSchema && config.paramsSchema.length > 0 && (
+            <div className="space-y-1 pt-1 border-t border-border mt-1">
+              {config.paramsSchema.map((param) => (
+                <DynamicParamControl
+                  key={param.key}
+                  param={param}
+                  value={(config.params || {})[param.key] ?? param.default}
+                  onChange={(v) => set({ params: { ...(config.params || {}), [param.key]: v } })}
+                  lang={language}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 

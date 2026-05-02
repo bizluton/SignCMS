@@ -257,6 +257,16 @@ export default function WidgetManagement() {
       // Ensure widgetType inside config is populated
       if (!config.widgetType) config = { ...config, widgetType };
 
+      // ── Params schema (configurable parameters for HTML widgets) ───────
+      if (Array.isArray(manifest.params) && manifest.params.length > 0) {
+        config = { ...config, paramsSchema: manifest.params };
+        const defaultParams: Record<string, unknown> = {};
+        for (const p of manifest.params as Array<{ key?: string; default?: unknown }>) {
+          if (p.key) defaultParams[p.key] = p.default ?? "";
+        }
+        config = { ...config, params: defaultParams };
+      }
+
       // ── Thumbnail ──────────────────────────────────────────────────────
       let thumbnail = "";
       const thumbEntry = zip.file(/(?:^|\/)thumbnail\.(png|jpe?g|webp)$/i)[0];

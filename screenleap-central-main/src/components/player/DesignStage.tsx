@@ -28,6 +28,8 @@ interface WidgetConfig {
   countdownTitle?: string;
   url?: string;
   youtubeId?: string;
+  paramsSchema?: Array<{ key: string; [k: string]: unknown }>;
+  params?: Record<string, unknown>;
   [key: string]: unknown;
 }
 
@@ -121,6 +123,41 @@ function splitZones(zonesRaw: unknown[] | undefined): { zones: Zone[]; overlays:
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Fetches HTML from URL, injects window.__widgetParams, renders via srcdoc. */
+function WebpageWidgetRender({ config }: { config: WidgetConfig }) {
+  const { url, params } = config;
+  const paramsKey = JSON.stringify(params || {});
+  const [srcDoc, setSrcDoc] = useState<string>("");
+  useEffect(() => {
+    if (!url) { setSrcDoc(""); return; }
+    let cancelled = false;
+    fetch(url)
+      .then((r) => r.text())
+      .then((html) => {
+        if (cancelled) return;
+        const hasParams = params && Object.keys(params).length > 0;
+        if (hasParams) {
+          const injection = `<script>window.__widgetParams = ${JSON.stringify(params)};</script>`;
+          setSrcDoc(html.includes("</head>") ? html.replace("</head>", `${injection}</head>`) : injection + html);
+        } else {
+          setSrcDoc(html);
+        }
+      })
+      .catch(() => { if (!cancelled) setSrcDoc(""); });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, paramsKey]);
+  if (!srcDoc) return <div className="w-full h-full" />;
+  return (
+    <iframe
+      srcDoc={srcDoc}
+      className="w-full h-full border-0"
+      title="webpage-widget"
+      sandbox="allow-scripts allow-same-origin"
+    />
+  );
+}
+
 /** Render one widget (clock, date, marquee, qrcode, countdown, webpage, weather). */
 export function WidgetRender({ config }: { config: WidgetConfig | null | undefined }) {
   const [now, setNow] = useState(() => new Date());
@@ -212,14 +249,7 @@ export function WidgetRender({ config }: { config: WidgetConfig | null | undefin
   }
 
   if (config.widgetType === "webpage" && config.url) {
-    return (
-      <iframe
-        title="webpage-widget"
-        src={config.url}
-        className="w-full h-full border-0"
-        sandbox="allow-scripts allow-same-origin allow-popups"
-      />
-    );
+    return <WebpageWidgetRender config={config} />;
   }
 
   if (config.widgetType === "youtube" && config.youtubeId) {
