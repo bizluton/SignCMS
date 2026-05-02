@@ -363,6 +363,27 @@ const isCcByAudio = (item: { type: string; original_name?: string; name?: string
 
 const getTypeBadgeVariant = (type: MediaType) => (type === "widget" ? "default" : "secondary");
 
+// Fetches HTML from a URL and renders it via srcdoc so content-type issues don't cause raw text display
+function WidgetHtmlPreview({ url, title }: { url: string; title: string }) {
+  const [srcDoc, setSrcDoc] = useState<string | null>(null);
+  useEffect(() => {
+    fetch(url)
+      .then((r) => r.text())
+      .then(setSrcDoc)
+      .catch(() => setSrcDoc(""));
+  }, [url]);
+  if (srcDoc === null) return <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />;
+  if (srcDoc === "") return <Globe className="w-16 h-16 opacity-30 text-muted-foreground" />;
+  return (
+    <iframe
+      srcDoc={srcDoc}
+      className="w-full h-full border-0"
+      title={title}
+      sandbox="allow-scripts"
+    />
+  );
+}
+
 const MediaPage = () => {
   const { t, language } = useLanguage();
   const { tier: planTier, limits: planLimits } = useOrgPlan();
@@ -1798,7 +1819,7 @@ const MediaPage = () => {
             return (
               <Card
                 key={item.id}
-                className={`overflow-hidden cursor-pointer relative ${isSelected ? "ring-2 ring-primary" : ""} ${inUse ? "opacity-70" : ""}`}
+                className={`overflow-hidden cursor-pointer relative group ${isSelected ? "ring-2 ring-primary" : ""} ${inUse ? "opacity-70" : ""}`}
                 onClick={() => { if (selectMode) toggleSelect(item.id); else openPreview(item); }}
               >
                 {selectMode && (
@@ -1889,6 +1910,19 @@ const MediaPage = () => {
                     >
                       {t("transcodeStatusFailed")}
                     </Badge>
+                  )}
+                  {item.type === "widget" && !item.is_system && canManageMedia && !selectMode && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={(e) => { e.stopPropagation(); requestDelete(item.id); }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        {t("mediaDeleteItem")}
+                      </Button>
+                    </div>
                   )}
                 </div>
 
@@ -2198,14 +2232,7 @@ const MediaPage = () => {
                   const c = parseWidgetConfig(previewItem.url);
                   if (!c) return <Code2 className="w-16 h-16 opacity-30" />;
                   if (c.widgetType === "webpage" && c.url) {
-                    return (
-                      <iframe
-                        src={c.url}
-                        className="w-full h-full border-0"
-                        title={getDisplayName(previewItem)}
-                        sandbox="allow-scripts allow-same-origin"
-                      />
-                    );
+                    return <WidgetHtmlPreview url={c.url} title={getDisplayName(previewItem)} />;
                   }
                   return <WidgetPreviewCard config={c} />;
                 })()
