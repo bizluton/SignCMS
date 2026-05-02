@@ -788,7 +788,6 @@ function MediaLibraryDock({
         continue;
       }
       if (result.warning === "image_auto_converted") toast.success(t("mediaImageAutoConverted"));
-      if (result.warning === "image_too_small") toast.warning(t("mediaImageSpecTooSmall"));
       successCount++;
       lastUploadedId = result.data!.id;
       lastFileName = file.name;
@@ -2478,7 +2477,6 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
         continue;
       }
       if (result.warning === "image_auto_converted") toast.success(t("mediaImageAutoConverted"));
-      if (result.warning === "image_too_small") toast.warning(t("mediaImageSpecTooSmall"));
       successCount++;
       lastUploadedId = result.data!.id;
       lastFileName = file.name;

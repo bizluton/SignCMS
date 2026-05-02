@@ -1070,9 +1070,6 @@ const MediaPage = () => {
           event.target.value = "";
           return;
         }
-        if (spec.ok && spec.warning === "tooSmall") {
-          toast.warning(t("mediaImageSpecTooSmall") as string);
-        }
       }
 
       if (isVideo) {

@@ -35,8 +35,8 @@ export interface UploadMediaResult {
   errorDetail?: string;
   /** Original filename of the duplicate (when errorCode === 'duplicate_file'). */
   duplicateName?: string;
-  /** Soft warning (e.g. image under 3 MB) — caller may show as toast.warning. */
-  warning?: "image_too_small" | "image_auto_converted";
+  /** Soft warning (image was auto-converted to WebP) — caller may show as toast.warning. */
+  warning?: "image_auto_converted";
 }
 
 export interface UploadMediaOptions {
@@ -115,8 +115,6 @@ export async function uploadMediaFile(
         : "image_cmyk";
       return { ok: false, errorCode: code, errorDetail: spec.detail };
     }
-    if (spec.ok && spec.warning === "tooSmall" && !warning) warning = "image_too_small";
-
     // Convert to WebP for better compression (skip if already WebP or normalization already ran).
     if (workingFile.type !== "image/webp") {
       const webpFile = await convertToWebP(workingFile);

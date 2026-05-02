@@ -71,12 +71,11 @@ export function isAcceptableAudio(file: File): boolean {
 export const IMAGE_SPEC = {
   maxWidth: 3840,
   maxHeight: 2160,
-  minBytes: 3 * 1024 * 1024, // 3 MB（軟性建議下限）
   maxBytes: 5 * 1024 * 1024, // 5 MB（硬性上限）
 } as const;
 
 export type ImageSpecCheck =
-  | { ok: true; warning?: "tooSmall" }
+  | { ok: true }
   | { ok: false; reason: "resolution" | "tooLarge" | "cmyk"; detail: string };
 
 /**
@@ -131,7 +130,7 @@ export async function validateImageSpec(
   file: File,
   meta: { width: number; height: number },
 ): Promise<ImageSpecCheck> {
-  const { maxWidth, maxHeight, minBytes, maxBytes } = IMAGE_SPEC;
+  const { maxWidth, maxHeight, maxBytes } = IMAGE_SPEC;
 
   if (file.size > maxBytes) {
     const mb = (file.size / (1024 * 1024)).toFixed(1);
@@ -154,7 +153,6 @@ export async function validateImageSpec(
     if (cmyk) return { ok: false, reason: "cmyk", detail: "CMYK / YCCK" };
   }
 
-  if (file.size < minBytes) return { ok: true, warning: "tooSmall" };
   return { ok: true };
 }
 
