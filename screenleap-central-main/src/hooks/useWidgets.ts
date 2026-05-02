@@ -88,6 +88,17 @@ export function useWidgets() {
 
   useEffect(() => { reload(); }, [reload]);
 
+  // Real-time: reload whenever widgets or org exclusions change so all hook
+  // instances (MediaPage, ContentStudioPage, etc.) stay in sync automatically.
+  useEffect(() => {
+    const channel = supabase
+      .channel("useWidgets-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "widgets" }, () => { void reload(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "widget_org_exclusions" }, () => { void reload(); })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [reload]);
+
   return { widgets, loading, reload };
 }
 

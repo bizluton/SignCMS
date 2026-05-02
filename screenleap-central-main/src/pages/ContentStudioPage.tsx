@@ -3807,6 +3807,7 @@ export default function ContentStudioPage() {
       .from("media_items")
       .select("id, name, url, created_at")
       .eq("type", "widget")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
     if (activeOrgId) {
@@ -3825,6 +3826,15 @@ export default function ContentStudioPage() {
   }, [activeOrgId, t, catalogWidgets]);
 
   useEffect(() => { loadMedia(); }, [loadMedia]);
+
+  // Real-time: reload media list when any media_item changes (soft-delete, upload, rename)
+  useEffect(() => {
+    const channel = supabase
+      .channel("studio-media-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "media_items" }, () => { void loadMedia(); })
+      .subscribe();
+    return () => { void supabase.removeChannel(channel); };
+  }, [loadMedia]);
 
   // Load projects list
   const loadProjects = useCallback(async () => {
