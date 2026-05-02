@@ -1298,7 +1298,8 @@ const MediaPage = () => {
 
   const requestDelete = async (itemId: string) => {
     const item = media.find((m) => m.id === itemId);
-    if (item?.is_system) {
+    // System admins can delete any catalog widget; others cannot touch is_system rows
+    if (item?.is_system && !(isAdmin && isCatalogWidgetId(itemId))) {
       toast.error(t("widgetSystemCannotDelete"));
       return;
     }
@@ -1929,7 +1930,7 @@ const MediaPage = () => {
                       {t("transcodeStatusFailed")}
                     </Badge>
                   )}
-                  {item.type === "widget" && !item.is_system && canManageMedia && !selectMode && (
+                  {item.type === "widget" && (!item.is_system || (isAdmin && isCatalogWidgetId(item.id))) && canManageMedia && !selectMode && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
                       <Button
                         variant="destructive"
@@ -2093,7 +2094,7 @@ const MediaPage = () => {
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); openPreview(item); }} title={t("mediaTitle")}>
                     <Eye className="w-4 h-4" />
                   </Button>
-                  {canManageMedia && !item.is_system && (
+                  {canManageMedia && (!item.is_system || (isAdmin && isCatalogWidgetId(item.id))) && (
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); requestDelete(item.id); }} title={t("mediaDeleteItem")}>
                       <Trash2 className="w-4 h-4" />
                     </Button>
@@ -2286,7 +2287,7 @@ const MediaPage = () => {
                 />
               </div>
             )}
-            {canManageMedia && previewItem && !previewItem.is_system && (
+            {canManageMedia && previewItem && (!previewItem.is_system || (isAdmin && isCatalogWidgetId(previewItem.id))) && (
               <div className="flex justify-end">
                 <Button variant="destructive" size="sm" className="gap-2" onClick={() => { requestDelete(previewItem.id); setPreviewItem(null); }}>
                   <Trash2 className="w-4 h-4" />
