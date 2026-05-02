@@ -35,8 +35,6 @@ export interface UploadMediaResult {
   errorDetail?: string;
   /** Original filename of the duplicate (when errorCode === 'duplicate_file'). */
   duplicateName?: string;
-  /** Soft warning (image was auto-converted to WebP) — caller may show as toast.warning. */
-  warning?: "image_auto_converted";
 }
 
 export interface UploadMediaOptions {
@@ -77,7 +75,6 @@ export async function uploadMediaFile(
   let width = 0;
   let height = 0;
   let durationSec = 0;
-  let warning: UploadMediaResult["warning"];
 
   if (isImage) {
     const probeImage = (f: File) =>
@@ -102,7 +99,6 @@ export async function uploadMediaFile(
         width = imgMeta.w;
         height = imgMeta.h;
         spec = await validateImageSpec(workingFile, { width: imgMeta.w, height: imgMeta.h });
-        if (spec.ok !== false) warning = "image_auto_converted";
       } else {
         return { ok: false, errorCode: "image_auto_convert_failed" };
       }
@@ -118,10 +114,7 @@ export async function uploadMediaFile(
     // Convert to WebP for better compression (skip if already WebP or normalization already ran).
     if (workingFile.type !== "image/webp") {
       const webpFile = await convertToWebP(workingFile);
-      if (webpFile) {
-        workingFile = webpFile;
-        if (!warning) warning = "image_auto_converted";
-      }
+      if (webpFile) workingFile = webpFile;
     }
   }
 
@@ -231,7 +224,6 @@ export async function uploadMediaFile(
         original_name: options.displayName?.trim() || file.name,
         type: isImage ? "image" : "video",
       },
-      warning,
     };
   } catch (err) {
     return { ok: false, errorCode: "network", errorDetail: err instanceof Error ? err.message : String(err) };

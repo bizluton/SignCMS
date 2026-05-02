@@ -787,7 +787,6 @@ function MediaLibraryDock({
         toast.error(`${file.name}：${msg}`);
         continue;
       }
-      if (result.warning === "image_auto_converted") toast.success(t("mediaImageAutoConverted"));
       successCount++;
       lastUploadedId = result.data!.id;
       lastFileName = file.name;
@@ -2476,7 +2475,6 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
         toast.error(`${file.name}：${msg}`);
         continue;
       }
-      if (result.warning === "image_auto_converted") toast.success(t("mediaImageAutoConverted"));
       successCount++;
       lastUploadedId = result.data!.id;
       lastFileName = file.name;

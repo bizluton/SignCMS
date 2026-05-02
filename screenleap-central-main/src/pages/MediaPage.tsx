@@ -1049,9 +1049,6 @@ const MediaPage = () => {
             width = imgMeta.w;
             height = imgMeta.h;
             spec = await validateImageSpec(workingFile, { width: imgMeta.w, height: imgMeta.h });
-            if (spec.ok !== false) {
-              toast.success(t("mediaImageAutoConverted") as string);
-            }
           } else {
             toast.error(t("mediaImageAutoConvertFailed") as string);
             setUploading(false);
