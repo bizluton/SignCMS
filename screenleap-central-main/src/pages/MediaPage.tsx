@@ -1473,6 +1473,7 @@ const MediaPage = () => {
         name, type: "widget",
         url: "widget://" + JSON.stringify(selected.config),
         thumbnail: selected.thumbnail || "",
+        transcode_status: "ready",
         uploaded_by: user?.id,
         org_id: widgetOrgId,
       });
@@ -1497,6 +1498,7 @@ const MediaPage = () => {
         name: widgetForm.name.trim(), type: "widget",
         url: "widget://" + JSON.stringify(config),
         thumbnail: "",
+        transcode_status: "ready",
         uploaded_by: user?.id,
         org_id: widgetOrgId,
       });
