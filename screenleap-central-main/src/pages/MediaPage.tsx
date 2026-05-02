@@ -95,7 +95,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
-import { useWidgets, widgetsToMediaRows } from "@/hooks/useWidgets";
+import { useWidgets, widgetsToMediaRows, isCatalogWidgetId } from "@/hooks/useWidgets";
 
 type MediaType = "image" | "video" | "widget" | "audio";
 
@@ -395,7 +395,7 @@ const MediaPage = () => {
   const canManageMedia = !license?.expired && (isAdmin || isOrgAdmin || isCsAgent || (orgs && orgs.length > 0));
   const { activeOrgId } = useActiveOrg();
   const { ensureProfiles, getProfile, profilesVersion } = useProfiles();
-  const { widgets: catalogWidgets } = useWidgets();
+  const { widgets: catalogWidgets, reload: reloadWidgets } = useWidgets();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1347,6 +1347,24 @@ const MediaPage = () => {
     if (deleteUsage && (deleteUsage.schedules.length > 0 || deleteUsage.projects.length > 0)) return;
 
     const item = media.find((entry) => entry.id === deleteId);
+
+    if (isCatalogWidgetId(deleteId)) {
+      // Hard-delete the org-scope catalog widget from the widgets table
+      const dbId = deleteId.slice("cat-widget-".length);
+      const { error } = await supabase.from("widgets").delete().eq("id", dbId);
+      if (error) {
+        toast.error(error.message);
+      } else {
+        toast.success(`${t("mediaDeleted")}：${item?.name || ""}`);
+        setDeleteId(null);
+        setDeleteUsage(null);
+        if (previewItem?.id === deleteId) setPreviewItem(null);
+        await reloadWidgets();
+        fetchAll();
+      }
+      return;
+    }
+
     // Soft-delete: mark as trashed instead of hard-deleting. Items remain
     // restorable for 7 days from the trash dialog. Physical storage files are
     // kept intact until the trash entry is restored or purged.

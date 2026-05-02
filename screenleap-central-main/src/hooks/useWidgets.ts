@@ -98,7 +98,7 @@ export function widgetsToMediaRows(widgets: CatalogWidget[], orgId: string | nul
     duration_seconds: null as number | null,
     created_at: w.created_at,
     design_project_id: null as string | null,
-    is_system: true, // catalog widgets are read-only in MediaPage list
+    is_system: w.scope === "system", // user-scope catalog widgets can be deleted
     catalog_scope: w.scope,
     org_id: orgId || "",
     md5: null as string | null,
