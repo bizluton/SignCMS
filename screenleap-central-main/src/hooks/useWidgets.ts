@@ -48,29 +48,40 @@ export function useWidgets() {
   const reload = useCallback(async () => {
     setLoading(true);
     // RLS already filters: system + app are visible to all; user-scope only own org
-    const { data, error } = await supabase
-      .from("widgets")
-      .select("id, scope, name, name_i18n, widget_type, config, thumbnail, app_id, org_id, sort_order, created_at, updated_at, created_by")
-      .order("scope", { ascending: true })
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: false });
+    const [widgetRes, exclusionRes] = await Promise.all([
+      supabase
+        .from("widgets")
+        .select("id, scope, name, name_i18n, widget_type, config, thumbnail, app_id, org_id, sort_order, created_at, updated_at, created_by")
+        .order("scope", { ascending: true })
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: false }),
+      activeOrgId
+        ? supabase.from("widget_org_exclusions").select("widget_id").eq("org_id", activeOrgId)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
 
-    if (error) {
+    if (widgetRes.error) {
       setWidgets([]);
       setLoading(false);
       return;
     }
 
-    const mapped: CatalogWidget[] = ((data || []) as WidgetRow[]).map((r) => ({
-      id: r.id,
-      scope: r.scope,
-      name: pickName(r, language),
-      config: r.config || {},
-      thumbnail: r.thumbnail || "",
-      app_id: r.app_id,
-      org_id: r.org_id,
-      created_at: r.scope === "system" ? SYSTEM_CREATED_AT : r.created_at,
-    }));
+    const hiddenIds = new Set(
+      ((exclusionRes.data || []) as Array<{ widget_id: string }>).map((e) => e.widget_id)
+    );
+
+    const mapped: CatalogWidget[] = ((widgetRes.data || []) as WidgetRow[])
+      .filter((r) => !hiddenIds.has(r.id))
+      .map((r) => ({
+        id: r.id,
+        scope: r.scope,
+        name: pickName(r, language),
+        config: r.config || {},
+        thumbnail: r.thumbnail || "",
+        app_id: r.app_id,
+        org_id: r.org_id,
+        created_at: r.scope === "system" ? SYSTEM_CREATED_AT : r.created_at,
+      }));
     setWidgets(mapped);
     setLoading(false);
   }, [language, activeOrgId]);

@@ -1298,12 +1298,18 @@ const MediaPage = () => {
 
   const requestDelete = async (itemId: string) => {
     const item = media.find((m) => m.id === itemId);
-    // System admins can delete any catalog widget; others cannot touch is_system rows
+    // System admins can hide/delete any catalog widget; others cannot touch is_system rows
     if (item?.is_system && !(isAdmin && isCatalogWidgetId(itemId))) {
       toast.error(t("widgetSystemCannotDelete"));
       return;
     }
     setDeleteId(itemId);
+    // Catalog widgets are not stored in media_items — skip usage check
+    if (isCatalogWidgetId(itemId)) {
+      setCheckingUsage(false);
+      setDeleteUsage(null);
+      return;
+    }
     await checkMediaUsage(itemId);
   };
 
@@ -1350,18 +1356,37 @@ const MediaPage = () => {
     const item = media.find((entry) => entry.id === deleteId);
 
     if (isCatalogWidgetId(deleteId)) {
-      // Hard-delete the org-scope catalog widget from the widgets table
       const dbId = deleteId.slice("cat-widget-".length);
-      const { error } = await supabase.from("widgets").delete().eq("id", dbId);
-      if (error) {
-        toast.error(error.message);
+
+      if (item?.is_system) {
+        // System/app-scope widget: insert an org-level exclusion record instead of deleting
+        if (!activeOrgId) { toast.error("No active org"); return; }
+        const { error } = await supabase
+          .from("widget_org_exclusions")
+          .insert({ widget_id: dbId, org_id: activeOrgId, created_by: user?.id });
+        if (error) {
+          toast.error(error.message);
+        } else {
+          toast.success(`${t("widgetHiddenForOrg")}：${item?.name || ""}`);
+          setDeleteId(null);
+          setDeleteUsage(null);
+          if (previewItem?.id === deleteId) setPreviewItem(null);
+          await reloadWidgets();
+          fetchAll();
+        }
       } else {
-        toast.success(`${t("mediaDeleted")}：${item?.name || ""}`);
-        setDeleteId(null);
-        setDeleteUsage(null);
-        if (previewItem?.id === deleteId) setPreviewItem(null);
-        await reloadWidgets();
-        fetchAll();
+        // User-scope widget: hard-delete from the widgets table
+        const { error } = await supabase.from("widgets").delete().eq("id", dbId);
+        if (error) {
+          toast.error(error.message);
+        } else {
+          toast.success(`${t("mediaDeleted")}：${item?.name || ""}`);
+          setDeleteId(null);
+          setDeleteUsage(null);
+          if (previewItem?.id === deleteId) setPreviewItem(null);
+          await reloadWidgets();
+          fetchAll();
+        }
       }
       return;
     }
@@ -2299,55 +2324,53 @@ const MediaPage = () => {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={deleteId !== null} onOpenChange={(open) => { if (!open) { setDeleteId(null); setDeleteUsage(null); } }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("mediaDeleteConfirm")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {checkingUsage ? (
-                <span className="flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />{t("mediaCheckingUsage")}</span>
-              ) : deleteUsage && (deleteUsage.schedules.length > 0 || deleteUsage.projects.length > 0) ? (
-                <div className="space-y-2">
-                  <p className="text-destructive font-medium">{t("mediaInUseWarning")}</p>
-                  {deleteUsage.projects.length > 0 && (
-                    <div>
-                      <p className="text-xs text-muted-foreground">{t("mediaUsedInProjects")}：</p>
-                      <ul className="list-disc list-inside text-sm">{deleteUsage.projects.map((n) => <li key={n}>{n}</li>)}</ul>
-                      <Link
-                        to="/studio"
-                        className="inline-block mt-1 text-xs text-primary hover:underline"
-                      >
-                        {t("mediaInUseGoStudio")} →
-                      </Link>
+      {(() => {
+        const hidingSystemWidget = !!(deleteId && isCatalogWidgetId(deleteId) && media.find((m) => m.id === deleteId)?.is_system);
+        return (
+          <AlertDialog open={deleteId !== null} onOpenChange={(open) => { if (!open) { setDeleteId(null); setDeleteUsage(null); } }}>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{hidingSystemWidget ? t("widgetHideForOrgTitle") : t("mediaDeleteConfirm")}</AlertDialogTitle>
+                <AlertDialogDescription>
+                  {checkingUsage ? (
+                    <span className="flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />{t("mediaCheckingUsage")}</span>
+                  ) : deleteUsage && (deleteUsage.schedules.length > 0 || deleteUsage.projects.length > 0) ? (
+                    <div className="space-y-2">
+                      <p className="text-destructive font-medium">{t("mediaInUseWarning")}</p>
+                      {deleteUsage.projects.length > 0 && (
+                        <div>
+                          <p className="text-xs text-muted-foreground">{t("mediaUsedInProjects")}：</p>
+                          <ul className="list-disc list-inside text-sm">{deleteUsage.projects.map((n) => <li key={n}>{n}</li>)}</ul>
+                          <Link to="/studio" className="inline-block mt-1 text-xs text-primary hover:underline">{t("mediaInUseGoStudio")} →</Link>
+                        </div>
+                      )}
+                      {deleteUsage.schedules.length > 0 && (
+                        <div>
+                          <p className="text-xs text-muted-foreground">{t("mediaUsedInSchedules")}：</p>
+                          <ul className="list-disc list-inside text-sm">{deleteUsage.schedules.map((n) => <li key={n}>{n}</li>)}</ul>
+                          <Link to="/schedules" className="inline-block mt-1 text-xs text-primary hover:underline">{t("mediaInUseGoSchedules")} →</Link>
+                        </div>
+                      )}
                     </div>
+                  ) : hidingSystemWidget ? (
+                    <span>{t("widgetHideForOrgDesc")}</span>
+                  ) : (
+                    t("mediaDeleteDesc")
                   )}
-                  {deleteUsage.schedules.length > 0 && (
-                    <div>
-                      <p className="text-xs text-muted-foreground">{t("mediaUsedInSchedules")}：</p>
-                      <ul className="list-disc list-inside text-sm">{deleteUsage.schedules.map((n) => <li key={n}>{n}</li>)}</ul>
-                      <Link
-                        to="/schedules"
-                        className="inline-block mt-1 text-xs text-primary hover:underline"
-                      >
-                        {t("mediaInUseGoSchedules")} →
-                      </Link>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                t("mediaDeleteDesc")
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
-            {(!deleteUsage || (deleteUsage.schedules.length === 0 && deleteUsage.projects.length === 0)) && !checkingUsage && (
-              <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                {t("confirmDelete")}
-              </AlertDialogAction>
-            )}
-          </AlertDialogFooter>
-        </AlertDialogContent>
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+                {(!deleteUsage || (deleteUsage.schedules.length === 0 && deleteUsage.projects.length === 0)) && !checkingUsage && (
+                  <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                    {hidingSystemWidget ? t("widgetHideForOrgConfirm") : t("confirmDelete")}
+                  </AlertDialogAction>
+                )}
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        );
+      })()}
       </AlertDialog>
 
       {/* Widget Creation Dialog */}
