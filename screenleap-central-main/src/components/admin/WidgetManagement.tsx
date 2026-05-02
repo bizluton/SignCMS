@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import JSZip from "jszip";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
@@ -15,9 +16,11 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { toast } from "sonner";
-import { Loader2, Plus, Pencil, Trash2, Code2 } from "lucide-react";
+import {
+  Loader2, Plus, Trash2, Code2, Settings, Upload,
+  Clock, Calendar, Globe, AlignLeft, QrCode, Timer, Play, Cloud,
+} from "lucide-react";
 import { logActivity } from "@/lib/activityLogger";
 
 interface WidgetRow {
@@ -39,6 +42,13 @@ const WIDGET_TYPES = [
   "qrcode", "countdown", "youtube", "weather",
 ];
 
+const WIDGET_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  clock: Clock, date: Calendar, webpage: Globe, marquee: AlignLeft,
+  qrcode: QrCode, countdown: Timer, youtube: Play, weather: Cloud,
+};
+
+const THUMBNAIL_MAX_BYTES = 200 * 1024; // 200 KB
+
 const emptyForm = {
   name: "",
   name_zh: "",
@@ -50,10 +60,71 @@ const emptyForm = {
   sort_order: 0,
 };
 
+// ── Widget Card ──────────────────────────────────────────────────────────────
+function WidgetCard({
+  row,
+  onEdit,
+  onDelete,
+}: {
+  row: WidgetRow;
+  onEdit: (r: WidgetRow) => void;
+  onDelete: (id: string) => void;
+}) {
+  const Icon = WIDGET_ICONS[row.widget_type] ?? Code2;
+  return (
+    <div className="group relative rounded-xl border bg-card overflow-hidden hover:shadow-md transition-all">
+      {/* Thumbnail / icon area */}
+      <div className="aspect-video relative overflow-hidden bg-muted">
+        {row.thumbnail ? (
+          <img
+            src={row.thumbnail}
+            alt={row.name}
+            className="w-full h-full object-cover"
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
+            <Icon className="w-9 h-9 text-slate-400" />
+          </div>
+        )}
+        {/* Action buttons — appear on hover */}
+        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
+        <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-7 w-7 shadow-sm"
+            onClick={() => onEdit(row)}
+            title="設定"
+          >
+            <Settings className="w-3.5 h-3.5" />
+          </Button>
+          <Button
+            variant="destructive"
+            size="icon"
+            className="h-7 w-7 shadow-sm"
+            onClick={() => onDelete(row.id)}
+            title="刪除"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+      </div>
+      {/* Footer */}
+      <div className="px-3 py-2.5 flex items-center justify-between gap-2">
+        <span className="text-sm font-medium truncate leading-tight">{row.name}</span>
+        <Badge variant="secondary" className="text-xs shrink-0">{row.widget_type}</Badge>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
 export default function WidgetManagement() {
   const { t } = useLanguage();
   const { user } = useAuth();
   const { isSystemAdmin } = useIsSystemAdmin();
+  const zipInputRef = useRef<HTMLInputElement>(null);
 
   const [rows, setRows] = useState<WidgetRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,6 +132,7 @@ export default function WidgetManagement() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const reload = async () => {
@@ -78,6 +150,96 @@ export default function WidgetManagement() {
 
   useEffect(() => { reload(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
+  // ── Zip import ─────────────────────────────────────────────────────────────
+  const handleZipFile = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      toast.error("請選擇 .zip 檔案");
+      return;
+    }
+    setImporting(true);
+    try {
+      const zip = await JSZip.loadAsync(file);
+
+      // Read manifest.json
+      const manifestFile = zip.file("manifest.json");
+      if (!manifestFile) {
+        toast.error(t("widgetMgmtZipNoManifest"));
+        return;
+      }
+      let manifest: Record<string, unknown>;
+      try {
+        manifest = JSON.parse(await manifestFile.async("string")) as Record<string, unknown>;
+      } catch {
+        toast.error(t("widgetMgmtZipInvalidManifest"));
+        return;
+      }
+
+      const name = (manifest.name as string)?.trim();
+      const widgetType = (manifest.widget_type as string)?.trim();
+      const config = manifest.config;
+
+      if (!name || !widgetType || !config || typeof config !== "object") {
+        toast.error(t("widgetMgmtZipInvalidManifest"));
+        return;
+      }
+      if (!WIDGET_TYPES.includes(widgetType)) {
+        toast.error(`${t("widgetMgmtZipInvalidType")}: ${widgetType}`);
+        return;
+      }
+
+      // Optional thumbnail — first matching image file at root
+      let thumbnail = "";
+      const thumbEntry = zip.file(/^thumbnail\.(png|jpe?g|webp)$/i)[0];
+      if (thumbEntry) {
+        const blob = await thumbEntry.async("blob");
+        if (blob.size > THUMBNAIL_MAX_BYTES) {
+          toast.warning(t("widgetMgmtZipThumbnailSkipped"));
+        } else {
+          thumbnail = await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+          });
+        }
+      }
+
+      // name_i18n — optional; fall back to name
+      const rawI18n = manifest.name_i18n as Record<string, string> | undefined;
+      const name_i18n = {
+        zh: rawI18n?.zh?.trim() || name,
+        en: rawI18n?.en?.trim() || name,
+        ja: rawI18n?.ja?.trim() || name,
+      };
+
+      const payload = {
+        scope: "system",
+        name,
+        name_i18n,
+        widget_type: widgetType,
+        config: config as Record<string, unknown>,
+        thumbnail,
+        app_id: null,
+        sort_order: Number(manifest.sort_order) || 0,
+        created_by: user?.id,
+      };
+
+      const { error } = await supabase.from("widgets").insert(payload);
+      if (error) {
+        toast.error(error.message);
+      } else {
+        toast.success(`${t("widgetMgmtZipImported")}：${name}`);
+        logActivity({ action: "create_widget", category: "admin", targetName: name });
+        reload();
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImporting(false);
+      if (zipInputRef.current) zipInputRef.current.value = "";
+    }
+  };
+
+  // ── Create / Edit ──────────────────────────────────────────────────────────
   const openCreate = () => {
     setEditing(null);
     setForm({ ...emptyForm });
@@ -144,6 +306,7 @@ export default function WidgetManagement() {
     setSaving(false);
   };
 
+  // ── Delete ─────────────────────────────────────────────────────────────────
   const handleDelete = async () => {
     if (!deleteId) return;
     const row = rows.find((r) => r.id === deleteId);
@@ -177,52 +340,56 @@ export default function WidgetManagement() {
         <CardDescription>{t("widgetMgmtDesc")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex justify-end">
+        {/* Toolbar */}
+        <div className="flex items-center justify-end gap-2">
+          {/* Hidden zip input */}
+          <input
+            ref={zipInputRef}
+            type="file"
+            accept=".zip"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleZipFile(f);
+            }}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={importing}
+            onClick={() => zipInputRef.current?.click()}
+          >
+            {importing
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <Upload className="w-4 h-4" />}
+            {t("widgetMgmtUploadZip")}
+          </Button>
           <Button size="sm" onClick={openCreate} className="gap-1.5">
             <Plus className="w-4 h-4" />{t("widgetMgmtCreate")}
           </Button>
         </div>
 
+        {/* Card grid */}
         {loading ? (
-          <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
         ) : rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-6 text-center">{t("widgetMgmtEmpty")}</p>
+          <div className="flex flex-col items-center gap-3 py-14 text-muted-foreground">
+            <Code2 className="w-10 h-10 opacity-30" />
+            <p className="text-sm">{t("widgetMgmtEmpty")}</p>
+          </div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("widgetMgmtName")}</TableHead>
-                <TableHead>{t("widgetMgmtType")}</TableHead>
-                <TableHead className="w-24">{t("widgetMgmtOrder")}</TableHead>
-                <TableHead className="w-28 text-right">{t("widgetMgmtActions")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell>
-                    <div className="font-medium">{r.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {Object.entries(r.name_i18n || {}).map(([k, v]) => `${k}:${v}`).join(" · ")}
-                    </div>
-                  </TableCell>
-                  <TableCell><Badge variant="secondary">{r.widget_type}</Badge></TableCell>
-                  <TableCell>{r.sort_order}</TableCell>
-                  <TableCell className="text-right">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(r)}>
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeleteId(r.id)}>
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {rows.map((r) => (
+              <WidgetCard key={r.id} row={r} onEdit={openEdit} onDelete={setDeleteId} />
+            ))}
+          </div>
         )}
       </CardContent>
 
+      {/* Edit / Create dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -261,15 +428,36 @@ export default function WidgetManagement() {
               </div>
             </div>
 
-            <div>
-              <Label>{t("widgetMgmtOrder")}</Label>
-              <Input type="number" value={form.sort_order} onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })} />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>{t("widgetMgmtOrder")}</Label>
+                <Input
+                  type="number"
+                  value={form.sort_order}
+                  onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <Label>{t("widgetMgmtThumbnail")}</Label>
+                <Input
+                  value={form.thumbnail}
+                  onChange={(e) => setForm({ ...form, thumbnail: e.target.value })}
+                  placeholder="https://..."
+                />
+              </div>
             </div>
 
-            <div>
-              <Label>{t("widgetMgmtThumbnail")}</Label>
-              <Input value={form.thumbnail} onChange={(e) => setForm({ ...form, thumbnail: e.target.value })} placeholder="https://..." />
-            </div>
+            {/* Thumbnail preview */}
+            {form.thumbnail && (
+              <div className="rounded-lg overflow-hidden border w-full aspect-video bg-muted">
+                <img
+                  src={form.thumbnail}
+                  alt="thumbnail preview"
+                  className="w-full h-full object-cover"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                />
+              </div>
+            )}
 
             <div>
               <Label>{t("widgetMgmtConfig")} (JSON)</Label>
@@ -291,6 +479,7 @@ export default function WidgetManagement() {
         </DialogContent>
       </Dialog>
 
+      {/* Delete confirm */}
       <AlertDialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
