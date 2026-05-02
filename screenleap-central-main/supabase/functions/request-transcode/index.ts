@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         input: [{ url: item.url }],
         playback_policy: ["public"],
-        mp4_support: "standard",
+        mp4_support: "capped-1080p",
         passthrough: mediaId,
       }),
     });
