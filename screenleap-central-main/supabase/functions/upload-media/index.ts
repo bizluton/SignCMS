@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.99.3";
+import { Image } from "https://deno.land/x/imagescript@1.2.15/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -24,7 +25,6 @@ function bytesToHuman(b: number): string {
 
 async function tryOptimizeWebP(bytes: Uint8Array): Promise<Uint8Array | null> {
   try {
-    const { Image } = await import("https://deno.land/x/imagescript@1.2.15/mod.ts");
     const img = await Image.decode(bytes);
     const webp = new Uint8Array(await img.encodeWebP(85));
     // Only use WebP if it saves ≥5%
