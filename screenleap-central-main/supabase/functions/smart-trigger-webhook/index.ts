@@ -2,6 +2,7 @@
 // Resolves effective rules for a screen as:
 //   (org rules NOT disabled by per-screen override) UNION (screen-specific rules linked to the screen)
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { mqttPublish, topicTrigger, type MqttMessage } from "../_shared/mqttPublish.ts";
 
 // ─── Module-level rule cache ────────────────────────────────────────────────
 // Deno isolate instances handle multiple requests, so module-level Maps persist
@@ -365,6 +366,30 @@ Deno.serve(async (req) => {
     if (logRows.length > 0) {
       await supabase.from("smart_trigger_logs").insert(logRows);
       console.log(`${debugTag} fired ${logRows.length} rule(s)`, fired.map((r) => ({ id: r.id, name: r.name })));
+
+      // Push trigger event via MQTT — fire-and-forget, must not block response.
+      // If screen_id is null the trigger is org-wide; publish to broadcast topic
+      // so every screen subscribed to the org receives it.
+      const triggerMsg: MqttMessage = {
+        v: 1,
+        type: "trigger",
+        ts: new Date().toISOString(),
+        org_id: body.org_id,
+        screen_id: body.screen_id ?? null,
+        payload: {
+          rules: fired.map((r) => ({
+            rule_id:          r.id,
+            trigger_key:      r.trigger_key ?? null,
+            design_id:        r.target_design_project_id ?? null,
+            duration_seconds: r.duration_seconds ?? 30,
+          })),
+        },
+      };
+      void mqttPublish(
+        topicTrigger(body.org_id, body.screen_id ?? null),
+        triggerMsg,
+        { retain: false, qos: 0 },
+      );
     }
 
     // Log cooldown skips (success=false, error_message=cooldown_active)
