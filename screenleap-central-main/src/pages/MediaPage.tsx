@@ -2371,7 +2371,6 @@ const MediaPage = () => {
           </AlertDialog>
         );
       })()}
-      </AlertDialog>
 
       {/* Widget Creation Dialog */}
       <Dialog open={widgetDialogOpen} onOpenChange={(open) => {
