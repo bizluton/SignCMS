@@ -1172,13 +1172,14 @@ const MediaPage = () => {
       // Compute MD5 of the file (used as the storage filename + duplicate-detection key)
       const md5 = await computeFileMd5(workingFile);
 
-      // Pre-check duplicate within the same org BEFORE uploading
+      // Pre-check duplicate within the same org BEFORE uploading (exclude soft-deleted records)
       const dup = await supabase
         .from("media_items")
         .select("id, original_name")
         .eq("org_id", uploadOrgId)
         .eq("md5", md5)
         .eq("size_bytes", workingFile.size)
+        .is("deleted_at", null)
         .limit(1)
         .maybeSingle();
 
