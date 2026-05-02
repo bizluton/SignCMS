@@ -1821,7 +1821,9 @@ const MediaPage = () => {
                 )}
                 <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden relative">
                   {item.type === "widget" && item.url ? (
-                    (() => { const c = parseWidgetConfig(item.url); return c ? <WidgetPreviewCard config={c} /> : <Code2 className="w-10 h-10 text-muted-foreground" />; })()
+                    item.thumbnail
+                      ? <img src={item.thumbnail} alt={displayName} className="w-full h-full object-cover" />
+                      : (() => { const c = parseWidgetConfig(item.url); return c ? <WidgetPreviewCard config={c} /> : <Code2 className="w-10 h-10 text-muted-foreground" />; })()
                   ) : item.type === "image" && item.url ? (
                     <img
                       src={item.thumbnail || item.url}
@@ -1954,7 +1956,9 @@ const MediaPage = () => {
                 )}
                 <div className="relative flex h-12 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted">
                   {item.type === "widget" && item.url ? (
-                    (() => { const c = parseWidgetConfig(item.url); return c ? <WidgetPreviewCard config={c} /> : <Code2 className="w-6 h-6 text-muted-foreground" />; })()
+                    item.thumbnail
+                      ? <img src={item.thumbnail} alt={displayName} className="w-full h-full object-cover" />
+                      : (() => { const c = parseWidgetConfig(item.url); return c ? <WidgetPreviewCard config={c} /> : <Code2 className="w-6 h-6 text-muted-foreground" />; })()
                   ) : item.type === "image" && item.url ? (
                     <img
                       src={item.thumbnail || item.url}
@@ -2190,7 +2194,21 @@ const MediaPage = () => {
                   <span className="text-xs">{t("mediaReading")}</span>
                 </div>
               ) : previewItem?.type === "widget" ? (
-                (() => { const c = parseWidgetConfig(previewItem.url); return c ? <WidgetPreviewCard config={c} /> : <Code2 className="w-16 h-16 opacity-30" />; })()
+                (() => {
+                  const c = parseWidgetConfig(previewItem.url);
+                  if (!c) return <Code2 className="w-16 h-16 opacity-30" />;
+                  if (c.widgetType === "webpage" && c.url) {
+                    return (
+                      <iframe
+                        src={c.url}
+                        className="w-full h-full border-0"
+                        title={getDisplayName(previewItem)}
+                        sandbox="allow-scripts allow-same-origin"
+                      />
+                    );
+                  }
+                  return <WidgetPreviewCard config={c} />;
+                })()
               ) : previewItem?.type === "image" && previewItem.url ? (
                 <img src={previewItem.url} alt={getDisplayName(previewItem)} className="h-full w-full object-contain" />
               ) : previewItem?.type === "video" && previewItem.url ? (
