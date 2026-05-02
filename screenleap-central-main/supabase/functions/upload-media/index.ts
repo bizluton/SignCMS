@@ -7,6 +7,8 @@ const corsHeaders = {
 };
 
 const BUCKET = "media";
+const OPTIMIZABLE_IMAGE_TYPES = new Set(["image/jpeg", "image/jpg", "image/png"]);
+const MIN_OPTIMIZE_BYTES = 50_000; // skip files under 50 KB
 
 function safeName(name: string): string {
   // Strip path components, keep ascii/digits/dot/dash/underscore.
@@ -18,6 +20,19 @@ function bytesToHuman(b: number): string {
   if (b < 1024) return `${b} B`;
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
   return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function tryOptimizeWebP(bytes: Uint8Array): Promise<Uint8Array | null> {
+  try {
+    const { Image } = await import("https://deno.land/x/imagescript@1.2.15/mod.ts");
+    const img = await Image.decode(bytes);
+    const webp = new Uint8Array(await img.encodeWebP(85));
+    // Only use WebP if it saves ≥5%
+    return webp.byteLength < bytes.byteLength * 0.95 ? webp : null;
+  } catch (e) {
+    console.warn("[optimize] skipped:", (e as Error).message?.slice(0, 100));
+    return null;
+  }
 }
 
 Deno.serve(async (req) => {
@@ -140,13 +155,12 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Server-side duplicate check (org-scoped)
+    // Server-side duplicate check (org-scoped, md5 only — size may differ after optimization)
     const { data: dupRow } = await supabase
       .from("media_items")
       .select("id, original_name")
       .eq("org_id", orgId)
       .eq("md5", md5)
-      .eq("size_bytes", file.size)
       .limit(1)
       .maybeSingle();
 
@@ -160,15 +174,32 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Storage path uses MD5 as filename for cross-user dedup-friendliness; ext is preserved.
     const ext = (file.name.split(".").pop() || "").toLowerCase();
-    const storagePath = `${orgId}/${md5}${ext ? "." + ext : ""}`;
     const mimeType = file.type || "application/octet-stream";
+
+    // Attempt WebP conversion for JPEG/PNG images large enough to benefit
+    let fileBytes = new Uint8Array(await file.arrayBuffer());
+    let finalMime = mimeType;
+    let finalExt = ext;
+
+    if (OPTIMIZABLE_IMAGE_TYPES.has(mimeType) && file.size >= MIN_OPTIMIZE_BYTES) {
+      const optimized = await tryOptimizeWebP(fileBytes);
+      if (optimized) {
+        const saving = Math.round((1 - optimized.byteLength / fileBytes.byteLength) * 100);
+        console.log(`[optimize] ${originalName}: ${bytesToHuman(file.size)} → ${bytesToHuman(optimized.byteLength)} (−${saving}%)`);
+        fileBytes = optimized;
+        finalMime = "image/webp";
+        finalExt = "webp";
+      }
+    }
+
+    // Storage path uses MD5 as filename for cross-user dedup-friendliness; ext reflects final format.
+    const storagePath = `${orgId}/${md5}${finalExt ? "." + finalExt : ""}`;
 
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
-      .upload(storagePath, file, {
-        contentType: mimeType,
+      .upload(storagePath, fileBytes, {
+        contentType: finalMime,
         cacheControl: "3600",
         upsert: false,
       });
@@ -190,7 +221,7 @@ Deno.serve(async (req) => {
     const publicUrl = pub.publicUrl;
     const thumbnail = type === "image" ? publicUrl : "";
 
-    const sizeBytes = file.size;
+    const sizeBytes = fileBytes.byteLength;
     const widthInt = widthRaw ? parseInt(widthRaw, 10) : NaN;
     const heightInt = heightRaw ? parseInt(heightRaw, 10) : NaN;
     const durSecNum = durationSecRaw ? parseFloat(durationSecRaw) : NaN;
@@ -200,7 +231,7 @@ Deno.serve(async (req) => {
       name: safeName(name),
       original_name: originalName,
       md5,
-      mime_type: mimeType,
+      mime_type: finalMime,
       type,
       url: publicUrl,
       thumbnail,
@@ -236,8 +267,8 @@ Deno.serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      // Unique-violation on (org_id, md5, size_bytes)
-      if ((error as any).code === "23505" || /media_items_org_md5_size_uniq/.test(msg)) {
+      // Unique-violation on (org_id, md5)
+      if ((error as any).code === "23505" || /media_items_org_md5/.test(msg)) {
         return new Response(JSON.stringify({ error: "duplicate_file" }), {
           status: 409,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
