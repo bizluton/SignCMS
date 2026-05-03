@@ -2,27 +2,33 @@ import { useEffect, useState } from "react";
 import { Globe, Code2, Youtube, CloudSun, Loader2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
-function WebpageWidgetPreview({ url, bg }: { url: string; bg: string }) {
-  const [srcDoc, setSrcDoc] = useState<string | null>(null);
+function injectWidgetParams(html: string, params?: Record<string, unknown>): string {
+  if (!params || Object.keys(params).length === 0) return html;
+  const script = `<script>window.__widgetParams=${JSON.stringify(params)};</script>`;
+  return html.includes('</head>') ? html.replace('</head>', script + '</head>') : script + html;
+}
+
+function WebpageWidgetPreview({ url, bg, params }: { url: string; bg: string; params?: Record<string, unknown> }) {
+  const [rawHtml, setRawHtml] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     fetch(url)
       .then((r) => r.text())
-      .then((html) => { if (!cancelled) setSrcDoc(html); })
-      .catch(() => { if (!cancelled) setSrcDoc(""); });
+      .then((html) => { if (!cancelled) setRawHtml(html); })
+      .catch(() => { if (!cancelled) setRawHtml(""); });
     return () => { cancelled = true; };
   }, [url]);
-  if (srcDoc === null) return (
+  if (rawHtml === null) return (
     <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
       <Loader2 className="w-5 h-5 animate-spin opacity-40" />
     </div>
   );
-  if (!srcDoc) return (
+  if (!rawHtml) return (
     <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
       <Globe className="w-6 h-6 opacity-40" />
     </div>
   );
-  return <iframe srcDoc={srcDoc} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
+  return <iframe srcDoc={injectWidgetParams(rawHtml, params)} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
 }
 
 export type WidgetSubType = "date" | "clock" | "webpage" | "marquee" | "qrcode" | "countdown" | "youtube" | "weather";
@@ -123,7 +129,7 @@ export function WidgetPreviewCard({ config }: { config: WidgetConfig }) {
   }
 
   if (config.widgetType === "webpage") {
-    if (config.url) return <WebpageWidgetPreview url={config.url} bg={bg} />;
+    if (config.url) return <WebpageWidgetPreview url={config.url} bg={bg} params={config.params} />;
     return (
       <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
         <Globe className="w-6 h-6 opacity-50" />

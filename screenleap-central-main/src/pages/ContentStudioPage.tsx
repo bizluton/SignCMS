@@ -3316,29 +3316,52 @@ function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChan
 }
 
 // ── Widget Zone Preview (continued original body) ──────────────────
-function WebpageZonePreview({ url, bg, fg }: { url: string; bg: string; fg: string }) {
-  const [srcDoc, setSrcDoc] = useState<string | null>(null);
+function injectWidgetParams(html: string, params?: Record<string, unknown>): string {
+  if (!params || Object.keys(params).length === 0) return html;
+  const script = `<script>window.__widgetParams=${JSON.stringify(params)};</script>`;
+  return html.includes('</head>') ? html.replace('</head>', script + '</head>') : script + html;
+}
+
+function WebpageZonePreview({ url, bg, fg, params }: { url: string; bg: string; fg: string; params?: Record<string, unknown> }) {
+  const [rawHtml, setRawHtml] = useState<string | null>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const paramsRef = useRef(params);
+  paramsRef.current = params;
+
+  // Fetch HTML only when URL changes
   useEffect(() => {
-    if (!url) { setSrcDoc(""); return; }
+    if (!url) { setRawHtml(""); return; }
     let cancelled = false;
     fetch(url)
       .then((r) => r.text())
-      .then((html) => { if (!cancelled) setSrcDoc(html); })
-      .catch(() => { if (!cancelled) setSrcDoc(""); });
+      .then((html) => { if (!cancelled) setRawHtml(html); })
+      .catch(() => { if (!cancelled) setRawHtml(""); });
     return () => { cancelled = true; };
   }, [url]);
-  if (srcDoc === null) return (
+
+  // Live param update via postMessage — no iframe reload needed
+  useEffect(() => {
+    if (!rawHtml || !params) return;
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    // Send both generic widgetParams and widget-specific clockConfig so the widget can handle either
+    win.postMessage({ widgetParams: params, clockConfig: params }, '*');
+  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (rawHtml === null) return (
     <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
       <Loader2 className="w-6 h-6 animate-spin opacity-40" style={{ color: fg }} />
     </div>
   );
-  if (!srcDoc) return (
+  if (!rawHtml) return (
     <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
       <Globe className="w-6 h-6 opacity-50" />
       <span className="text-[10px] opacity-60">URL</span>
     </div>
   );
-  return <iframe srcDoc={srcDoc} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
+  // Inject params into srcDoc so initial render uses correct config
+  const srcDoc = injectWidgetParams(rawHtml, paramsRef.current);
+  return <iframe ref={iframeRef} srcDoc={srcDoc} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
 }
 
 function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Date }) {
@@ -3412,7 +3435,7 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
   }
 
   if (config.widgetType === "webpage") {
-    return <WebpageZonePreview url={config.url || ""} bg={bg} fg={fg} />;
+    return <WebpageZonePreview url={config.url || ""} bg={bg} fg={fg} params={config.params} />;
   }
 
   if (config.widgetType === "qrcode") {

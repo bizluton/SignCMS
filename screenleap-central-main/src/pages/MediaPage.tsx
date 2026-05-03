@@ -220,29 +220,35 @@ function parseWidgetConfig(url: string): WidgetConfig | null {
   try { return JSON.parse(url.replace("widget://", "")); } catch { return null; }
 }
 
-function WebpageCardPreview({ url, bg, fg }: { url: string; bg: string; fg: string }) {
-  const [srcDoc, setSrcDoc] = useState<string | null>(null);
+function injectWidgetParams(html: string, params?: Record<string, unknown>): string {
+  if (!params || Object.keys(params).length === 0) return html;
+  const script = `<script>window.__widgetParams=${JSON.stringify(params)};</script>`;
+  return html.includes('</head>') ? html.replace('</head>', script + '</head>') : script + html;
+}
+
+function WebpageCardPreview({ url, bg, fg, params }: { url: string; bg: string; fg: string; params?: Record<string, unknown> }) {
+  const [rawHtml, setRawHtml] = useState<string | null>(null);
   useEffect(() => {
-    if (!url) { setSrcDoc(""); return; }
+    if (!url) { setRawHtml(""); return; }
     let cancelled = false;
     fetch(url)
       .then((r) => r.text())
-      .then((html) => { if (!cancelled) setSrcDoc(html); })
-      .catch(() => { if (!cancelled) setSrcDoc(""); });
+      .then((html) => { if (!cancelled) setRawHtml(html); })
+      .catch(() => { if (!cancelled) setRawHtml(""); });
     return () => { cancelled = true; };
   }, [url]);
-  if (srcDoc === null) return (
+  if (rawHtml === null) return (
     <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
       <Loader2 className="w-5 h-5 animate-spin opacity-40" style={{ color: fg }} />
     </div>
   );
-  if (!srcDoc) return (
+  if (!rawHtml) return (
     <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
       <Globe className="w-6 h-6 opacity-50" />
       <span className="text-[10px] opacity-60">URL</span>
     </div>
   );
-  return <iframe srcDoc={srcDoc} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
+  return <iframe srcDoc={injectWidgetParams(rawHtml, params)} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
 }
 
 // ── Widget Preview (lightweight) ───────────────────────────────────
@@ -318,7 +324,7 @@ function WidgetPreviewCard({ config }: { config: WidgetConfig }) {
   }
 
   if (config.widgetType === "webpage") {
-    return <WebpageCardPreview url={config.url || ""} bg={bg} fg={fg} />;
+    return <WebpageCardPreview url={config.url || ""} bg={bg} fg={fg} params={config.params} />;
   }
 
   if (config.widgetType === "qrcode") {
