@@ -118,6 +118,28 @@ function applyLayout() {
 // ── Weather icon — Meteocons animated SVG (jsDelivr → GitHub CDN) ─────────────
 var ICON_BASE = 'https://cdn.jsdelivr.net/gh/basmilius/weather-icons@dev/production/fill/svg/';
 
+var _iconCache = {};
+var ICON_NAMES = [
+  'clear-day','clear-night',
+  'partly-cloudy-day','partly-cloudy-night',
+  'overcast',
+  'fog-day','fog-night',
+  'partly-cloudy-day-drizzle','partly-cloudy-night-drizzle',
+  'sleet',
+  'partly-cloudy-day-rain','partly-cloudy-night-rain',
+  'rain','overcast-rain',
+  'snow',
+  'partly-cloudy-day-snow','partly-cloudy-night-snow',
+  'thunderstorms-rain'
+];
+function preloadIcons() {
+  ICON_NAMES.forEach(function(name) {
+    var img = new Image();
+    img.src = ICON_BASE + name + '.svg';
+    _iconCache[name] = img;
+  });
+}
+
 function wmoToIcon(wmo, isDay) {
   var n = parseInt(wmo) || 0;
   var d = (isDay === 1 || isDay === '1');
@@ -160,13 +182,27 @@ function wmoToGlow(wmo, isDay) {
 }
 
 function updateIcon(wmo, isDay) {
-  var src  = ICON_BASE + wmoToIcon(wmo, isDay) + '.svg';
+  var name = wmoToIcon(wmo, isDay);
+  var src  = ICON_BASE + name + '.svg';
   var glow = wmoToGlow(wmo, isDay);
-  ['p','l'].forEach(function(pfx) {
-    var img = document.getElementById(pfx + '-icon');
-    img.src          = src;
-    img.style.filter = glow;
-  });
+
+  function doSwap() {
+    ['p','l'].forEach(function(pfx) {
+      var el = document.getElementById(pfx + '-icon');
+      el.src = src;
+      el.style.filter = glow;
+    });
+  }
+
+  var cached = _iconCache[name];
+  if (cached && cached.complete) {
+    doSwap();
+  } else {
+    var tmp = cached || new Image();
+    if (!cached) { _iconCache[name] = tmp; tmp.src = src; }
+    tmp.onload  = doSwap;
+    tmp.onerror = doSwap;
+  }
 }
 
 // ── AQI dot colour (European AQI scale) ──────────────────────────────────────
@@ -241,6 +277,7 @@ setInterval(function() {
 // ── Init ──────────────────────────────────────────────────────────────────────
 window.addEventListener('load', function() {
   applyLayout();
+  preloadIcons();   // warm icon cache in parallel with API call
   fetchWeather();
 });
 window.addEventListener('resize', applyLayout);
