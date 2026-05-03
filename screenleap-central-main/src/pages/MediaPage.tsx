@@ -1958,19 +1958,6 @@ const MediaPage = () => {
                       {t("transcodeStatusFailed")}
                     </Badge>
                   )}
-                  {item.type === "widget" && (!item.is_system || (isAdmin && isCatalogWidgetId(item.id))) && canManageMedia && !selectMode && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
-                      <Button
-                        variant="destructive"
-                        size="sm"
-                        className="gap-1.5"
-                        onClick={(e) => { e.stopPropagation(); requestDelete(item.id); }}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        {t("mediaDeleteItem")}
-                      </Button>
-                    </div>
-                  )}
                 </div>
 
                 <div className="space-y-2 p-3">
