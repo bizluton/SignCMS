@@ -21,6 +21,7 @@ body{display:flex;align-items:center;justify-content:center}
 #portrait .temperature{font-size:clamp(1.4rem,9vmin,4rem);font-weight:700;letter-spacing:-0.02em;line-height:1}
 #portrait .description{font-size:clamp(0.6rem,3.5vmin,1.3rem);opacity:0.85;text-align:center;max-width:90%}
 #portrait .pop{font-size:clamp(0.5rem,2.8vmin,1.1rem);opacity:0.6;display:flex;align-items:center;gap:0.3em}
+#portrait .extras{font-size:clamp(0.45rem,2.5vmin,0.95rem);opacity:0.6;display:flex;align-items:center;gap:0.8em}
 
 /* ── Landscape layout ── */
 #landscape{display:flex;flex-direction:row;align-items:center;justify-content:center;width:100%;height:100%;gap:3%}
@@ -31,6 +32,7 @@ body{display:flex;align-items:center;justify-content:center}
 #landscape .temperature{font-size:clamp(1.6rem,10vmin,4.5rem);font-weight:700;letter-spacing:-0.02em;line-height:1}
 #landscape .description{font-size:clamp(0.6rem,3vmin,1.2rem);opacity:0.85}
 #landscape .pop{font-size:clamp(0.5rem,2.5vmin,1rem);opacity:0.6;display:flex;align-items:center;gap:0.3em}
+#landscape .extras{font-size:clamp(0.45rem,2.3vmin,0.9rem);opacity:0.6;display:flex;align-items:center;gap:0.8em}
 
 [hidden]{display:none!important}
 </style>
@@ -48,6 +50,11 @@ body{display:flex;align-items:center;justify-content:center}
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="1em" height="1em"><path d="M12 2C6.48 2 2 8.48 2 13a10 10 0 0 0 20 0c0-4.52-4.48-11-10-11z"/></svg>
       <span id="p-pop">―%</span>
     </div>
+    <div class="extras">
+      <span>UV <span id="p-uv">―</span></span>
+      <span>空品 <span id="p-aqi">―</span></span>
+      <span>PM2.5 <span id="p-pm25">―</span></span>
+    </div>
   </div>
 </div>
 
@@ -61,6 +68,11 @@ body{display:flex;align-items:center;justify-content:center}
     <div class="pop">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="1em" height="1em"><path d="M12 2C6.48 2 2 8.48 2 13a10 10 0 0 0 20 0c0-4.52-4.48-11-10-11z"/></svg>
       <span id="l-pop">―%</span>
+    </div>
+    <div class="extras">
+      <span>UV <span id="l-uv">―</span></span>
+      <span>空品 <span id="l-aqi">―</span></span>
+      <span>PM2.5 <span id="l-pm25">―</span></span>
     </div>
   </div>
 </div>
@@ -83,6 +95,7 @@ var city       = getParam('city',        'Tokyo');
 var country    = getParam('country',     'JP');
 var lat        = getParam('lat',         '');
 var lon        = getParam('lon',         '');
+var lang       = getParam('lang',        'zh');
 var fontColor  = getParam('fontColor',   '#cccccc');
 var wallColor  = getParam('wallColor',   '#0f172a');
 var iconColor  = getParam('weatherColor','#ffffff');
@@ -141,13 +154,28 @@ function weatherToIcon(desc) {
   return Skycons.CLOUDY;
 }
 
+// ── AQI label (European AQI scale) ───────────────────────────────────────────────
+function aqiLabel(aqi) {
+  var n = parseInt(aqi);
+  if (isNaN(n) || aqi === '--') return '―';
+  if (n <= 20)  return '優';
+  if (n <= 40)  return '良';
+  if (n <= 60)  return '普通';
+  if (n <= 80)  return '差';
+  if (n <= 100) return '很差';
+  return '極差';
+}
+
 // ── UI update ─────────────────────────────────────────────────────────────────────
-function updateUI(location, temp, desc, pop) {
+function updateUI(location, temp, desc, pop, uv, aqi, pm25) {
   ['p','l'].forEach(function(pfx) {
     document.getElementById(pfx + '-location').textContent = location;
     document.getElementById(pfx + '-temp').textContent     = temp + '°C';
     document.getElementById(pfx + '-desc').textContent     = desc;
     document.getElementById(pfx + '-pop').textContent      = pop + '%';
+    document.getElementById(pfx + '-uv').textContent       = (uv   && uv   !== '--') ? uv   : '―';
+    document.getElementById(pfx + '-aqi').textContent      = aqiLabel(aqi);
+    document.getElementById(pfx + '-pm25').textContent     = (pm25 && pm25 !== '--') ? pm25 + ' μg/m³' : '―';
   });
   initSkycons(weatherToIcon(desc));
 }
@@ -158,23 +186,25 @@ var EDGE_URL = 'https://narhbpojjtnalyfiwxue.supabase.co/functions/v1/weather';
 function fetchWeather() {
   var url;
   if (lat && lon) {
-    url = EDGE_URL + '?lat=' + encodeURIComponent(lat) + '&lon=' + encodeURIComponent(lon);
+    url = EDGE_URL + '?lat=' + encodeURIComponent(lat) + '&lon=' + encodeURIComponent(lon)
+        + '&lang=' + encodeURIComponent(lang);
   } else {
-    url = EDGE_URL + '?city=' + encodeURIComponent(city) + '&country=' + encodeURIComponent(country);
+    url = EDGE_URL + '?city=' + encodeURIComponent(city) + '&country=' + encodeURIComponent(country)
+        + '&lang=' + encodeURIComponent(lang);
   }
 
   fetch(url)
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.error) throw new Error(d.error);
-      try { localStorage.setItem('gw_cache', JSON.stringify({ loc: d.location, temp: d.temp, wx: d.wx, pop: d.pop, ts: Date.now() })); } catch(e) {}
-      updateUI(d.location, d.temp, d.wx, d.pop);
+      try { localStorage.setItem('gw_cache', JSON.stringify({ loc: d.location, temp: d.temp, wx: d.wx, pop: d.pop, uv: d.uv, aqi: d.aqi, pm25: d.pm25, ts: Date.now() })); } catch(e) {}
+      updateUI(d.location, d.temp, d.wx, d.pop, d.uv, d.aqi, d.pm25);
     })
     .catch(function() {
       var cached = null;
       try { cached = JSON.parse(localStorage.getItem('gw_cache') || 'null'); } catch(e) {}
-      if (cached) updateUI(cached.loc, cached.temp, cached.wx, cached.pop);
-      else updateUI(city, '--', '無法連線', '--');
+      if (cached) updateUI(cached.loc, cached.temp, cached.wx, cached.pop, cached.uv, cached.aqi, cached.pm25);
+      else updateUI(city, '--', '無法連線', '--', '--', '--', '--');
     });
 }
 

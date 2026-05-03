@@ -2,17 +2,12 @@
  * Unified Weather API — SignCMS weather server
  *
  * Routing:
- *   Taiwan     →  ?locationName=臺北市&regionName=信義區   → CWA OpenData
+ *   Taiwan     →  ?locationName=臺北市&regionName=信義區   → CWA OpenData + Open-Meteo UV/AQ
  *   Lat / Lon  →  ?lat=35.68&lon=139.76                   → Open-Meteo
  *   City name  →  ?city=Tokyo&country=JP                   → geocode → Open-Meteo
  *
  * All responses are cached in public.weather_cache (30-min TTL).
  * Stale cache is returned when upstream APIs are unreachable.
- *
- * Future providers (OpenWeatherMap, AccuWeather …) can be wired in by:
- *   1. Adding the key to Supabase project secrets
- *   2. Adding a fetch function below
- *   3. Routing to it in the main handler
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -34,13 +29,8 @@ function json(body: unknown, status = 200) {
 // ── Config ────────────────────────────────────────────────────────────────────
 const CACHE_TTL_MIN = 30;
 
-// API keys — set via Supabase project secrets (supabase secrets set KEY=value)
 const CWA_KEY = Deno.env.get("CWA_API_KEY") ||
-  "CWA-DDEBA554-096E-424E-8529-A04E77AF6FD1"; // fallback until new key applied
-
-// Placeholder slots for future providers (wire in once keys are obtained):
-// const OWM_KEY  = Deno.env.get("OPENWEATHERMAP_KEY") ?? "";
-// const WAP_KEY  = Deno.env.get("WEATHERAPI_KEY")     ?? "";
+  "CWA-DDEBA554-096E-424E-8529-A04E77AF6FD1";
 
 // ── Taiwan county → CWA dataset map ──────────────────────────────────────────
 const CWA_MAP: Record<string, string> = {
@@ -68,6 +58,32 @@ const CWA_MAP: Record<string, string> = {
   "連江縣": "F-D0047-081",
 };
 
+// ── Taiwan county → lat/lon (for Open-Meteo UV/AQ supplement) ────────────────
+const CWA_COORDS: Record<string, { lat: number; lon: number }> = {
+  "臺北市": { lat: 25.038, lon: 121.564 }, "台北市": { lat: 25.038, lon: 121.564 },
+  "新北市": { lat: 25.017, lon: 121.463 },
+  "桃園市": { lat: 24.994, lon: 121.301 },
+  "臺中市": { lat: 24.148, lon: 120.674 }, "台中市": { lat: 24.148, lon: 120.674 },
+  "臺南市": { lat: 23.000, lon: 120.227 }, "台南市": { lat: 23.000, lon: 120.227 },
+  "高雄市": { lat: 22.627, lon: 120.301 },
+  "基隆市": { lat: 25.128, lon: 121.739 },
+  "新竹縣": { lat: 24.839, lon: 121.018 },
+  "新竹市": { lat: 24.814, lon: 120.968 },
+  "苗栗縣": { lat: 24.560, lon: 120.821 },
+  "彰化縣": { lat: 24.052, lon: 120.516 },
+  "南投縣": { lat: 23.961, lon: 120.972 },
+  "雲林縣": { lat: 23.709, lon: 120.431 },
+  "嘉義縣": { lat: 23.452, lon: 120.255 },
+  "嘉義市": { lat: 23.480, lon: 120.449 },
+  "屏東縣": { lat: 22.552, lon: 120.549 },
+  "宜蘭縣": { lat: 24.702, lon: 121.738 },
+  "花蓮縣": { lat: 23.987, lon: 121.602 },
+  "臺東縣": { lat: 22.758, lon: 121.144 }, "台東縣": { lat: 22.758, lon: 121.144 },
+  "澎湖縣": { lat: 23.571, lon: 119.579 },
+  "金門縣": { lat: 24.449, lon: 118.377 },
+  "連江縣": { lat: 26.157, lon: 119.940 },
+};
+
 // ── WMO weather code → description (zh) ──────────────────────────────────────
 const WMO: Record<number, string> = {
   0: "晴天",
@@ -83,7 +99,7 @@ const WMO: Record<number, string> = {
   95: "雷雨", 96: "雷雨夾冰雹", 99: "強雷雨夾冰雹",
 };
 
-// ── Supabase client (service role for cache writes) ───────────────────────────
+// ── Supabase client ───────────────────────────────────────────────────────────
 function sb() {
   return createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -125,9 +141,36 @@ async function upsertCache(
   );
 }
 
+// ── UV index + Air Quality (Open-Meteo, free) ─────────────────────────────────
+async function fetchUVandAQ(
+  lat: number,
+  lon: number,
+): Promise<{ uv: string; pm25: string; aqi: string }> {
+  try {
+    const [fRes, aqRes] = await Promise.all([
+      fetch(
+        `https://api.open-meteo.com/v1/forecast` +
+        `?latitude=${lat}&longitude=${lon}&current=uv_index&timezone=auto`,
+      ),
+      fetch(
+        `https://air-quality-api.open-meteo.com/v1/air-quality` +
+        `?latitude=${lat}&longitude=${lon}&current=pm2_5,european_aqi&timezone=auto`,
+      ),
+    ]);
+    const [f, aq] = await Promise.all([fRes.json(), aqRes.json()]);
+    return {
+      uv:   String(Math.round(f?.current?.uv_index   ?? 0)),
+      pm25: String(Math.round(aq?.current?.pm2_5      ?? 0)),
+      aqi:  String(Math.round(aq?.current?.european_aqi ?? 0)),
+    };
+  } catch {
+    return { uv: "--", pm25: "--", aqi: "--" };
+  }
+}
+
 // ── Data sources ──────────────────────────────────────────────────────────────
 
-// Taiwan: CWA OpenData hourly forecast
+// Taiwan: CWA OpenData + Open-Meteo UV/AQ
 async function fetchCWA(
   locationName: string,
   regionName: string,
@@ -135,11 +178,18 @@ async function fetchCWA(
   const datasetId = CWA_MAP[locationName];
   if (!datasetId) throw new Error(`Unknown county: ${locationName}`);
 
-  const res = await fetch(
-    `https://opendata.cwa.gov.tw/api/v1/rest/datastore/${datasetId}` +
-    `?Authorization=${CWA_KEY}`,
-  );
-  const payload = await res.json();
+  const coords = CWA_COORDS[locationName];
+
+  const [cwaRes, uvAq] = await Promise.all([
+    fetch(
+      `https://opendata.cwa.gov.tw/api/v1/rest/datastore/${datasetId}` +
+      `?Authorization=${CWA_KEY}`,
+    ),
+    coords ? fetchUVandAQ(coords.lat, coords.lon)
+           : Promise.resolve({ uv: "--", pm25: "--", aqi: "--" }),
+  ]);
+
+  const payload = await cwaRes.json();
   const locationList = payload?.records?.Locations?.[0]?.Location ?? [];
   if (!locationList.length) throw new Error("CWA: no location data");
 
@@ -160,23 +210,26 @@ async function fetchCWA(
       case "風速":          wind     = ev.WindSpeed                  ?? "--"; break;
     }
   }
-  return { location: loc.LocationName, temp, wx, pop, humidity, wind };
+  return { location: loc.LocationName, temp, wx, pop, humidity, wind, ...uvAq };
 }
 
-// Global: Open-Meteo (free, no key required)
+// Global: Open-Meteo forecast + UV + AQ
 async function fetchOpenMeteo(
   lat: number,
   lon: number,
   locationName?: string,
 ): Promise<Record<string, string>> {
-  const res = await fetch(
-    `https://api.open-meteo.com/v1/forecast` +
-    `?latitude=${lat}&longitude=${lon}` +
-    `&current=temperature_2m,weather_code,precipitation_probability,` +
-    `relative_humidity_2m,wind_speed_10m` +
-    `&timezone=auto`,
-  );
-  const payload = await res.json();
+  const [fRes, uvAq] = await Promise.all([
+    fetch(
+      `https://api.open-meteo.com/v1/forecast` +
+      `?latitude=${lat}&longitude=${lon}` +
+      `&current=temperature_2m,weather_code,precipitation_probability,` +
+      `relative_humidity_2m,wind_speed_10m` +
+      `&timezone=auto`,
+    ),
+    fetchUVandAQ(lat, lon),
+  ]);
+  const payload = await fRes.json();
   const c = payload?.current;
   if (!c) throw new Error("Open-Meteo: no current data");
 
@@ -187,6 +240,7 @@ async function fetchOpenMeteo(
     pop:      String(c.precipitation_probability ?? "--"),
     humidity: String(c.relative_humidity_2m ?? "--"),
     wind:     String((c.wind_speed_10m ?? 0).toFixed(1)),
+    ...uvAq,
   };
 }
 
@@ -194,11 +248,12 @@ async function fetchOpenMeteo(
 async function geocode(
   city: string,
   country?: string,
+  lang = "zh",
 ): Promise<{ lat: number; lon: number; name: string } | null> {
   const q = country ? `${city} ${country}` : city;
   const res = await fetch(
     `https://geocoding-api.open-meteo.com/v1/search` +
-    `?name=${encodeURIComponent(q)}&count=1&language=zh&format=json`,
+    `?name=${encodeURIComponent(q)}&count=1&language=${lang}&format=json`,
   );
   const payload = await res.json();
   const r = payload?.results?.[0];
@@ -217,6 +272,7 @@ Deno.serve(async (req) => {
   const lonStr       = p.get("lon")          ?? "";
   const city         = p.get("city")         ?? "";
   const country      = p.get("country")      ?? "";
+  const lang         = p.get("lang")         || "zh";
 
   let cacheKey = "";
   let weatherData: Record<string, string>;
@@ -224,7 +280,6 @@ Deno.serve(async (req) => {
   let lat: number | null = null;
   let lon: number | null = null;
 
-  // ── Determine route ──────────────────────────────────────────────────────
   if (locationName && CWA_MAP[locationName]) {
     cacheKey = `cwa:${locationName}:${regionName}`;
     source   = "cwa";
@@ -234,7 +289,7 @@ Deno.serve(async (req) => {
     cacheKey = `latlon:${lat.toFixed(3)}:${lon.toFixed(3)}`;
     source   = "open-meteo";
   } else if (city) {
-    cacheKey = `city:${city.toLowerCase()}:${country.toLowerCase()}`;
+    cacheKey = `city:${city.toLowerCase()}:${country.toLowerCase()}:${lang}`;
     source   = "open-meteo";
   } else {
     return json(
@@ -243,7 +298,6 @@ Deno.serve(async (req) => {
     );
   }
 
-  // ── Cache check ──────────────────────────────────────────────────────────
   const cached = await getCached(cacheKey);
   const now = Date.now();
 
@@ -251,7 +305,6 @@ Deno.serve(async (req) => {
     return json({ ...cached.data, source: cached.source, cached_at: cached.fetched_at, cache: "hit" });
   }
 
-  // ── Fresh fetch (with stale fallback on error) ────────────────────────────
   try {
     if (source === "cwa") {
       weatherData = await fetchCWA(locationName, regionName);
@@ -260,8 +313,7 @@ Deno.serve(async (req) => {
       weatherData = await fetchOpenMeteo(lat!, lon!);
 
     } else {
-      // city geocode path
-      const geo = await geocode(city, country || undefined);
+      const geo = await geocode(city, country || undefined, lang);
       if (!geo) {
         if (cached) return json({ ...cached.data, source: cached.source, cached_at: cached.fetched_at, cache: "stale" });
         return json({ error: `Cannot geocode city: ${city}` }, 404);
@@ -275,7 +327,6 @@ Deno.serve(async (req) => {
     return json({ ...weatherData, source, cached_at: new Date().toISOString(), cache: "miss" });
 
   } catch (err) {
-    // Upstream failed — return stale cache if available
     if (cached) {
       return json({ ...cached.data, source: cached.source, cached_at: cached.fetched_at, cache: "stale" });
     }
