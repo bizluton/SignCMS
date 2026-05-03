@@ -245,20 +245,28 @@ async function fetchOpenMeteo(
 }
 
 // Geocoding: Open-Meteo geocoding API (free)
+// Note: the API only searches by city name; country code is used only for
+// filtering among results after the search, not as part of the name query.
 async function geocode(
   city: string,
   country?: string,
   lang = "zh",
 ): Promise<{ lat: number; lon: number; name: string } | null> {
-  const q = country ? `${city} ${country}` : city;
   const res = await fetch(
     `https://geocoding-api.open-meteo.com/v1/search` +
-    `?name=${encodeURIComponent(q)}&count=1&language=${lang}&format=json`,
+    `?name=${encodeURIComponent(city)}&count=10&language=${lang}&format=json`,
   );
   const payload = await res.json();
-  const r = payload?.results?.[0];
-  if (!r) return null;
-  return { lat: r.latitude, lon: r.longitude, name: r.name };
+  const results: Array<{ latitude: number; longitude: number; name: string; country_code: string }> =
+    payload?.results ?? [];
+  if (!results.length) return null;
+
+  // Prefer a result whose country_code matches (case-insensitive), fall back to first result
+  const match = country
+    ? (results.find((r) => r.country_code?.toUpperCase() === country.toUpperCase()) ?? results[0])
+    : results[0];
+
+  return { lat: match.latitude, lon: match.longitude, name: match.name };
 }
 
 // ── Main handler ──────────────────────────────────────────────────────────────
