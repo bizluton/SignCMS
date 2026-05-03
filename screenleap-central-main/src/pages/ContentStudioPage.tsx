@@ -3162,6 +3162,66 @@ function ColorSwatchInput({ value, onChange, fallback = "#000000", disabled = fa
   );
 }
 
+// ── Announcement scope picker (org + team dropdowns with auto-fill) ──────────
+function AnnouncementScopePicker({
+  orgId, teamId, onOrgChange, onTeamChange, lang,
+}: {
+  orgId: string; teamId: string;
+  onOrgChange: (v: string) => void; onTeamChange: (v: string) => void;
+  lang: string;
+}) {
+  const { orgs } = useUserOrgs();
+  const { activeOrgId } = useActiveOrg();
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
+
+  // Auto-fill orgId with activeOrgId on first render
+  useEffect(() => {
+    if (!orgId && activeOrgId) onOrgChange(activeOrgId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrgId]);
+
+  const resolvedOrg = orgId || activeOrgId || "";
+
+  // Fetch teams whenever the effective org changes
+  useEffect(() => {
+    if (!resolvedOrg) { setTeams([]); return; }
+    supabase.from("teams").select("id, name").eq("org_id", resolvedOrg).order("name")
+      .then(({ data }) => setTeams((data || []) as { id: string; name: string }[]));
+  }, [resolvedOrg]);
+
+  const labels = {
+    org:     lang === "zh" || lang === "zh-TW" ? "組織" : lang === "ja" ? "組織" : "Organisation",
+    team:    lang === "zh" || lang === "zh-TW" ? "團隊（可選）" : lang === "ja" ? "チーム（任意）" : "Team (optional)",
+    orgPh:   lang === "zh" || lang === "zh-TW" ? "選擇組織" : lang === "ja" ? "組織を選択" : "Select organisation",
+    teamAll: lang === "zh" || lang === "zh-TW" ? "全組織" : lang === "ja" ? "組織全体" : "Org-wide",
+    teamPh:  lang === "zh" || lang === "zh-TW" ? "選擇團隊" : lang === "ja" ? "チームを選択" : "Select team",
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{labels.org}</Label>
+        <Select value={resolvedOrg} onValueChange={(v) => { onOrgChange(v); onTeamChange(""); }}>
+          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={labels.orgPh} /></SelectTrigger>
+          <SelectContent>
+            {orgs.map((o) => <SelectItem key={o.id} value={o.id} className="text-xs">{o.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{labels.team}</Label>
+        <Select value={teamId || ""} onValueChange={onTeamChange}>
+          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={labels.teamPh} /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="" className="text-xs">{labels.teamAll}</SelectItem>
+            {teams.map((tm) => <SelectItem key={tm.id} value={tm.id} className="text-xs">{tm.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  );
+}
+
 // ── Dynamic param control (for HTML/catalog widgets with paramsSchema) ──
 function DynamicParamControl({ param, value, onChange, lang }: {
   param: WidgetParamDef;
@@ -3603,9 +3663,16 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
         </div>
       )}
 
-      {wt === "announcement" && config.paramsSchema && config.paramsSchema.length > 0 && (
+      {wt === "announcement" && (
         <div className="space-y-1.5">
-          {config.paramsSchema.map((param) => (
+          <AnnouncementScopePicker
+            orgId={String((config.params || {}).orgId ?? "")}
+            teamId={String((config.params || {}).teamId ?? "")}
+            onOrgChange={(v) => set({ params: { ...(config.params || {}), orgId: v, teamId: "" } })}
+            onTeamChange={(v) => set({ params: { ...(config.params || {}), teamId: v } })}
+            lang={language}
+          />
+          {config.paramsSchema?.filter((p) => p.key !== "orgId" && p.key !== "teamId").map((param) => (
             <DynamicParamControl
               key={param.key}
               param={param}

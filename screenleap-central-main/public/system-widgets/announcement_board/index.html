@@ -121,6 +121,7 @@ var QS = new URLSearchParams(location.search);
 function p(k,d){ return P[k] || QS.get(k) || d; }
 
 var orgId       = p('orgId','');
+var teamId      = p('teamId','');
 var lang        = p('lang','zh');
 var bgColor     = p('bgColor','#0f172a');
 var textColor   = p('textColor','#ffffff');
@@ -133,7 +134,8 @@ document.documentElement.style.setProperty('--accent',accentColor);
 document.body.style.background = bgColor;
 document.body.style.color      = textColor;
 
-var CACHE = 'sb-ann-' + orgId;
+// Cache key includes teamId so org-level and team-level caches don't clash
+var CACHE = 'sb-ann-' + orgId + (teamId ? '-t-' + teamId : '');
 
 var I18N = {
   zh:{ hdr:'📢 公告看板', pin:'📌 置頂', empty:'目前沒有公告', noOrg:'未設定組織 ID' },
@@ -283,6 +285,7 @@ function fetchData(){
   var url = SB_URL+'/rest/v1/announcements'
     +'?select=*,category:announcement_categories(name,color)'
     +'&org_id=eq.'+encodeURIComponent(orgId)
+    +(teamId ? '&team_id=eq.'+encodeURIComponent(teamId) : '&team_id=is.null')
     +'&start_at=lte.'+encodeURIComponent(now)
     +'&end_at=gte.'+encodeURIComponent(now)
     +'&order=pinned.desc,created_at.desc';

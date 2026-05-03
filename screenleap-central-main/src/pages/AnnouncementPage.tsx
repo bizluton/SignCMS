@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 interface DbAnnouncement {
   id: string;
   org_id: string;
+  team_id: string | null;
   category_id: string | null;
   subject: string;
   content: string;
@@ -41,6 +42,8 @@ interface DbAnnouncement {
   created_at: string;
   category?: { name: string; color: string } | null;
 }
+
+interface OrgTeam { id: string; name: string; }
 
 // ── localStorage helpers (departments only) ───────────────────────────────────
 const DEFAULT_DEPARTMENTS: LabelItem[] = [
@@ -130,6 +133,10 @@ const AnnouncementPage = () => {
     cancelBtn:      { zh: "取消",              en: "Cancel",                      ja: "キャンセル" },
     saveBtn:        { zh: "儲存變更",           en: "Save Changes",                ja: "変更を保存" },
     selectOrgFirst: { zh: "請先選擇組織",        en: "Please select an organisation", ja: "組織を選択してください" },
+    teamLabel:      { zh: "發布對象",            en: "Audience",                      ja: "配信対象" },
+    teamPh:         { zh: "選擇團隊（留空 = 全組織）", en: "Select team (empty = org-wide)", ja: "チーム（空欄=組織全体）" },
+    teamAll:        { zh: "全組織",             en: "Org-wide",                       ja: "組織全体" },
+    colTeam:        { zh: "對象",               en: "Audience",                       ja: "配信対象" },
   };
   const t = (key: keyof typeof texts) => texts[key][language];
 
@@ -140,6 +147,14 @@ const AnnouncementPage = () => {
     setDepartments(items);
     localStorage.setItem(orgKey("signboard-departments", activeOrgId), JSON.stringify(items));
   };
+
+  // ── State: teams (Supabase) ───────────────────────────────────────────────
+  const [teams, setTeams] = useState<OrgTeam[]>([]);
+
+  const loadTeams = useCallback(async (oid: string) => {
+    const { data } = await supabase.from("teams").select("id, name").eq("org_id", oid).order("name");
+    if (data) setTeams(data as OrgTeam[]);
+  }, []);
 
   // ── State: categories (Supabase) ──────────────────────────────────────────
   const [categories, setCategories] = useState<DbCategory[]>([]);
@@ -188,14 +203,16 @@ const AnnouncementPage = () => {
   }, []);
 
   useEffect(() => {
-    if (!activeOrgId) { setAnnouncements([]); setCategories([]); return; }
+    if (!activeOrgId) { setAnnouncements([]); setCategories([]); setTeams([]); return; }
     void loadAnnouncements(activeOrgId);
     void loadCategories(activeOrgId);
+    void loadTeams(activeOrgId);
     setDepartments(loadDepts(activeOrgId));
-  }, [activeOrgId, loadAnnouncements, loadCategories]);
+  }, [activeOrgId, loadAnnouncements, loadCategories, loadTeams]);
 
   // ── Form state ────────────────────────────────────────────────────────────
   const [subject,     setSubject]     = useState("");
+  const [teamId,      setTeamId]      = useState("");
   const [department,  setDepartment]  = useState("");
   const [categoryId,  setCategoryId]  = useState("");
   const [pinned,      setPinned]      = useState(false);
@@ -230,6 +247,7 @@ const AnnouncementPage = () => {
       }
       const { error } = await supabase.from("announcements").insert({
         org_id:        activeOrgId,
+        team_id:       teamId || null,
         category_id:   categoryId || null,
         subject:       subject.trim(),
         content,
@@ -243,7 +261,7 @@ const AnnouncementPage = () => {
       });
       if (error) { toast.error(error.message); return; }
       toast.success(t("successPublish"));
-      setSubject(""); setDepartment(""); setCategoryId("");
+      setSubject(""); setTeamId(""); setDepartment(""); setCategoryId("");
       setPinned(false); setContent(""); setImageUrl(null);
       setStartDate(undefined); setEndDate(undefined); setDwell(10);
       await loadAnnouncements(activeOrgId);
@@ -263,6 +281,7 @@ const AnnouncementPage = () => {
   const [editOpen,        setEditOpen]        = useState(false);
   const [editTarget,      setEditTarget]      = useState<DbAnnouncement | null>(null);
   const [editSubject,     setEditSubject]     = useState("");
+  const [editTeamId,      setEditTeamId]      = useState("");
   const [editDepartment,  setEditDepartment]  = useState("");
   const [editCategoryId,  setEditCategoryId]  = useState("");
   const [editPinned,      setEditPinned]      = useState(false);
@@ -277,6 +296,7 @@ const AnnouncementPage = () => {
   const startEditing = (a: DbAnnouncement) => {
     setEditTarget(a);
     setEditSubject(a.subject);
+    setEditTeamId(a.team_id || "");
     setEditDepartment(a.department);
     setEditCategoryId(a.category_id || "");
     setEditPinned(a.pinned);
@@ -301,6 +321,7 @@ const AnnouncementPage = () => {
         finalImageUrl = await uploadImage(editImageUrl, activeOrgId);
       }
       const { error } = await supabase.from("announcements").update({
+        team_id:       editTeamId || null,
         category_id:   editCategoryId || null,
         subject:       editSubject.trim(),
         content:       editContent,
@@ -340,6 +361,7 @@ const AnnouncementPage = () => {
   };
 
   const deptLabel  = (val: string) => DEPARTMENTS.find((d) => d.value === val)?.label[language] || val || "—";
+  const teamName   = (id: string | null) => teams.find((t) => t.id === id)?.name || null;
   const catForId   = (id: string | null) => categories.find((c) => c.id === id) ?? null;
 
   const sortedAnnouncements = useMemo(() =>
@@ -410,8 +432,20 @@ const AnnouncementPage = () => {
                 <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder={t("subjectPh")} className="h-12 text-lg font-medium" />
               </div>
 
-              {/* Department + Category */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Audience (Team) + Department */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-base font-semibold">{t("teamLabel")}</Label>
+                  <Select value={teamId} onValueChange={setTeamId}>
+                    <SelectTrigger className="h-12 text-base"><SelectValue placeholder={t("teamPh")} /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="" className="text-base">{t("teamAll")}</SelectItem>
+                      {teams.map((tm) => (
+                        <SelectItem key={tm.id} value={tm.id} className="text-base">{tm.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <div className="space-y-2">
                   <Label className="text-base font-semibold">{t("dept")}</Label>
                   <Select value={department} onValueChange={setDepartment}>
@@ -587,6 +621,7 @@ const AnnouncementPage = () => {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="text-base">{t("colSubject")}</TableHead>
+                    <TableHead className="text-base">{t("colTeam")}</TableHead>
                     <TableHead className="text-base">{t("colCategory")}</TableHead>
                     <TableHead className="text-base">{t("colDept")}</TableHead>
                     <TableHead className="text-base">{t("colPeriod")}</TableHead>
@@ -603,6 +638,15 @@ const AnnouncementPage = () => {
                         <TableCell className="font-semibold text-base max-w-[240px] truncate">
                           {a.pinned && <Badge variant="outline" className="mr-2 border-amber-500 text-amber-600 text-[10px]">{t("pinnedTag")}</Badge>}
                           {a.subject}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {a.team_id ? (
+                            <Badge variant="outline" className="border-blue-400 text-blue-500 text-[11px]">
+                              {teamName(a.team_id) ?? a.team_id.slice(0, 8)}
+                            </Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">{t("teamAll")}</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           {cat ? (
@@ -648,7 +692,17 @@ const AnnouncementPage = () => {
               <Label className="text-base font-semibold">{t("subject")}</Label>
               <Input value={editSubject} onChange={(e) => setEditSubject(e.target.value)} placeholder={t("subjectPh")} className="h-12 text-lg font-medium" />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label className="text-base font-semibold">{t("teamLabel")}</Label>
+                <Select value={editTeamId} onValueChange={setEditTeamId}>
+                  <SelectTrigger className="h-12 text-base"><SelectValue placeholder={t("teamPh")} /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">{t("teamAll")}</SelectItem>
+                    {teams.map((tm) => <SelectItem key={tm.id} value={tm.id}>{tm.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
               <div className="space-y-2">
                 <Label className="text-base font-semibold">{t("dept")}</Label>
                 <Select value={editDepartment} onValueChange={setEditDepartment}>
