@@ -196,10 +196,11 @@ export function WidgetPreviewCard({ config }: { config: WidgetConfig }) {
   }
 
   if (config.widgetType === "weather") {
+    if (config.url) return <WebpageWidgetPreview url={config.url} bg={bg} params={config.params} />;
     return (
       <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
-        <CloudSun className="w-8 h-8 opacity-50" />
-        <span className="text-[10px] font-medium">{config.city || "City"}</span>
+        <CloudSun className="w-6 h-6 opacity-50" />
+        <span className="text-[9px] font-medium opacity-70">全球天氣</span>
       </div>
     );
   }

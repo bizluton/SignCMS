@@ -370,7 +370,7 @@ export function WidgetRender({ config }: { config: WidgetConfig | null | undefin
     );
   }
 
-  if ((config.widgetType === "webpage" || config.widgetType === "weather_tw") && config.url) {
+  if ((config.widgetType === "webpage" || config.widgetType === "weather_tw" || config.widgetType === "weather") && config.url) {
     return <WebpageWidgetRender config={config} />;
   }
 

@@ -3420,10 +3420,17 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
         </div>
       )}
 
-      {wt === "weather" && (
-        <div className="space-y-1">
-          <Label className="text-[10px] text-muted-foreground">{t("widgetCity")}</Label>
-          <Input value={config.city || ""} onChange={(e) => set({ city: e.target.value })} placeholder={t("widgetCityPlaceholder")} className="h-7 text-xs" />
+      {wt === "weather" && config.paramsSchema && config.paramsSchema.length > 0 && (
+        <div className="space-y-1.5">
+          {config.paramsSchema.map((param) => (
+            <DynamicParamControl
+              key={param.key}
+              param={param}
+              value={(config.params || {})[param.key] ?? param.default}
+              onChange={(v) => set({ params: { ...(config.params || {}), [param.key]: v } })}
+              lang={language}
+            />
+          ))}
         </div>
       )}
 
@@ -3442,7 +3449,7 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
       )}
 
       {/* Common appearance — hidden for youtube/stream and for widgets that manage colors via their own paramsSchema */}
-      {wt !== "youtube" && wt !== "stream" && wt !== "weather_tw" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
+      {wt !== "youtube" && wt !== "stream" && wt !== "weather_tw" && wt !== "weather" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetBgColor")}</Label>
           <div className="flex items-center gap-1">
@@ -3929,10 +3936,11 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
   }
 
   if (config.widgetType === "weather") {
+    if (config.url) return <WebpageZonePreview url={String(config.url)} bg={bg} fg={fg} params={config.params as Record<string, unknown> | undefined} allowSameOrigin />;
     return (
       <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
-        <CloudSun className="w-8 h-8 opacity-50" />
-        <span className="text-[10px] font-medium">{config.city || "City"}</span>
+        <CloudSun className="w-6 h-6 opacity-50" />
+        <span className="text-[9px] font-medium opacity-70">全球天氣</span>
       </div>
     );
   }
