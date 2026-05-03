@@ -25,6 +25,7 @@ body{display:flex;align-items:center;justify-content:center}
 #portrait .extras{font-size:clamp(0.45rem,2.5vmin,0.95rem);opacity:0.6;display:flex;align-items:center;gap:0.8em}
 
 /* ── Landscape layout ── */
+
 #landscape{display:flex;flex-direction:row;align-items:center;justify-content:center;width:100%;height:100%;gap:3%}
 #landscape .icon-wrap{display:flex;align-items:center;justify-content:center;width:40vmin;height:40vmin;max-width:40vh;max-height:40vh;flex-shrink:0}
 #landscape canvas{width:100%!important;height:100%!important}
@@ -34,6 +35,8 @@ body{display:flex;align-items:center;justify-content:center}
 #landscape .description{font-size:clamp(0.6rem,3vmin,1.2rem);opacity:0.85}
 #landscape .pop{font-size:clamp(0.5rem,2.5vmin,1rem);opacity:0.6;display:flex;align-items:center;gap:0.3em}
 #landscape .extras{font-size:clamp(0.45rem,2.3vmin,0.9rem);opacity:0.6;display:flex;align-items:center;gap:0.8em}
+.extras-hum,.extras-aqi{display:inline-flex;align-items:center;gap:0.2em}
+.aqi-dot{display:inline-block;width:0.65em;height:0.65em;border-radius:50%;flex-shrink:0;background:#94a3b8}
 
 [hidden]{display:none!important}
 </style>
@@ -53,8 +56,8 @@ body{display:flex;align-items:center;justify-content:center}
     </div>
     <div class="extras">
       <span>UV <span id="p-uv">―</span></span>
-      <span>空品 <span id="p-aqi">―</span></span>
-      <span>PM2.5 <span id="p-pm25">―</span></span>
+      <span class="extras-hum"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="0.85em" height="0.85em"><path d="M12 2C8.5 7 4 12 4 15.5a8 8 0 0 0 16 0C20 12 15.5 7 12 2z"/></svg><span id="p-hum">―</span></span>
+      <span class="extras-aqi"><span class="aqi-dot" id="p-aqi-dot"></span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="0.9em" height="0.9em"><path d="M4 14h16M4 18h12M7 10h13a3 3 0 0 0 0-6h-.34A5 5 0 1 0 7 10z"/></svg><span id="p-pm25">―</span></span>
     </div>
   </div>
 </div>
@@ -72,8 +75,8 @@ body{display:flex;align-items:center;justify-content:center}
     </div>
     <div class="extras">
       <span>UV <span id="l-uv">―</span></span>
-      <span>空品 <span id="l-aqi">―</span></span>
-      <span>PM2.5 <span id="l-pm25">―</span></span>
+      <span class="extras-hum"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" width="0.85em" height="0.85em"><path d="M12 2C8.5 7 4 12 4 15.5a8 8 0 0 0 16 0C20 12 15.5 7 12 2z"/></svg><span id="l-hum">―</span></span>
+      <span class="extras-aqi"><span class="aqi-dot" id="l-aqi-dot"></span><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="0.9em" height="0.9em"><path d="M4 14h16M4 18h12M7 10h13a3 3 0 0 0 0-6h-.34A5 5 0 1 0 7 10z"/></svg><span id="l-pm25">―</span></span>
     </div>
   </div>
 </div>
@@ -181,28 +184,29 @@ function weatherToIcon(desc) {
   return Skycons.CLOUDY;
 }
 
-// ── AQI label (European AQI scale) ────────────────────────────────────────
-function aqiLabel(aqi) {
+// ── AQI dot colour (European AQI scale) ──────────────────────────────────
+function aqiColor(aqi) {
   var n = parseInt(aqi);
-  if (isNaN(n) || aqi === '--') return '―';
-  if (n <= 20)  return '優';
-  if (n <= 40)  return '良';
-  if (n <= 60)  return '普通';
-  if (n <= 80)  return '差';
-  if (n <= 100) return '很差';
-  return '極差';
+  if (isNaN(n) || aqi === '--') return '#94a3b8'; // grey — unknown
+  if (n <= 20)  return '#22c55e'; // 優  green
+  if (n <= 40)  return '#84cc16'; // 良  lime
+  if (n <= 60)  return '#f97316'; // 普通 orange
+  if (n <= 80)  return '#f87171'; // 差  light red
+  if (n <= 100) return '#dc2626'; // 很差 red
+  return '#991b1b';               // 極差 dark red
 }
 
 // ── UI update ──────────────────────────────────────────────────────────────
-function updateUI(location, temp, desc, pop, uv, aqi, pm25) {
+function updateUI(location, temp, desc, pop, uv, aqi, pm25, humidity) {
   ['p','l'].forEach(function(pfx) {
-    document.getElementById(pfx + '-location').textContent = location;
-    document.getElementById(pfx + '-temp').textContent     = temp + '°C';
-    document.getElementById(pfx + '-desc').textContent     = desc;
-    document.getElementById(pfx + '-pop').textContent      = pop + '%';
-    document.getElementById(pfx + '-uv').textContent       = (uv  && uv  !== '--') ? uv  : '―';
-    document.getElementById(pfx + '-aqi').textContent      = aqiLabel(aqi);
-    document.getElementById(pfx + '-pm25').textContent     = (pm25 && pm25 !== '--') ? pm25 + ' μg/m³' : '―';
+    document.getElementById(pfx + '-location').textContent        = location;
+    document.getElementById(pfx + '-temp').textContent            = temp + '°C';
+    document.getElementById(pfx + '-desc').textContent            = desc;
+    document.getElementById(pfx + '-pop').textContent             = pop + '%';
+    document.getElementById(pfx + '-uv').textContent              = (uv       && uv       !== '--') ? uv       : '―';
+    document.getElementById(pfx + '-hum').textContent             = (humidity && humidity !== '--') ? humidity + '%' : '―';
+    document.getElementById(pfx + '-aqi-dot').style.background    = aqiColor(aqi);
+    document.getElementById(pfx + '-pm25').textContent            = (pm25    && pm25     !== '--') ? pm25 + ' μg/m³' : '―';
   });
   var shortDesc = desc.split('。')[0];
   initSkycons(weatherToIcon(shortDesc));
@@ -220,14 +224,14 @@ function fetchWeather() {
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.error) throw new Error(d.error);
-      try { localStorage.setItem('tw_weather_cache', JSON.stringify({ loc: d.location, temp: d.temp, wx: d.wx, pop: d.pop, uv: d.uv, aqi: d.aqi, pm25: d.pm25, ts: Date.now() })); } catch(e) {}
-      updateUI(d.location, d.temp, d.wx, d.pop, d.uv, d.aqi, d.pm25);
+      try { localStorage.setItem('tw_weather_cache', JSON.stringify({ loc: d.location, temp: d.temp, wx: d.wx, pop: d.pop, uv: d.uv, aqi: d.aqi, pm25: d.pm25, humidity: d.humidity, ts: Date.now() })); } catch(e) {}
+      updateUI(d.location, d.temp, d.wx, d.pop, d.uv, d.aqi, d.pm25, d.humidity);
     })
     .catch(function(err) {
       var cached = null;
       try { cached = JSON.parse(localStorage.getItem('tw_weather_cache') || 'null'); } catch(e) {}
-      if (cached) updateUI(cached.loc, cached.temp, cached.wx, cached.pop, cached.uv, cached.aqi, cached.pm25);
-      else updateUI(county + ' ' + district, '--', '無法連線', '--', '--', '--', '--');
+      if (cached) updateUI(cached.loc, cached.temp, cached.wx, cached.pop, cached.uv, cached.aqi, cached.pm25, cached.humidity);
+      else updateUI(county + ' ' + district, '--', '無法連線', '--', '--', '--', '--', '--');
     });
 }
 
