@@ -248,6 +248,25 @@ async function fetchUVandAQ(
   }
 }
 
+// ── CWA weather text → approximate WMO code ──────────────────────────────────
+function cwaWxToWmo(wx: string): number {
+  if (wx.includes("冰雹"))                             return 96;
+  if (wx.includes("雷"))                               return 95;
+  if (wx.includes("雪"))                               return 73;
+  if (wx.includes("霜") || wx.includes("結冰"))        return 56;
+  if (wx.includes("霧"))                               return 45;
+  if (wx.includes("豪雨") || wx.includes("大雨"))      return 65;
+  if (wx.includes("中雨"))                             return 63;
+  if (wx.includes("陣雨") || wx.includes("驟雨") || wx.includes("短暫雨")) return 80;
+  if (wx.includes("毛毛雨") || wx.includes("微雨"))    return 51;
+  if (wx.includes("雨"))                               return 61;
+  if (wx.includes("陰"))                               return 3;
+  if (wx.includes("多雲") || wx.includes("局部") || wx.includes("晴時多雲")) return 2;
+  if (wx.includes("雲"))                               return 2;
+  if (wx.includes("晴"))                               return 0;
+  return 2;
+}
+
 // ── Data sources ──────────────────────────────────────────────────────────────
 
 // Taiwan: CWA OpenData + Open-Meteo UV/AQ
@@ -290,7 +309,11 @@ async function fetchCWA(
       case "風速":          wind     = ev.WindSpeed                  ?? "--"; break;
     }
   }
-  return { location: loc.LocationName, temp, wx, pop, humidity, wind, ...uvAq };
+  const utcHour = new Date().getUTCHours();
+  const twHour  = (utcHour + 8) % 24;
+  const isDay   = (twHour >= 6 && twHour < 19) ? "1" : "0";
+  return { location: loc.LocationName, temp, wx, pop, humidity, wind,
+           wmo: String(cwaWxToWmo(wx)), is_day: isDay, ...uvAq };
 }
 
 // Global: Open-Meteo forecast + UV + AQ
@@ -304,7 +327,7 @@ async function fetchOpenMeteo(
       `https://api.open-meteo.com/v1/forecast` +
       `?latitude=${lat}&longitude=${lon}` +
       `&current=temperature_2m,weather_code,precipitation_probability,` +
-      `relative_humidity_2m,wind_speed_10m` +
+      `relative_humidity_2m,wind_speed_10m,is_day` +
       `&timezone=auto`,
     ),
     fetchUVandAQ(lat, lon),
@@ -320,6 +343,8 @@ async function fetchOpenMeteo(
     pop:      String(c.precipitation_probability ?? "--"),
     humidity: String(c.relative_humidity_2m ?? "--"),
     wind:     String((c.wind_speed_10m ?? 0).toFixed(1)),
+    wmo:      String(c.weather_code ?? 0),
+    is_day:   String(c.is_day ?? 1),
     ...uvAq,
   };
 }
