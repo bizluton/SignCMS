@@ -3468,11 +3468,13 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
 
       {wt === "weather_tw" && config.paramsSchema && config.paramsSchema.length > 0 && (
         <div className="space-y-1.5">
-          {config.paramsSchema.map((param) => {
+          {[
+            ...config.paramsSchema.filter(p => p.key !== "weatherColor" && p.key !== "showUV" && p.key !== "showAQ"),
+            ...(config.paramsSchema.some(p => p.key === "showUV") ? [] : [{ key: "showUV", type: "toggle" as const, label: "Show UV Index", label_zh: "顯示 UV 指數", default: true }]),
+            ...(config.paramsSchema.some(p => p.key === "showAQ") ? [] : [{ key: "showAQ", type: "toggle" as const, label: "Show Air Quality", label_zh: "顯示空氣品質", default: true }]),
+            ...(config.paramsSchema.filter(p => p.key === "showUV" || p.key === "showAQ")),
+          ].map((param) => {
             const params = config.params || {};
-
-            // weatherColor no longer applies (Meteocons icons are full-colour)
-            if (param.key === "weatherColor") return null;
 
             // District: county-dependent dropdown
             if (param.key === "regionName") {
