@@ -293,10 +293,11 @@ function WidgetPreviewCard({ config }: { config: WidgetConfig }) {
   }
 
   if (config.widgetType === "webpage") {
+    if (config.url) return <iframe src={config.url} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
     return (
       <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
         <Globe className="w-6 h-6 opacity-50" />
-        <span className="text-[10px] opacity-60 truncate max-w-[80%]">{config.url || "URL"}</span>
+        <span className="text-[10px] opacity-60">URL</span>
       </div>
     );
   }
