@@ -3270,8 +3270,8 @@ function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChan
         </div>
       )}
 
-      {/* Common appearance — applies to all widget types */}
-      <div className="grid grid-cols-2 gap-2 pt-1">
+      {/* Common appearance — applies to all widget types except youtube */}
+      {wt !== "youtube" && <div className="grid grid-cols-2 gap-2 pt-1">
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetBgColor")}</Label>
           <div className="flex items-center gap-1">
@@ -3296,7 +3296,7 @@ function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChan
           <Label className="text-[10px] text-muted-foreground">{t("widgetTextColor")}</Label>
           <Input type="color" value={config.textColor || "#ffffff"} onChange={(e) => set({ textColor: e.target.value })} className="h-7 p-0.5" />
         </div>
-      </div>
+      </div>}
 
       {(wt === "clock" || wt === "date" || wt === "marquee" || wt === "countdown") && (
         <div className="space-y-1">
@@ -3434,6 +3434,7 @@ function CountdownZonePreview({ config, bg, fg }: { config: WidgetConfig; bg: st
   const containerRef = useRef<HTMLDivElement>(null);
   const [dims, setDims] = useState({ w: 0, h: 0 });
   const [now, setNow] = useState(new Date());
+  const { t } = useLanguage();
   useEffect(() => {
     const obs = new ResizeObserver(entries => {
       const { width, height } = entries[0].contentRect;
@@ -3443,19 +3444,22 @@ function CountdownZonePreview({ config, bg, fg }: { config: WidgetConfig; bg: st
     return () => obs.disconnect();
   }, []);
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
   }, []);
 
   const ratio = MARQUEE_SIZE_RATIO[config.fontSize || 'medium'] ?? 0.30;
-  // Each 2-digit number in monospace ≈ fontSize × 1.2 wide; 4 numbers + 3 gaps (0.6×fontSize each) = fontSize × 6.6
   const hasTitle = !!config.countdownTitle;
-  const heightForDigits = hasTitle ? dims.h * 0.65 : dims.h;
+  // Reserve space for labels (~35% of digit height) when computing available height
+  const heightForDigits = hasTitle ? dims.h * 0.50 : dims.h * 0.68;
   const maxFromH = heightForDigits * ratio;
+  // Each 2-digit monospace number ≈ fontSize × 1.2 wide; 4 numbers + 3 gaps (0.6×) = fontSize × 6.6
   const maxFromW = dims.w > 0 ? (dims.w * 0.90) / 6.6 : 999;
   const digitsPx = dims.h > 0 ? Math.max(10, Math.floor(Math.min(maxFromH, maxFromW))) : 16;
-  const titlePx  = dims.h > 0 ? Math.max(8, Math.floor(dims.h * 0.13)) : 10;
+  const titlePx  = dims.h > 0 ? Math.max(8, Math.floor(dims.h * 0.12)) : 10;
+  const labelPx  = Math.max(7, Math.floor(digitsPx * 0.32));
   const gapPx    = Math.max(2, Math.floor(digitsPx * 0.3));
+  const innerGap = Math.max(1, Math.floor(digitsPx * 0.08));
 
   const target = config.targetDate ? new Date(config.targetDate).getTime() : Date.now() + 86400000;
   const diff = Math.max(0, target - now.getTime());
@@ -3463,12 +3467,17 @@ function CountdownZonePreview({ config, bg, fg }: { config: WidgetConfig; bg: st
   const hours = Math.floor((diff % 86400000) / 3600000);
   const mins  = Math.floor((diff % 3600000) / 60000);
   const secs  = Math.floor((diff % 60000) / 1000);
+  const labels = [t("widgetDays"), t("widgetHours"), t("widgetMinutes"), t("widgetSeconds")];
+
   return (
     <div ref={containerRef} className="w-full h-full flex flex-col items-center justify-center" style={{ background: bg, color: fg, gap: `${gapPx}px` }}>
       {config.countdownTitle && <span style={{ fontSize: `${titlePx}px`, fontWeight: 'bold', opacity: 0.7 }}>{config.countdownTitle}</span>}
       <div className="flex" style={{ gap: `${gapPx}px` }}>
         {[days, hours, mins, secs].map((v, i) => (
-          <span key={i} style={{ fontSize: `${digitsPx}px`, fontFamily: 'monospace', fontWeight: 'bold' }}>{String(v).padStart(2, "0")}</span>
+          <div key={i} className="flex flex-col items-center" style={{ gap: `${innerGap}px` }}>
+            <span style={{ fontSize: `${digitsPx}px`, fontFamily: 'monospace', fontWeight: 'bold', lineHeight: 1 }}>{String(v).padStart(2, "0")}</span>
+            <span style={{ fontSize: `${labelPx}px`, opacity: 0.65, lineHeight: 1 }}>{labels[i]}</span>
+          </div>
         ))}
       </div>
     </div>
@@ -3530,16 +3539,18 @@ function YoutubeZonePreview({ url, bg }: { url: string; bg: string }) {
   const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1`;
 
   // Cover mode: scale iframe to fill zone without black bars; pointer-events:none prevents click-to-YouTube
-  let iframeStyle: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0, pointerEvents: 'none' };
+  // Extra scale(1.04) hides any sub-pixel edge artifacts from the YouTube player chrome
+  const baseStyle: React.CSSProperties = { border: 0, pointerEvents: 'none', transform: 'scale(1.04)', transformOrigin: 'center center' };
+  let iframeStyle: React.CSSProperties = { ...baseStyle, position: 'absolute', inset: 0, width: '100%', height: '100%' };
   if (dims.w > 0 && dims.h > 0) {
     const zoneAspect = dims.w / dims.h;
     const videoAspect = 16 / 9;
     if (zoneAspect > videoAspect) {
       const iframeH = Math.ceil(dims.w / videoAspect);
-      iframeStyle = { position: 'absolute', width: `${dims.w}px`, height: `${iframeH}px`, top: `${Math.floor((dims.h - iframeH) / 2)}px`, left: 0, border: 0, pointerEvents: 'none' };
+      iframeStyle = { ...baseStyle, position: 'absolute', width: `${dims.w}px`, height: `${iframeH}px`, top: `${Math.floor((dims.h - iframeH) / 2)}px`, left: 0 };
     } else {
       const iframeW = Math.ceil(dims.h * videoAspect);
-      iframeStyle = { position: 'absolute', height: `${dims.h}px`, width: `${iframeW}px`, left: `${Math.floor((dims.w - iframeW) / 2)}px`, top: 0, border: 0, pointerEvents: 'none' };
+      iframeStyle = { ...baseStyle, position: 'absolute', height: `${dims.h}px`, width: `${iframeW}px`, left: `${Math.floor((dims.w - iframeW) / 2)}px`, top: 0 };
     }
   }
 
@@ -3553,7 +3564,7 @@ function YoutubeZonePreview({ url, bg }: { url: string; bg: string }) {
 function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Date }) {
 
   if (!config) return null;
-  const bg = config.bgColor || "#1a1a2e";
+  const bg = config.bgColor || (config.widgetType === "youtube" ? "transparent" : "#1a1a2e");
   const fg = config.textColor || "#ffffff";
   const fontSize = config.fontSize || "medium";
   const ZONE_FS: Record<string, Record<string, string>> = {
