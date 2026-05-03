@@ -116,7 +116,7 @@ function applyLayout() {
 }
 
 // ── Weather icon — Meteocons animated SVG (jsDelivr → GitHub CDN) ─────────────
-var ICON_BASE = 'https://cdn.jsdelivr.net/gh/basmilius/weather-icons@dev/production/fill/svg/';
+var ICON_BASE = 'https://narhbpojjtnalyfiwxue.supabase.co/storage/v1/object/public/system-widgets/icons/';
 
 var _iconCache = {};
 var ICON_NAMES = [
@@ -277,8 +277,12 @@ setInterval(function() {
 // ── Init ──────────────────────────────────────────────────────────────────────
 window.addEventListener('load', function() {
   applyLayout();
-  preloadIcons();   // warm icon cache in parallel with API call
-  fetchWeather();
+  // Show stale cache immediately so the widget is never blank on reload
+  var _c = null;
+  try { _c = JSON.parse(localStorage.getItem('gw_cache') || 'null'); } catch(e) {}
+  if (_c) updateUI(_c.loc, _c.temp, _c.wx, _c.pop, _c.uv, _c.aqi, _c.pm25, _c.humidity, _c.wmo, _c.is_day);
+  preloadIcons();
+  fetchWeather();   // refresh in background; updateUI will overwrite when done
 });
 window.addEventListener('resize', applyLayout);
 </script>
