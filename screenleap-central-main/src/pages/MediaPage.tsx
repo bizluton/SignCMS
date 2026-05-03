@@ -2555,8 +2555,9 @@ const MediaPage = () => {
                 <div className="space-y-2">
                   <Label>{t("widgetBgColor")}</Label>
                   <div className="flex items-center gap-2">
-                    <input type="color" value={widgetForm.bgColor} onChange={(e) => setWidgetForm({ ...widgetForm, bgColor: e.target.value })} className="w-8 h-8 rounded border border-border cursor-pointer" />
+                    <input type="color" value={widgetForm.bgColor === "transparent" ? "#1a1a2e" : widgetForm.bgColor} onChange={(e) => setWidgetForm({ ...widgetForm, bgColor: e.target.value })} className="w-8 h-8 rounded border border-border cursor-pointer" disabled={widgetForm.bgColor === "transparent"} />
                     <Input value={widgetForm.bgColor} onChange={(e) => setWidgetForm({ ...widgetForm, bgColor: e.target.value })} className="flex-1" />
+                    <button type="button" onClick={() => setWidgetForm({ ...widgetForm, bgColor: widgetForm.bgColor === "transparent" ? "#1a1a2e" : "transparent" })} className={`shrink-0 px-2 h-9 rounded border text-xs transition-colors ${widgetForm.bgColor === "transparent" ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary"}`}>{t("transparent")}</button>
                   </div>
                 </div>
                 <div className="space-y-2">

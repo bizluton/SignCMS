@@ -3430,6 +3430,84 @@ function MarqueeZonePreview({ text, bg, fg, speed, fontSize: fontSizeKey }: { te
   );
 }
 
+function CountdownZonePreview({ config, bg, fg }: { config: WidgetConfig; bg: string; fg: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [h, setH] = useState(0);
+  const [now, setNow] = useState(new Date());
+  useEffect(() => {
+    const obs = new ResizeObserver(entries => setH(Math.round(entries[0].contentRect.height)));
+    if (containerRef.current) obs.observe(containerRef.current);
+    return () => obs.disconnect();
+  }, []);
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const ratio = MARQUEE_SIZE_RATIO[config.fontSize || 'medium'] ?? 0.30;
+  const digitsPx = h > 0 ? Math.max(12, Math.round(h * ratio)) : 16;
+  const titlePx  = h > 0 ? Math.max(8,  Math.round(h * 0.12)) : 10;
+  const gapPx    = h > 0 ? Math.max(2,  Math.round(h * 0.06)) : 4;
+  const target = config.targetDate ? new Date(config.targetDate).getTime() : Date.now() + 86400000;
+  const diff = Math.max(0, target - now.getTime());
+  const days  = Math.floor(diff / 86400000);
+  const hours = Math.floor((diff % 86400000) / 3600000);
+  const mins  = Math.floor((diff % 3600000) / 60000);
+  const secs  = Math.floor((diff % 60000) / 1000);
+  return (
+    <div ref={containerRef} className="w-full h-full flex flex-col items-center justify-center" style={{ background: bg, color: fg, gap: `${gapPx}px` }}>
+      {config.countdownTitle && <span style={{ fontSize: `${titlePx}px`, fontWeight: 'bold', opacity: 0.7 }}>{config.countdownTitle}</span>}
+      <div className="flex" style={{ gap: `${gapPx * 2}px` }}>
+        {[days, hours, mins, secs].map((v, i) => (
+          <span key={i} style={{ fontSize: `${digitsPx}px`, fontFamily: 'monospace', fontWeight: 'bold' }}>{String(v).padStart(2, "0")}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function QRCodeZonePreview({ content, bg, fg }: { content: string; bg: string; fg: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dims, setDims] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const obs = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect;
+      setDims({ w: Math.round(width), h: Math.round(height) });
+    });
+    if (containerRef.current) obs.observe(containerRef.current);
+    return () => obs.disconnect();
+  }, []);
+  const qrSize = dims.h > 0 ? Math.round(Math.min(dims.w, dims.h) * 0.78) : 80;
+  return (
+    <div ref={containerRef} className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
+      {dims.h > 0 && <QRCodeSVG value={content} size={qrSize} bgColor={bg === 'transparent' ? 'transparent' : bg} fgColor={fg} level="M" />}
+    </div>
+  );
+}
+
+function extractYoutubeId(url: string): string | null {
+  if (!url) return null;
+  const patterns = [
+    /(?:v=|\/embed\/|\.be\/)([A-Za-z0-9_-]{11})/,
+    /^([A-Za-z0-9_-]{11})$/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+function YoutubeZonePreview({ url, bg }: { url: string; bg: string }) {
+  const videoId = extractYoutubeId(url);
+  if (!videoId) return (
+    <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
+      <Youtube className="w-8 h-8 opacity-50" />
+    </div>
+  );
+  const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1`;
+  return <iframe src={embedUrl} className="w-full h-full border-0" allow="autoplay; encrypted-media" allowFullScreen />;
+}
+
 function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Date }) {
 
   if (!config) return null;
@@ -3501,39 +3579,15 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
   }
 
   if (config.widgetType === "qrcode") {
-    const qrSize = config.qrcodeSize ? Math.min(config.qrcodeSize, 120) : 80;
-    return (
-      <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
-        <QRCodeSVG value={config.qrcodeContent || "https://example.com"} size={qrSize} bgColor={bg} fgColor={fg} level="M" />
-      </div>
-    );
+    return <QRCodeZonePreview content={config.qrcodeContent || "https://example.com"} bg={bg} fg={fg} />;
   }
 
   if (config.widgetType === "countdown") {
-    const target = config.targetDate ? new Date(config.targetDate).getTime() : Date.now() + 86400000;
-    const diff = Math.max(0, target - now.getTime());
-    const days = Math.floor(diff / 86400000);
-    const hours = Math.floor((diff % 86400000) / 3600000);
-    const mins = Math.floor((diff % 3600000) / 60000);
-    const secs = Math.floor((diff % 60000) / 1000);
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
-        {config.countdownTitle && <span className={`${zfs.title} font-bold opacity-70`}>{config.countdownTitle}</span>}
-        <div className="flex gap-2">
-          {[days, hours, mins, secs].map((v, i) => (
-            <span key={i} className={`${zfs.countdown} font-mono font-bold`}>{String(v).padStart(2, "0")}</span>
-          ))}
-        </div>
-      </div>
-    );
+    return <CountdownZonePreview config={config} bg={bg} fg={fg} />;
   }
 
   if (config.widgetType === "youtube") {
-    return (
-      <div className="w-full h-full flex items-center justify-center" style={{ background: bg, color: fg }}>
-        <Youtube className="w-8 h-8 opacity-50" />
-      </div>
-    );
+    return <YoutubeZonePreview url={config.youtubeUrl || ""} bg={bg} />;
   }
 
   if (config.widgetType === "weather") {
