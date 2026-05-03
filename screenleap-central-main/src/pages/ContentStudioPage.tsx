@@ -44,7 +44,7 @@ import {
   Layers, Code2, Clock, Calendar, Globe, CloudSun, QrCode, Timer, Youtube, Move, Maximize2, Lock, Unlock, Check,
   Search, ArrowUpDown, ArrowDownAZ, ArrowUpAZ, GripVertical, MoreHorizontal, PanelLeft, PanelRight, Edit3, Eye, EyeOff, List, ChevronUp, ChevronDown,
   Music, Volume2, Settings2, VolumeX,
-  Download,
+  Download, Loader2,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -3316,6 +3316,31 @@ function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChan
 }
 
 // ── Widget Zone Preview (continued original body) ──────────────────
+function WebpageZonePreview({ url, bg, fg }: { url: string; bg: string; fg: string }) {
+  const [srcDoc, setSrcDoc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!url) { setSrcDoc(""); return; }
+    let cancelled = false;
+    fetch(url)
+      .then((r) => r.text())
+      .then((html) => { if (!cancelled) setSrcDoc(html); })
+      .catch(() => { if (!cancelled) setSrcDoc(""); });
+    return () => { cancelled = true; };
+  }, [url]);
+  if (srcDoc === null) return (
+    <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
+      <Loader2 className="w-6 h-6 animate-spin opacity-40" style={{ color: fg }} />
+    </div>
+  );
+  if (!srcDoc) return (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
+      <Globe className="w-6 h-6 opacity-50" />
+      <span className="text-[10px] opacity-60">URL</span>
+    </div>
+  );
+  return <iframe srcDoc={srcDoc} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
+}
+
 function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Date }) {
 
   if (!config) return null;
@@ -3387,12 +3412,7 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
   }
 
   if (config.widgetType === "webpage") {
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
-        <Globe className="w-6 h-6 opacity-50" />
-        <span className="text-[10px] opacity-60 truncate max-w-[80%]">{config.url || "URL"}</span>
-      </div>
-    );
+    return <WebpageZonePreview url={config.url || ""} bg={bg} fg={fg} />;
   }
 
   if (config.widgetType === "qrcode") {
