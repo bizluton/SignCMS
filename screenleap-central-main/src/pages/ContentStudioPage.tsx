@@ -3509,7 +3509,7 @@ function injectWidgetParams(html: string, params?: Record<string, unknown>): str
   return html.includes('</head>') ? html.replace('</head>', script + '</head>') : script + html;
 }
 
-function WebpageZonePreview({ url, bg, fg, params }: { url: string; bg: string; fg: string; params?: Record<string, unknown> }) {
+function WebpageZonePreview({ url, bg, fg, params, allowSameOrigin }: { url: string; bg: string; fg: string; params?: Record<string, unknown>; allowSameOrigin?: boolean }) {
   const isStorageUrl = url.includes('supabase.co/storage');
   const [rawHtml, setRawHtml] = useState<string | null>(isStorageUrl ? null : undefined as unknown as null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -3560,7 +3560,7 @@ function WebpageZonePreview({ url, bg, fg, params }: { url: string; bg: string; 
       <span className="text-[10px] opacity-60">URL</span>
     </div>
   );
-  return <iframe ref={iframeRef} srcDoc={injectWidgetParams(rawHtml, paramsRef.current)} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
+  return <iframe ref={iframeRef} srcDoc={injectWidgetParams(rawHtml, paramsRef.current)} className="w-full h-full border-0 pointer-events-none" sandbox={allowSameOrigin ? "allow-scripts allow-same-origin" : "allow-scripts"} />;
 }
 
 const MARQUEE_SIZE_RATIO: Record<string, number> = { small: 0.20, medium: 0.30, large: 0.45, xlarge: 0.60 };
@@ -3938,7 +3938,7 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
   }
 
   if (config.widgetType === "weather_tw") {
-    return <WebpageZonePreview url={config.url || ""} bg={bg} fg={fg} params={config.params} />;
+    return <WebpageZonePreview url={config.url || ""} bg={bg} fg={fg} params={config.params} allowSameOrigin />;
   }
 
   return (

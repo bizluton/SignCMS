@@ -212,17 +212,14 @@ function fetchWeather() {
       });
 
       var displayLoc = loc.LocationName;
-      localStorage.setItem('tw_weather_cache', JSON.stringify({ loc: displayLoc, temp: temp, wx: wx, pop: pop, ts: Date.now() }));
+      try { localStorage.setItem('tw_weather_cache', JSON.stringify({ loc: displayLoc, temp: temp, wx: wx, pop: pop, ts: Date.now() })); } catch(e) {}
       updateUI(displayLoc, temp, wx, pop);
     })
     .catch(function() {
-      try {
-        var cached = JSON.parse(localStorage.getItem('tw_weather_cache') || 'null');
-        if (cached) updateUI(cached.loc, cached.temp, cached.wx, cached.pop);
-        else updateUI(county + district, '--', '無法連線', '--');
-      } catch(e2) {
-        updateUI(county + district, '--', '無法連線', '--');
-      }
+      var cached = null;
+      try { cached = JSON.parse(localStorage.getItem('tw_weather_cache') || 'null'); } catch(e) {}
+      if (cached) updateUI(cached.loc, cached.temp, cached.wx, cached.pop);
+      else updateUI(county + district, '--', '無法連線', '--');
     });
 }
 
