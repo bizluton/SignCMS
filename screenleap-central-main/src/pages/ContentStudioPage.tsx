@@ -3432,10 +3432,13 @@ function MarqueeZonePreview({ text, bg, fg, speed, fontSize: fontSizeKey }: { te
 
 function CountdownZonePreview({ config, bg, fg }: { config: WidgetConfig; bg: string; fg: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [h, setH] = useState(0);
+  const [dims, setDims] = useState({ w: 0, h: 0 });
   const [now, setNow] = useState(new Date());
   useEffect(() => {
-    const obs = new ResizeObserver(entries => setH(Math.round(entries[0].contentRect.height)));
+    const obs = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect;
+      setDims({ w: Math.round(width), h: Math.round(height) });
+    });
     if (containerRef.current) obs.observe(containerRef.current);
     return () => obs.disconnect();
   }, []);
@@ -3443,10 +3446,17 @@ function CountdownZonePreview({ config, bg, fg }: { config: WidgetConfig; bg: st
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
   const ratio = MARQUEE_SIZE_RATIO[config.fontSize || 'medium'] ?? 0.30;
-  const digitsPx = h > 0 ? Math.max(12, Math.round(h * ratio)) : 16;
-  const titlePx  = h > 0 ? Math.max(8,  Math.round(h * 0.12)) : 10;
-  const gapPx    = h > 0 ? Math.max(2,  Math.round(h * 0.06)) : 4;
+  // Each 2-digit number in monospace ≈ fontSize × 1.2 wide; 4 numbers + 3 gaps (0.6×fontSize each) = fontSize × 6.6
+  const hasTitle = !!config.countdownTitle;
+  const heightForDigits = hasTitle ? dims.h * 0.65 : dims.h;
+  const maxFromH = heightForDigits * ratio;
+  const maxFromW = dims.w > 0 ? (dims.w * 0.90) / 6.6 : 999;
+  const digitsPx = dims.h > 0 ? Math.max(10, Math.floor(Math.min(maxFromH, maxFromW))) : 16;
+  const titlePx  = dims.h > 0 ? Math.max(8, Math.floor(dims.h * 0.13)) : 10;
+  const gapPx    = Math.max(2, Math.floor(digitsPx * 0.3));
+
   const target = config.targetDate ? new Date(config.targetDate).getTime() : Date.now() + 86400000;
   const diff = Math.max(0, target - now.getTime());
   const days  = Math.floor(diff / 86400000);
@@ -3456,7 +3466,7 @@ function CountdownZonePreview({ config, bg, fg }: { config: WidgetConfig; bg: st
   return (
     <div ref={containerRef} className="w-full h-full flex flex-col items-center justify-center" style={{ background: bg, color: fg, gap: `${gapPx}px` }}>
       {config.countdownTitle && <span style={{ fontSize: `${titlePx}px`, fontWeight: 'bold', opacity: 0.7 }}>{config.countdownTitle}</span>}
-      <div className="flex" style={{ gap: `${gapPx * 2}px` }}>
+      <div className="flex" style={{ gap: `${gapPx}px` }}>
         {[days, hours, mins, secs].map((v, i) => (
           <span key={i} style={{ fontSize: `${digitsPx}px`, fontFamily: 'monospace', fontWeight: 'bold' }}>{String(v).padStart(2, "0")}</span>
         ))}
@@ -3498,14 +3508,46 @@ function extractYoutubeId(url: string): string | null {
 }
 
 function YoutubeZonePreview({ url, bg }: { url: string; bg: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dims, setDims] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const obs = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect;
+      setDims({ w: Math.round(width), h: Math.round(height) });
+    });
+    if (containerRef.current) obs.observe(containerRef.current);
+    return () => obs.disconnect();
+  }, []);
+
   const videoId = extractYoutubeId(url);
+
   if (!videoId) return (
-    <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
+    <div ref={containerRef} className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
       <Youtube className="w-8 h-8 opacity-50" />
     </div>
   );
+
   const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1`;
-  return <iframe src={embedUrl} className="w-full h-full border-0" allow="autoplay; encrypted-media" allowFullScreen />;
+
+  // Cover mode: scale iframe to fill zone without black bars; pointer-events:none prevents click-to-YouTube
+  let iframeStyle: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0, pointerEvents: 'none' };
+  if (dims.w > 0 && dims.h > 0) {
+    const zoneAspect = dims.w / dims.h;
+    const videoAspect = 16 / 9;
+    if (zoneAspect > videoAspect) {
+      const iframeH = Math.ceil(dims.w / videoAspect);
+      iframeStyle = { position: 'absolute', width: `${dims.w}px`, height: `${iframeH}px`, top: `${Math.floor((dims.h - iframeH) / 2)}px`, left: 0, border: 0, pointerEvents: 'none' };
+    } else {
+      const iframeW = Math.ceil(dims.h * videoAspect);
+      iframeStyle = { position: 'absolute', height: `${dims.h}px`, width: `${iframeW}px`, left: `${Math.floor((dims.w - iframeW) / 2)}px`, top: 0, border: 0, pointerEvents: 'none' };
+    }
+  }
+
+  return (
+    <div ref={containerRef} className="w-full h-full relative overflow-hidden" style={{ background: bg }}>
+      {dims.w > 0 && <iframe src={embedUrl} style={iframeStyle} allow="autoplay; encrypted-media" allowFullScreen />}
+    </div>
+  );
 }
 
 function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Date }) {
