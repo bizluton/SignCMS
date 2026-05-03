@@ -64,6 +64,7 @@ import {
   History,
   ChevronDown,
   ChevronUp,
+  Radio,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Switch } from "@/components/ui/switch";
@@ -163,13 +164,15 @@ interface WidgetConfig {
   _catalogType?: string;
 }
 
-const WIDGET_ICONS: Record<WidgetSubType, React.ComponentType<{ className?: string }>> = {
-  date: Calendar, clock: Clock, webpage: Globe, marquee: Type, qrcode: QrCode, countdown: Timer, youtube: Youtube, weather: CloudSun,
+const WIDGET_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  date: Calendar, clock: Clock, webpage: Globe, marquee: Type, qrcode: QrCode,
+  countdown: Timer, youtube: Youtube, weather: CloudSun, weather_tw: CloudSun, stream: Radio,
 };
 
 const WIDGET_TYPE_LABEL_KEYS: Record<string, string> = {
   date: "widgetDate", clock: "widgetClock", webpage: "widgetWebpage", marquee: "widgetMarquee",
-  qrcode: "widgetQrcode", countdown: "widgetCountdown", youtube: "widgetYoutube", weather: "widgetWeather",
+  qrcode: "widgetQrcode", countdown: "widgetCountdown", youtube: "widgetYoutube",
+  weather: "widgetWeather", weather_tw: "widgetWeatherTw", stream: "widgetStream",
 };
 
 const TIMEZONE_OPTIONS = [
@@ -2412,8 +2415,8 @@ const MediaPage = () => {
               ) : (
                 <div className="grid grid-cols-3 gap-3 shrink-0">
                   {catalogWidgets.map((w) => {
-                    const wt = (w.config.widgetType as string) ?? "";
-                    const Icon = WIDGET_ICONS[wt as WidgetSubType] ?? Code2;
+                    const wt = w.widget_type || (w.config.widgetType as string) || "";
+                    const Icon = WIDGET_ICONS[wt] ?? Code2;
                     const isSelected = w.id === selectedCatalogWidgetId;
                     return (
                       <button

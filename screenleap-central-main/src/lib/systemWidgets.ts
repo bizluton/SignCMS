@@ -2,8 +2,8 @@
 // They are not stored in the DB; they are read-only and cannot be deleted.
 
 export type SystemWidgetSubType =
-  | "date" | "clock" | "webpage" | "marquee"
-  | "qrcode" | "countdown" | "youtube" | "weather";
+  | "date" | "webpage" | "marquee"
+  | "qrcode" | "countdown" | "youtube";
 
 export interface SystemWidgetConfig {
   widgetType: SystemWidgetSubType;
@@ -20,7 +20,6 @@ export interface SystemWidgetConfig {
   targetDate?: string;
   countdownTitle?: string;
   youtubeUrl?: string;
-  city?: string;
   fontSize?: "small" | "medium" | "large" | "xlarge";
   qrcodeSize?: number;
   animation?: "none" | "fadeIn" | "slideUp" | "bounce" | "zoomIn" | "flipIn";
@@ -37,16 +36,6 @@ export interface SystemWidgetDef {
 const SYSTEM_CREATED_AT = "2000-01-01T00:00:00.000Z";
 
 export const SYSTEM_WIDGETS: SystemWidgetDef[] = [
-  {
-    id: "sys-widget-clock",
-    name: "Clock",
-    nameKey: "widgetClock",
-    config: {
-      widgetType: "clock", clockStyle: "digital", format: "24", showDate: true,
-      timezone: "Asia/Taipei", bgColor: "#0f172a", textColor: "#ffffff",
-      fontSize: "large", animation: "fadeIn",
-    },
-  },
   {
     id: "sys-widget-date",
     name: "Date",
@@ -105,16 +94,6 @@ export const SYSTEM_WIDGETS: SystemWidgetDef[] = [
       widgetType: "youtube",
       youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
       bgColor: "#000000", textColor: "#ffffff", animation: "none",
-    },
-  },
-  {
-    id: "sys-widget-weather",
-    name: "Weather",
-    nameKey: "widgetWeather",
-    config: {
-      widgetType: "weather", city: "Taipei",
-      bgColor: "#0ea5e9", textColor: "#ffffff",
-      fontSize: "large", animation: "fadeIn",
     },
   },
 ];
