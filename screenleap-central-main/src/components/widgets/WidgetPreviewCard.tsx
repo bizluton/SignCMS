@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Globe, Code2, Youtube, CloudSun, Loader2 } from "lucide-react";
+import { Globe, Code2, Youtube, CloudSun, Loader2, Radio } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
 function injectWidgetParams(html: string, params?: Record<string, unknown>): string {
@@ -49,6 +49,9 @@ export interface WidgetConfig {
   targetDate?: string;
   countdownTitle?: string;
   youtubeUrl?: string;
+  streamUrl?: string;
+  streamMuted?: boolean;
+  streamFit?: string;
   city?: string;
   fontSize?: "small" | "medium" | "large" | "xlarge";
   qrcodeSize?: number;
@@ -173,6 +176,21 @@ export function WidgetPreviewCard({ config }: { config: WidgetConfig }) {
     return (
       <div className="w-full h-full flex items-center justify-center" style={{ background: bg, color: fg }}>
         <Youtube className="w-8 h-8 opacity-50" />
+      </div>
+    );
+  }
+
+  if (config.widgetType === "stream") {
+    const url = config.streamUrl as string | undefined;
+    const isRTMP = !!url && /^rtmp[se]?:\/\//i.test(url);
+    const isRTSP = !!url && /^rtsps?:\/\//i.test(url);
+    const proto = isRTMP ? "RTMP" : isRTSP ? "RTSP" : url ? "HLS" : null;
+    const color = proto === "HLS" ? "#10b981" : proto ? "#f59e0b" : "#6b7280";
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: '#0a0a1a' }}>
+        <Radio className="w-6 h-6" style={{ color, opacity: 0.7 }} />
+        {proto && <span className="text-[8px] font-mono px-1 rounded" style={{ background: color + '25', color }}>{proto}</span>}
+        {!url && <span className="text-[8px] opacity-30 text-white">未設定</span>}
       </div>
     );
   }

@@ -44,7 +44,7 @@ import {
   Layers, Code2, Clock, Calendar, Globe, CloudSun, QrCode, Timer, Youtube, Move, Maximize2, Lock, Unlock, Check,
   Search, ArrowUpDown, ArrowDownAZ, ArrowUpAZ, GripVertical, MoreHorizontal, PanelLeft, PanelRight, Edit3, Eye, EyeOff, List, ChevronUp, ChevronDown,
   Music, Volume2, Settings2, VolumeX,
-  Download, Loader2,
+  Download, Loader2, Radio,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -106,6 +106,10 @@ interface WidgetConfig {
   countdownTitle?: string;
   targetDate?: string;
   youtubeUrl?: string;
+  streamUrl?: string;
+  streamMuted?: boolean;
+  streamFit?: string;
+  streamProtocol?: string;
   city?: string;
   bgColor?: string;
   textColor?: string;
@@ -748,7 +752,7 @@ function MediaLibraryDock({
         const raw = w.url?.startsWith("widget://") ? w.url.slice("widget://".length) : w.url;
         if (raw?.startsWith("{")) config = JSON.parse(raw) as WidgetConfig;
       } catch {}
-      const WidgetIcon = config?.widgetType === "clock" ? Clock : config?.widgetType === "date" ? Calendar : config?.widgetType === "webpage" ? Globe : Code2;
+      const WidgetIcon = config?.widgetType === "clock" ? Clock : config?.widgetType === "date" ? Calendar : config?.widgetType === "webpage" ? Globe : config?.widgetType === "stream" ? Radio : Code2;
       list.push({
         id: `widget-${w.id}`, kind: "widget", name: w.name, searchName: w.name.toLocaleLowerCase(),
         icon: <WidgetIcon className="w-3.5 h-3.5 text-accent-foreground shrink-0" />,
@@ -2448,7 +2452,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
         const raw = w.url?.startsWith("widget://") ? w.url.slice("widget://".length) : w.url;
         if (raw?.startsWith("{")) config = JSON.parse(raw) as WidgetConfig;
       } catch {}
-      const WidgetIcon = config?.widgetType === "clock" ? Clock : config?.widgetType === "date" ? Calendar : config?.widgetType === "webpage" ? Globe : Code2;
+      const WidgetIcon = config?.widgetType === "clock" ? Clock : config?.widgetType === "date" ? Calendar : config?.widgetType === "webpage" ? Globe : config?.widgetType === "stream" ? Radio : Code2;
       items.push({
         id: `widget-${w.id}`, kind: "widget", name: w.name, searchName: w.name.toLocaleLowerCase(),
         icon: <WidgetIcon className="w-3.5 h-3.5 text-accent-foreground shrink-0" />,
@@ -3278,6 +3282,34 @@ function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChan
         </div>
       )}
 
+      {wt === "stream" && (
+        <div className="space-y-1">
+          <Label className="text-[10px] text-muted-foreground">{t("widgetStreamUrl")}</Label>
+          <Input value={config.streamUrl || ""} onChange={(e) => set({ streamUrl: e.target.value })} placeholder={t("widgetStreamUrlPlaceholder")} className="h-7 text-xs" />
+          {config.streamUrl && (
+            <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{
+              background: detectStreamProtocol(config.streamUrl) === "hls" ? "#10b98120" : "#f59e0b20",
+              color: detectStreamProtocol(config.streamUrl) === "hls" ? "#10b981" : "#f59e0b",
+            }}>
+              {detectStreamProtocol(config.streamUrl).toUpperCase()}
+              {detectStreamProtocol(config.streamUrl) !== "hls" && " — 需中繼轉 HLS"}
+            </span>
+          )}
+          <Label className="text-[10px] text-muted-foreground mt-1">{t("widgetStreamFit")}</Label>
+          <Select value={config.streamFit || "cover"} onValueChange={(v) => set({ streamFit: v })}>
+            <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="cover">{t("widgetStreamFitCover")}</SelectItem>
+              <SelectItem value="contain">{t("widgetStreamFitContain")}</SelectItem>
+            </SelectContent>
+          </Select>
+          <div className="flex items-center justify-between pt-1">
+            <Label className="text-[10px]">{t("widgetStreamMuted")}</Label>
+            <Switch checked={config.streamMuted !== false} onCheckedChange={(c) => set({ streamMuted: c })} />
+          </div>
+        </div>
+      )}
+
       {wt === "weather" && (
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetCity")}</Label>
@@ -3285,8 +3317,8 @@ function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChan
         </div>
       )}
 
-      {/* Common appearance — hidden for youtube and for widgets that manage colors via their own paramsSchema */}
-      {wt !== "youtube" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
+      {/* Common appearance — hidden for youtube/stream and for widgets that manage colors via their own paramsSchema */}
+      {wt !== "youtube" && wt !== "stream" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetBgColor")}</Label>
           <div className="flex items-center gap-1">
@@ -3518,6 +3550,59 @@ function QRCodeZonePreview({ content, bg, fg }: { content: string; bg: string; f
   );
 }
 
+function detectStreamProtocol(url: string): "hls" | "rtmp" | "rtsp" | "unknown" {
+  if (!url) return "unknown";
+  if (/^rtmp[se]?:\/\//i.test(url)) return "rtmp";
+  if (/^rtsps?:\/\//i.test(url)) return "rtsp";
+  return "hls"; // treat all http/https as HLS
+}
+
+function StreamZonePreview({ url, muted = true, fitMode = "cover" }: { url?: string; muted?: boolean; fitMode?: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dims, setDims] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    const obs = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect;
+      setDims({ w: Math.round(width), h: Math.round(height) });
+    });
+    if (containerRef.current) obs.observe(containerRef.current);
+    return () => obs.disconnect();
+  }, []);
+
+  const proto = url ? detectStreamProtocol(url) : "unknown";
+  const protoColor = proto === "hls" ? "#10b981" : proto !== "unknown" ? "#f59e0b" : "#6b7280";
+
+  if (!url || proto === "rtmp" || proto === "rtsp") {
+    const hint = proto === "rtmp" ? "nginx-rtmp / Wowza → HLS" : proto === "rtsp" ? "go2rtc / mediamtx → HLS" : null;
+    return (
+      <div ref={containerRef} className="w-full h-full flex flex-col items-center justify-center gap-1.5 px-3" style={{ background: '#0a0a1a' }}>
+        <Radio className="w-6 h-6 opacity-70" style={{ color: protoColor }} />
+        {url ? (
+          <>
+            <span className="text-[9px] px-1.5 py-0.5 rounded font-mono" style={{ background: protoColor + '25', color: protoColor }}>{proto.toUpperCase()}</span>
+            <span className="text-[8px] text-white/40 text-center">{hint}</span>
+            <span className="text-[8px] text-amber-400/60 text-center">需中繼伺服器轉為 HLS 播放</span>
+          </>
+        ) : (
+          <span className="text-[10px] text-white/30">未設定串流網址</span>
+        )}
+      </div>
+    );
+  }
+
+  // HLS: render via hls.js in a sandboxed iframe
+  const objFit = fitMode === 'contain' ? 'contain' : 'cover';
+  const srcDoc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{margin:0;padding:0}body{background:#000;overflow:hidden}video{width:100vw;height:100vh;object-fit:${objFit}}</style></head><body><video id="v" autoplay ${muted ? 'muted' : ''} playsinline></video><script src="https://cdn.jsdelivr.net/npm/hls.js@1.5/dist/hls.min.js"></script><script>var v=document.getElementById('v'),u=${JSON.stringify(url)},h;function play(src){if(typeof Hls!=='undefined'&&Hls.isSupported()){if(h)h.destroy();h=new Hls({enableWorker:false,lowLatencyMode:true});h.loadSource(src);h.attachMedia(v);v.play().catch(function(){})}else if(v.canPlayType('application/vnd.apple.mpegurl')){v.src=src;v.play().catch(function(){})}}play(u);window.addEventListener('message',function(e){if(e.data&&e.data.widgetParams&&e.data.widgetParams.streamUrl&&e.data.widgetParams.streamUrl!==u){u=e.data.widgetParams.streamUrl;play(u);}});</script></body></html>`;
+
+  return (
+    <div ref={containerRef} className="w-full h-full relative overflow-hidden" style={{ background: '#000' }}>
+      {dims.w > 0 && (
+        <iframe key={url} srcDoc={srcDoc} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0, pointerEvents: 'none' }} sandbox="allow-scripts" title="stream" />
+      )}
+    </div>
+  );
+}
+
 function extractYoutubeId(url: string): string | null {
   if (!url) return null;
   const patterns = [
@@ -3581,7 +3666,7 @@ function YoutubeZonePreview({ url, bg }: { url: string; bg: string }) {
 function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Date }) {
 
   if (!config) return null;
-  const bg = config.bgColor || (config.widgetType === "youtube" ? "transparent" : "#1a1a2e");
+  const bg = config.bgColor || (config.widgetType === "youtube" || config.widgetType === "stream" ? "transparent" : "#1a1a2e");
   const fg = config.textColor || "#ffffff";
   const fontSize = config.fontSize || "medium";
   const ZONE_FS: Record<string, Record<string, string>> = {
@@ -3663,6 +3748,10 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
 
   if (config.widgetType === "youtube") {
     return <YoutubeZonePreview url={config.youtubeUrl || ""} bg={bg} />;
+  }
+
+  if (config.widgetType === "stream") {
+    return <StreamZonePreview url={config.streamUrl as string | undefined} muted={config.streamMuted !== false} fitMode={config.streamFit as string | undefined} />;
   }
 
   if (config.widgetType === "weather") {
