@@ -571,6 +571,7 @@ const translations = {
   widgetFormat24: { zh: "24小時制", en: "24-hour", ja: "24時間制" },
   widgetBgColor: { zh: "背景顏色", en: "Background Color", ja: "背景色" },
   widgetTextColor: { zh: "文字顏色", en: "Text Color", ja: "テキスト色" },
+  transparent: { zh: "透明", en: "Clear", ja: "透明" },
   widgetCreated: { zh: "Widget 已建立", en: "Widget created", ja: "ウィジェットを作成しました" },
   widgetFromCatalog: { zh: "從目錄選擇", en: "From Catalog", ja: "カタログから選択" },
   widgetCustomCreate: { zh: "自訂建立", en: "Create Custom", ja: "カスタム作成" },

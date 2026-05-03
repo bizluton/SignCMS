@@ -3274,7 +3274,23 @@ function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChan
       <div className="grid grid-cols-2 gap-2 pt-1">
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetBgColor")}</Label>
-          <Input type="color" value={config.bgColor || "#1a1a2e"} onChange={(e) => set({ bgColor: e.target.value })} className="h-7 p-0.5" />
+          <div className="flex items-center gap-1">
+            <Input
+              type="color"
+              value={config.bgColor === "transparent" ? "#1a1a2e" : (config.bgColor || "#1a1a2e")}
+              onChange={(e) => set({ bgColor: e.target.value })}
+              className="h-7 p-0.5 flex-1 min-w-0"
+              disabled={config.bgColor === "transparent"}
+            />
+            <button
+              type="button"
+              title={t("transparent")}
+              onClick={() => set({ bgColor: config.bgColor === "transparent" ? "#1a1a2e" : "transparent" })}
+              className={`h-7 px-1.5 rounded border text-[10px] shrink-0 transition-colors ${config.bgColor === "transparent" ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary hover:text-foreground"}`}
+            >
+              {t("transparent")}
+            </button>
+          </div>
         </div>
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetTextColor")}</Label>
@@ -3376,23 +3392,40 @@ function WebpageZonePreview({ url, bg, fg, params }: { url: string; bg: string; 
   return <iframe ref={iframeRef} srcDoc={injectWidgetParams(rawHtml, paramsRef.current)} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
 }
 
-function MarqueeZonePreview({ text, bg, fg, speed }: { text: string; bg: string; fg: string; speed?: string }) {
+const MARQUEE_SIZE_RATIO: Record<string, number> = { small: 0.20, medium: 0.30, large: 0.45, xlarge: 0.60 };
+
+function MarqueeZonePreview({ text, bg, fg, speed, fontSize: fontSizeKey }: { text: string; bg: string; fg: string; speed?: string; fontSize?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [containerHeight, setContainerHeight] = useState(0);
+  const [dims, setDims] = useState({ w: 0, h: 0 });
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const obs = new ResizeObserver(entries => setContainerHeight(entries[0].contentRect.height));
+    const obs = new ResizeObserver(entries => {
+      const { width, height } = entries[0].contentRect;
+      setDims({ w: Math.round(width), h: Math.round(height) });
+    });
     obs.observe(el);
     return () => obs.disconnect();
   }, []);
-  const duration = speed === 'slow' ? '30s' : speed === 'fast' ? '8s' : '15s';
-  const fontSize = containerHeight > 0 ? Math.max(12, Math.round(containerHeight * 0.35)) : 16;
+
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const ratio = MARQUEE_SIZE_RATIO[fontSizeKey || 'medium'] ?? 0.30;
+  const fsPx = dims.h > 0 ? Math.max(10, Math.round(dims.h * ratio)) : 16;
+  // Duration scales with number of lines so each line gets same on-screen time
+  const baseSec = speed === 'slow' ? 25 : speed === 'fast' ? 8 : 14;
+  const duration = `${baseSec * lines.length}s`;
+
   return (
     <div ref={containerRef} className="w-full h-full flex items-center overflow-hidden" style={{ background: bg, color: fg }}>
-      <span style={{ display: 'inline-block', whiteSpace: 'nowrap', paddingLeft: '100%', fontSize: `${fontSize}px`, fontWeight: 500, animation: `marqueeScroll ${duration} linear infinite` }}>
-        {text}
-      </span>
+      {dims.w > 0 && (
+        <span style={{ display: 'inline-block', whiteSpace: 'nowrap', paddingLeft: `${dims.w}px`, fontSize: `${fsPx}px`, fontWeight: 500, animation: `marqueeScroll ${duration} linear infinite` }}>
+          {lines.map((line, i) => (
+            <span key={i} style={i < lines.length - 1 ? { marginRight: `${dims.w}px` } : {}}>
+              {line}
+            </span>
+          ))}
+        </span>
+      )}
     </div>
   );
 }
@@ -3460,7 +3493,7 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
   }
 
   if (config.widgetType === "marquee" && config.text) {
-    return <MarqueeZonePreview text={config.text} bg={bg} fg={fg} speed={config.speed} />;
+    return <MarqueeZonePreview text={config.text} bg={bg} fg={fg} speed={config.speed} fontSize={config.fontSize} />;
   }
 
   if (config.widgetType === "webpage") {
