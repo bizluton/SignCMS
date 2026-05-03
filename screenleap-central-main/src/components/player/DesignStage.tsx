@@ -112,18 +112,29 @@ function YoutubeWidgetRender({ videoId, muted = true, volume = 100 }: { videoId:
 /** HLS / stream widget */
 function StreamWidgetRender({ url, muted = true, fitMode = "cover" }: { url: string; muted?: boolean; fitMode?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
   const isHls = !!url && !/^rtmp[se]?:\/\//i.test(url) && !/^rtsps?:\/\//i.test(url);
 
   useEffect(() => {
+    setStreamError(null);
     if (!isHls) return;
     const video = videoRef.current;
     if (!video) return;
     let hls: Hls | null = null;
     if (Hls.isSupported()) {
-      hls = new Hls({ enableWorker: false, lowLatencyMode: true });
+      hls = new Hls({ enableWorker: false, lowLatencyMode: true, maxBufferLength: 30 });
       hls.loadSource(url);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); });
+      hls.on(Hls.Events.ERROR, (_e, data) => {
+        if (data.fatal) {
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            hls?.startLoad();
+          } else {
+            setStreamError('stream error');
+          }
+        }
+      });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = url;
       video.play().catch(() => {});
@@ -132,8 +143,15 @@ function StreamWidgetRender({ url, muted = true, fitMode = "cover" }: { url: str
   }, [url, isHls]);
 
   return (
-    <video ref={videoRef} muted={muted} playsInline autoPlay
-      style={{ width: '100%', height: '100%', objectFit: fitMode === 'contain' ? 'contain' : 'cover', display: 'block' }} />
+    <div style={{ position: 'relative', width: '100%', height: '100%', background: '#000' }}>
+      <video ref={videoRef} muted={muted} playsInline autoPlay
+        style={{ width: '100%', height: '100%', objectFit: fitMode === 'contain' ? 'contain' : 'cover', display: 'block' }} />
+      {streamError && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)' }}>
+          <span style={{ color: '#f87171', fontSize: 12 }}>串流連線失敗</span>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -352,7 +370,7 @@ export function WidgetRender({ config }: { config: WidgetConfig | null | undefin
     );
   }
 
-  if (config.widgetType === "webpage" && config.url) {
+  if ((config.widgetType === "webpage" || config.widgetType === "weather_tw") && config.url) {
     return <WebpageWidgetRender config={config} />;
   }
 

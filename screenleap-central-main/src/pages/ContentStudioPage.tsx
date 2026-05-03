@@ -3427,8 +3427,22 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
         </div>
       )}
 
+      {wt === "weather_tw" && config.paramsSchema && config.paramsSchema.length > 0 && (
+        <div className="space-y-1.5">
+          {config.paramsSchema.map((param) => (
+            <DynamicParamControl
+              key={param.key}
+              param={param}
+              value={(config.params || {})[param.key] ?? param.default}
+              onChange={(v) => set({ params: { ...(config.params || {}), [param.key]: v } })}
+              lang={language}
+            />
+          ))}
+        </div>
+      )}
+
       {/* Common appearance — hidden for youtube/stream and for widgets that manage colors via their own paramsSchema */}
-      {wt !== "youtube" && wt !== "stream" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
+      {wt !== "youtube" && wt !== "stream" && wt !== "weather_tw" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetBgColor")}</Label>
           <div className="flex items-center gap-1">
@@ -3670,11 +3684,13 @@ function detectStreamProtocol(url: string): "hls" | "rtmp" | "rtsp" | "unknown" 
 function StreamZonePreview({ url, muted = true, fitMode = "cover" }: { url?: string; muted?: boolean; fitMode?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const [streamError, setStreamError] = useState<string | null>(null);
 
   const proto = url ? detectStreamProtocol(url) : "unknown";
   const isHls = !!url && proto === "hls";
 
   useEffect(() => {
+    setStreamError(null);
     if (!isHls) return;
     const video = videoRef.current;
     if (!video || !url) return;
@@ -3684,8 +3700,16 @@ function StreamZonePreview({ url, muted = true, fitMode = "cover" }: { url?: str
       hls.loadSource(url);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); });
+      hls.on(Hls.Events.ERROR, (_e, data) => {
+        if (data.fatal) {
+          const isNetwork = data.type === Hls.ErrorTypes.NETWORK_ERROR;
+          const isMixed = url.startsWith('http://') && location.protocol === 'https:';
+          setStreamError(isMixed ? '混合內容封鎖 (HTTP → HTTPS)' : isNetwork ? '無法連線到串流來源' : '串流載入失敗');
+        }
+      });
     } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = url;
+      video.onerror = () => setStreamError('串流載入失敗');
       video.play().catch(() => {});
     }
     return () => { hls?.destroy(); };
@@ -3721,6 +3745,13 @@ function StreamZonePreview({ url, muted = true, fitMode = "cover" }: { url?: str
         autoPlay
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: objFit, pointerEvents: 'none' }}
       />
+      {streamError && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/80 px-2">
+          <Radio className="w-5 h-5 text-red-400 opacity-80" />
+          <span className="text-[9px] text-red-300 text-center leading-tight">{streamError}</span>
+          <span className="text-[8px] text-white/30 text-center leading-tight break-all">{url}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -3904,6 +3935,10 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
         <span className="text-[10px] font-medium">{config.city || "City"}</span>
       </div>
     );
+  }
+
+  if (config.widgetType === "weather_tw") {
+    return <WebpageZonePreview url={config.url || ""} bg={bg} fg={fg} params={config.params} />;
   }
 
   return (

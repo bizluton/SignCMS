@@ -31,7 +31,7 @@ function WebpageWidgetPreview({ url, bg, params }: { url: string; bg: string; pa
   return <iframe srcDoc={injectWidgetParams(rawHtml, params)} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
 }
 
-export type WidgetSubType = "date" | "clock" | "webpage" | "marquee" | "qrcode" | "countdown" | "youtube" | "weather";
+export type WidgetSubType = "date" | "clock" | "webpage" | "marquee" | "qrcode" | "countdown" | "youtube" | "weather" | "weather_tw";
 export type WidgetAnimation = "none" | "fadeIn" | "slideUp" | "bounce" | "zoomIn" | "flipIn";
 
 export interface WidgetConfig {
@@ -200,6 +200,16 @@ export function WidgetPreviewCard({ config }: { config: WidgetConfig }) {
       <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
         <CloudSun className="w-8 h-8 opacity-50" />
         <span className="text-[10px] font-medium">{config.city || "City"}</span>
+      </div>
+    );
+  }
+
+  if (config.widgetType === "weather_tw") {
+    if (config.url) return <WebpageWidgetPreview url={config.url} bg={bg} params={config.params} />;
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
+        <CloudSun className="w-6 h-6 opacity-50" />
+        <span className="text-[9px] font-medium opacity-70">台灣天氣</span>
       </div>
     );
   }
