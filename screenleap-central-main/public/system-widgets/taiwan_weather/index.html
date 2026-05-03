@@ -176,42 +176,51 @@ function updateUI(location, temp, desc, pop) {
   initSkycons(weatherToIcon(shortDesc));
 }
 
-// ── CWA API fetch ──────────────────────────────────────────────────────────
+// ── CWA API fetch (v1 — CamelCase response format) ────────────────────────
 function fetchWeather() {
   var datasetId = COUNTY_MAP[county];
   if (!datasetId) {
     updateUI(county + district, '--', '縣市名稱錯誤', '--');
     return;
   }
+  // No elementName / locationName filter — find district in JS after fetch
   var url = 'https://opendata.cwa.gov.tw/api/v1/rest/datastore/'
     + datasetId
-    + '?Authorization=' + apiKey
-    + '&locationName=' + encodeURIComponent(district)
-    + '&elementName=T,Wx,PoP12h';
+    + '?Authorization=' + apiKey;
 
   fetch(url)
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      var loc0 = data.records.locations[0].location[0];
-      var elems = loc0.weatherElement;
-      var temp = '', wx = '', pop = '';
-      elems.forEach(function(e) {
-        var val = e.time[0] && e.time[0].elementValue[0] && e.time[0].elementValue[0].value;
-        if (e.elementName === 'T')      temp = val || '--';
-        if (e.elementName === 'Wx')     wx   = val || '--';
-        if (e.elementName === 'PoP12h') pop  = val || '--';
+      var locationList = data.records.Locations[0].Location;
+      // Find matching district, fallback to first
+      var loc = null;
+      for (var i = 0; i < locationList.length; i++) {
+        if (locationList[i].LocationName === district) { loc = locationList[i]; break; }
+      }
+      if (!loc) loc = locationList[0];
+
+      var temp = '--', wx = '--', pop = '--';
+      var elements = loc.WeatherElement || [];
+      elements.forEach(function(we) {
+        var ev = we.Time && we.Time[0] && we.Time[0].ElementValue && we.Time[0].ElementValue[0];
+        if (!ev) return;
+        switch (we.ElementName) {
+          case '溫度':            temp = ev.Temperature || '--'; break;
+          case '天氣現象':        wx   = ev.Weather     || '--'; break;
+          case '3小時降雨機率':   pop  = ev.ProbabilityOfPrecipitation || '--'; break;
+        }
       });
-      var displayLoc = county + (district !== county ? district : '');
+
+      var displayLoc = loc.LocationName;
       localStorage.setItem('tw_weather_cache', JSON.stringify({ loc: displayLoc, temp: temp, wx: wx, pop: pop, ts: Date.now() }));
       updateUI(displayLoc, temp, wx, pop);
     })
     .catch(function() {
-      // Offline: try cache
       try {
         var cached = JSON.parse(localStorage.getItem('tw_weather_cache') || 'null');
         if (cached) updateUI(cached.loc, cached.temp, cached.wx, cached.pop);
         else updateUI(county + district, '--', '無法連線', '--');
-      } catch(e) {
+      } catch(e2) {
         updateUI(county + district, '--', '無法連線', '--');
       }
     });
