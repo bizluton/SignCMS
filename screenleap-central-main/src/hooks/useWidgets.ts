@@ -24,6 +24,7 @@ export interface WidgetRow {
 export interface CatalogWidget {
   id: string;
   scope: WidgetScope;
+  widget_type: string;
   name: string;
   config: Record<string, unknown>;
   thumbnail: string;
@@ -75,6 +76,7 @@ export function useWidgets() {
       .map((r) => ({
         id: r.id,
         scope: r.scope,
+        widget_type: r.widget_type,
         name: pickName(r, language),
         config: r.config || {},
         thumbnail: r.thumbnail || "",
@@ -109,7 +111,7 @@ export function widgetsToMediaRows(widgets: CatalogWidget[], orgId: string | nul
     name: w.name,
     original_name: null as string | null,
     type: "widget" as const,
-    url: "widget://" + JSON.stringify(w.config),
+    url: "widget://" + JSON.stringify({ widgetType: w.widget_type, ...w.config }),
     thumbnail: w.thumbnail || "",
     size: "",
     size_bytes: 0,
@@ -134,7 +136,7 @@ export function widgetsToStudioRows(widgets: CatalogWidget[]) {
   return widgets.map((w) => ({
     id: `cat-widget-${w.id}`,
     name: w.name,
-    url: JSON.stringify(w.config),
+    url: JSON.stringify({ widgetType: w.widget_type, ...w.config }),
     created_at: w.created_at,
   }));
 }
