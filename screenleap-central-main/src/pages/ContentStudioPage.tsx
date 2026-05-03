@@ -52,6 +52,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Label } from "@/components/ui/label";
 import { QRCodeSVG } from "qrcode.react";
 import { useWidgets, widgetsToStudioRows } from "@/hooks/useWidgets";
+import { WidgetPreviewCard } from "@/components/widgets/WidgetPreviewCard";
 import { StudioPreviewDialog } from "@/components/studio/StudioPreviewDialog";
 import {
   STUDIO_DATA_VERSION,
@@ -1174,6 +1175,8 @@ function MediaLibraryDock({
                     />
                   ) : item.kind === "media" && item.thumbnail ? (
                     <img src={item.thumbnail} alt={item.name} className="absolute inset-0 w-full h-full object-cover bg-muted" loading="lazy" />
+                  ) : item.kind === "widget" && (item.raw as { config?: unknown })?.config ? (
+                    <div className="absolute inset-0"><WidgetPreviewCard config={(item.raw as { config: Parameters<typeof WidgetPreviewCard>[0]["config"] }).config} /></div>
                   ) : (
                     <div className="absolute inset-0 flex items-center justify-center bg-muted">{item.icon}</div>
                   )}
@@ -1222,6 +1225,8 @@ function MediaLibraryDock({
                       <VideoThumb src={item.raw.url} name={item.name} poster={item.thumbnail || undefined} className="absolute inset-0" showPlayHint={false} />
                     ) : item.kind === "media" && item.thumbnail ? (
                       <img src={item.thumbnail} alt={item.name} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                    ) : item.kind === "widget" && (item.raw as { config?: unknown })?.config ? (
+                      <div className="absolute inset-0"><WidgetPreviewCard config={(item.raw as { config: Parameters<typeof WidgetPreviewCard>[0]["config"] }).config} /></div>
                     ) : (
                       <div className="absolute inset-0 flex items-center justify-center">{item.icon}</div>
                     )}
@@ -2900,6 +2905,8 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
                           {/* Thumbnail */}
                           {item.kind === "media" && item.thumbnail ? (
                             <img src={item.thumbnail} alt={item.name} className="absolute inset-0 w-full h-full object-cover bg-muted" loading="lazy" />
+                          ) : item.kind === "widget" && (item.raw as { config?: unknown })?.config ? (
+                            <div className="absolute inset-0"><WidgetPreviewCard config={(item.raw as { config: Parameters<typeof WidgetPreviewCard>[0]["config"] }).config} /></div>
                           ) : (
                             <div className="absolute inset-0 flex items-center justify-center bg-muted">
                               {item.icon}
@@ -2939,6 +2946,8 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
                           </div>
                           {item.kind === "media" && item.thumbnail ? (
                             <img src={item.thumbnail} alt="" className="w-8 h-8 rounded object-cover bg-muted shrink-0" loading="lazy" />
+                          ) : item.kind === "widget" && (item.raw as { config?: unknown })?.config ? (
+                            <div className="w-8 h-8 rounded overflow-hidden shrink-0"><WidgetPreviewCard config={(item.raw as { config: Parameters<typeof WidgetPreviewCard>[0]["config"] }).config} /></div>
                           ) : (
                             <div className="w-8 h-8 rounded bg-muted flex items-center justify-center shrink-0">{item.icon}</div>
                           )}
