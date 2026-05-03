@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Monitor, Image, CalendarClock, ShieldCheck, Brush, Send, FileText, Store, Megaphone, Users, CloudSun, Instagram, DoorOpen, Languages, Clock, HeadphonesIcon, BookOpen, Radio, BarChart3, AlertTriangle, UserCog, Key, Settings, Wrench, Building2, TrendingUp, Code2, LayoutGrid, MonitorPlay, Zap, Rocket, History, Type } from "lucide-react";
+import { Monitor, Image, CalendarClock, ShieldCheck, Brush, Send, FileText, Store, Megaphone, Users, CloudSun, Instagram, DoorOpen, Languages, Clock, HeadphonesIcon, BookOpen, Radio, BarChart3, AlertTriangle, UserCog, Key, Settings, Wrench, Building2, TrendingUp, Code2, LayoutGrid, MonitorPlay, Zap, Rocket, History, Type, Puzzle, ClipboardCheck } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import logoLightImg from "@/assets/logo-light.png";
 import { useTheme } from "next-themes";
@@ -167,6 +167,19 @@ export function AppSidebar() {
                   </SidebarMenuItem>
                 );
               })}
+              {/* Developer Portal link */}
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild>
+                  <NavLink
+                    to="/developer-portal"
+                    className="hover:bg-sidebar-accent/60 rounded-lg transition-all duration-200"
+                    activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                  >
+                    <Puzzle className="mr-3 h-[18px] w-[18px]" />
+                    {!collapsed && <span>{t("navDeveloperPortal")}</span>}
+                  </NavLink>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -352,6 +365,18 @@ export function AppSidebar() {
                       >
                         <Code2 className="mr-3 h-[18px] w-[18px]" />
                         {!collapsed && <span>{t("tabWidgetMgmt")}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton asChild>
+                      <NavLink
+                        to="/app-review"
+                        className="hover:bg-sidebar-accent/60 rounded-lg transition-all duration-200"
+                        activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                      >
+                        <ClipboardCheck className="mr-3 h-[18px] w-[18px]" />
+                        {!collapsed && <span>{t("navAppReview")}</span>}
                       </NavLink>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

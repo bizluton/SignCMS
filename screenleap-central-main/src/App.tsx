@@ -53,6 +53,8 @@ const UnsubscribePage = lazy(() => import("./pages/UnsubscribePage.tsx"));
 const LocalPlayerPage = lazy(() => import("./pages/LocalPlayerPage.tsx"));
 const SmartTriggerTestPage = lazy(() => import("./pages/SmartTriggerTestPage.tsx"));
 const QuickPublish = lazy(() => import("./pages/QuickPublish.tsx"));
+const DeveloperPortal = lazy(() => import("./pages/DeveloperPortal.tsx"));
+const AppReview = lazy(() => import("./pages/AppReview.tsx"));
 const AuthPage = lazy(() => import("./pages/AuthPage.tsx"));
 const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage.tsx"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage.tsx"));
@@ -99,6 +101,8 @@ const AppRoutes = () => {
           <Route path="/org-management" element={<SystemAdminRoute><OrgManagementPage /></SystemAdminRoute>} />
           <Route path="/usage-leaderboard" element={<SystemAdminRoute><UsageLeaderboardPage /></SystemAdminRoute>} />
           <Route path="/widget-mgmt" element={<SystemAdminRoute><WidgetMgmtPage /></SystemAdminRoute>} />
+          <Route path="/app-review" element={<SystemAdminRoute><AppReview /></SystemAdminRoute>} />
+          <Route path="/developer-portal" element={<ProtectedRoute><DeveloperPortal /></ProtectedRoute>} />
           <Route path="/security-audit" element={<SystemAdminRoute><SecurityAuditPage /></SystemAdminRoute>} />
           <Route path="/security-audit/history" element={<SystemAdminRoute><SecurityAuditHistoryPage /></SystemAdminRoute>} />
           <Route path="/media-audit" element={<SystemAdminRoute><MediaAuditPage /></SystemAdminRoute>} />

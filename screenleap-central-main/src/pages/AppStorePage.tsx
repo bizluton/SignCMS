@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -7,9 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Megaphone, Users, CloudSun, Instagram, Check, Download, Monitor, DoorOpen, Languages, Clock, Lock, Package } from "lucide-react";
+import { Megaphone, Users, CloudSun, Instagram, Check, Download, Monitor, DoorOpen, Languages, Clock, Lock, Package, Puzzle } from "lucide-react";
 import { toast } from "sonner";
-import { useInstalledApps } from "@/contexts/InstalledAppsContext";
+import { useInstalledApps, type ExternalAppInfo } from "@/contexts/InstalledAppsContext";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useOrgPlan, PLAN_LABELS } from "@/hooks/useOrgPlan";
 import { PlanUsageBar } from "@/components/PlanUsageBar";
@@ -22,6 +22,8 @@ interface AppItem {
   category: { zh: string; en: string; ja: string };
   color: string;
   hasConfig?: boolean;
+  isExternal?: boolean;    // from store_apps DB table
+  _externalUuid?: string;  // store_apps.id — needed for DB install/uninstall
 }
 
 const APPS: AppItem[] = [
@@ -112,9 +114,32 @@ const APPS: AppItem[] = [
   },
 ];
 
+// Convert a DB external app to the AppItem shape used by renderCard
+function externalToAppItem(ext: ExternalAppInfo, language: string): AppItem {
+  const lang = language as "zh" | "en" | "ja";
+  return {
+    id:     ext.slug,
+    _externalUuid: ext.id,
+    icon:   <Puzzle className="h-7 w-7 text-white" />,
+    name: {
+      zh: ext.nameI18n.zh || ext.nameI18n.en || ext.slug,
+      en: ext.nameI18n.en || ext.nameI18n.zh || ext.slug,
+      ja: ext.nameI18n.ja || ext.nameI18n.en || ext.slug,
+    },
+    description: {
+      zh: ext.descI18n.zh || ext.descI18n.en || "",
+      en: ext.descI18n.en || ext.descI18n.zh || "",
+      ja: ext.descI18n.ja || ext.descI18n.en || "",
+    },
+    category: { zh: "第三方應用", en: "Third-party", ja: "サードパーティ" },
+    color:    ext.gradient,
+    isExternal: true,
+  };
+}
+
 const AppStorePage = () => {
   const { language } = useLanguage();
-  const { installedApps, installApp, uninstallApp } = useInstalledApps();
+  const { installedApps, externalApps, installApp, uninstallApp } = useInstalledApps();
   const [searchParams] = useSearchParams();
   const [queueDialogOpen, setQueueDialogOpen] = useState(false);
   const [queueNumber, setQueueNumber] = useState("105");
@@ -155,6 +180,14 @@ const AppStorePage = () => {
 
   const t = (key: keyof typeof texts) => texts[key][language];
 
+  // Merge builtin APPS with approved external apps from DB
+  const allApps = useMemo<AppItem[]>(() => {
+    const externalItems = externalApps
+      .filter((e) => !APPS.find((a) => a.id === e.slug)) // skip if slug clashes with builtin
+      .map((e) => externalToAppItem(e, language));
+    return [...APPS, ...externalItems];
+  }, [externalApps, language]);
+
   const handleInstall = (app: AppItem) => {
     if (!canManageApps) {
       toast.error(t("noPermission"));
@@ -169,7 +202,7 @@ const AppStorePage = () => {
       toast.error(`${t("planLimitApps")} (${installedApps.size}/${limits.maxApps})`);
       return;
     }
-    installApp(app.id);
+    installApp(app.id, app._externalUuid);
     toast.success(`${app.name[language]} ${t("successInstall")}`);
     if (app.hasConfig) {
       setQueueDialogOpen(true);
@@ -181,7 +214,7 @@ const AppStorePage = () => {
       toast.error(t("noPermission"));
       return;
     }
-    uninstallApp(app.id);
+    uninstallApp(app.id, app._externalUuid);
     toast.success(`${app.name[language]} ${t("successUninstall")}`);
   };
 
@@ -252,7 +285,7 @@ const AppStorePage = () => {
     );
   };
 
-  const installedAppsList = APPS.filter((a) => installedApps.has(a.id));
+  const installedAppsList = allApps.filter((a) => installedApps.has(a.id));
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -294,7 +327,7 @@ const AppStorePage = () => {
 
         <TabsContent value="marketplace">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-            {APPS.map(renderCard)}
+            {allApps.map(renderCard)}
           </div>
         </TabsContent>
 

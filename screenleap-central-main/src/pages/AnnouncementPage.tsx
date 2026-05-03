@@ -436,10 +436,10 @@ const AnnouncementPage = () => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="space-y-2">
                   <Label className="text-base font-semibold">{t("teamLabel")}</Label>
-                  <Select value={teamId} onValueChange={setTeamId}>
+                  <Select value={teamId || "__all__"} onValueChange={(v) => setTeamId(v === "__all__" ? "" : v)}>
                     <SelectTrigger className="h-12 text-base"><SelectValue placeholder={t("teamPh")} /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="" className="text-base">{t("teamAll")}</SelectItem>
+                      <SelectItem value="__all__" className="text-base">{t("teamAll")}</SelectItem>
                       {teams.map((tm) => (
                         <SelectItem key={tm.id} value={tm.id} className="text-base">{tm.name}</SelectItem>
                       ))}
@@ -695,10 +695,10 @@ const AnnouncementPage = () => {
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label className="text-base font-semibold">{t("teamLabel")}</Label>
-                <Select value={editTeamId} onValueChange={setEditTeamId}>
+                <Select value={editTeamId || "__all__"} onValueChange={(v) => setEditTeamId(v === "__all__" ? "" : v)}>
                   <SelectTrigger className="h-12 text-base"><SelectValue placeholder={t("teamPh")} /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">{t("teamAll")}</SelectItem>
+                    <SelectItem value="__all__">{t("teamAll")}</SelectItem>
                     {teams.map((tm) => <SelectItem key={tm.id} value={tm.id}>{tm.name}</SelectItem>)}
                   </SelectContent>
                 </Select>

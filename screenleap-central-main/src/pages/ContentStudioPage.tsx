@@ -123,6 +123,8 @@ interface WidgetConfig {
   animation?: string;
   paramsSchema?: WidgetParamDef[];
   params?: Record<string, unknown>;
+  widgetScope?: string;   // 'system' | 'app' | 'external'
+  widgetAppId?: string;   // store_apps.id (uuid) — set for external scope widgets
   [key: string]: unknown;
 }
 
@@ -3210,10 +3212,10 @@ function AnnouncementScopePicker({
       </div>
       <div className="space-y-1">
         <Label className="text-[10px] text-muted-foreground">{labels.team}</Label>
-        <Select value={teamId || ""} onValueChange={onTeamChange}>
+        <Select value={teamId || "__all__"} onValueChange={(v) => onTeamChange(v === "__all__" ? "" : v)}>
           <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={labels.teamPh} /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="" className="text-xs">{labels.teamAll}</SelectItem>
+            <SelectItem value="__all__" className="text-xs">{labels.teamAll}</SelectItem>
             {teams.map((tm) => <SelectItem key={tm.id} value={tm.id} className="text-xs">{tm.name}</SelectItem>)}
           </SelectContent>
         </Select>
@@ -3750,6 +3752,41 @@ function injectWidgetParams(html: string, params?: Record<string, unknown>): str
   return html.includes('</head>') ? html.replace('</head>', script + '</head>') : script + html;
 }
 
+// ExternalWidgetZonePreview: calls sign-widget-params Edge Function to get a
+// time-limited signed URL, then renders the third-party iframe.
+function ExternalWidgetZonePreview({ appId, widgetUrl, lang, bg }: {
+  appId: string; widgetUrl: string; lang: string; bg: string;
+}) {
+  const { activeOrgId } = useActiveOrg();
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!appId || !activeOrgId) return;
+    let cancelled = false;
+    supabase.functions.invoke("sign-widget-params", {
+      body: { appId, orgId: activeOrgId, lang },
+    }).then(({ data, error }) => {
+      if (cancelled || error || !data?.signedParams) return;
+      const base = data.widgetUrl || widgetUrl;
+      setSignedUrl(`${base}${base.includes("?") ? "&" : "?"}${data.signedParams}`);
+    });
+    return () => { cancelled = true; };
+  }, [appId, activeOrgId, lang, widgetUrl]);
+
+  if (!signedUrl) {
+    return (
+      <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
+        <Loader2 className="w-5 h-5 animate-spin opacity-40" />
+      </div>
+    );
+  }
+  return (
+    <div className="w-full h-full" style={{ background: bg }}>
+      <iframe src={signedUrl} className="w-full h-full border-0" sandbox="allow-scripts allow-same-origin allow-forms" />
+    </div>
+  );
+}
+
 function WebpageZonePreview({ url, bg, fg, params, allowSameOrigin }: { url: string; bg: string; fg: string; params?: Record<string, unknown>; allowSameOrigin?: boolean }) {
   const isStorageUrl = url.includes('supabase.co/storage');
   const [rawHtml, setRawHtml] = useState<string | null>(isStorageUrl ? null : undefined as unknown as null);
@@ -4185,6 +4222,18 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
 
   if (config.widgetType === "announcement") {
     return <WebpageZonePreview url={config.url || ""} bg={bg} fg={fg} params={config.params as Record<string, unknown> | undefined} allowSameOrigin />;
+  }
+
+  // External third-party widget: fetch signed URL from Edge Function
+  if (config.widgetScope === "external" && config.widgetAppId && config.url) {
+    return (
+      <ExternalWidgetZonePreview
+        appId={String(config.widgetAppId)}
+        widgetUrl={String(config.url)}
+        lang="zh"
+        bg={bg}
+      />
+    );
   }
 
   return (

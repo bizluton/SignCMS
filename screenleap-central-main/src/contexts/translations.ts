@@ -77,6 +77,8 @@ const translations = {
   navSmartTriggerTest: { zh: "智慧觸發測試", en: "Smart Trigger Test", ja: "スマートトリガーテスト" },
   navAdmin: { zh: "使用者管理", en: "User Management", ja: "ユーザー管理" },
   navAppStore: { zh: "擴充應用商店", en: "App Store", ja: "アプリストア" },
+  navDeveloperPortal: { zh: "開發者入口", en: "Developer Portal", ja: "開発者ポータル" },
+  navAppReview: { zh: "應用審核", en: "App Review", ja: "アプリ審査" },
 
   // Common
   cancel: { zh: "取消", en: "Cancel", ja: "キャンセル" },

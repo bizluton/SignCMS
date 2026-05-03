@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useActiveOrg } from "@/contexts/ActiveOrgContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 
-export type WidgetScope = "system" | "app" | "user";
+export type WidgetScope = "system" | "app" | "user" | "external";
 
 export interface WidgetRow {
   id: string;
@@ -139,7 +139,13 @@ export function widgetsToStudioRows(widgets: CatalogWidget[]) {
   return widgets.map((w) => ({
     id: `cat-widget-${w.id}`,
     name: w.name,
-    url: JSON.stringify({ widgetType: w.widget_type, ...Object.fromEntries(Object.entries(w.config || {}).filter(([k]) => k !== "widgetType")), _catalogType: w.widget_type }),
+    url: JSON.stringify({
+      widgetType: w.widget_type,
+      widgetScope: w.scope,
+      widgetAppId: w.scope === "external" ? w.app_id : undefined,
+      ...Object.fromEntries(Object.entries(w.config || {}).filter(([k]) => k !== "widgetType")),
+      _catalogType: w.widget_type,
+    }),
     created_at: w.created_at,
   }));
 }
