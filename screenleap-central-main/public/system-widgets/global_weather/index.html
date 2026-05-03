@@ -12,7 +12,7 @@ body{display:flex;align-items:center;justify-content:center}
 /* ── Portrait layout ── */
 #portrait{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;gap:2%}
 #portrait .icon-wrap{display:flex;align-items:center;justify-content:center;width:45vmin;height:45vmin;max-width:45vh;max-height:45vh;flex-shrink:0}
-#portrait .icon-wrap img{width:100%;height:100%;object-fit:contain}
+#portrait .icon-wrap img{width:100%;height:100%;object-fit:contain;transition:filter 0.8s ease}
 #portrait .meta{display:flex;flex-direction:column;align-items:center;gap:0.3em}
 #portrait .location{font-size:clamp(0.7rem,4vmin,1.6rem);opacity:0.7;letter-spacing:0.04em}
 #portrait .temperature{font-size:clamp(1.4rem,9vmin,4rem);font-weight:700;letter-spacing:-0.02em;line-height:1}
@@ -23,7 +23,7 @@ body{display:flex;align-items:center;justify-content:center}
 /* ── Landscape layout ── */
 #landscape{display:flex;flex-direction:row;align-items:center;justify-content:center;width:100%;height:100%;gap:3%}
 #landscape .icon-wrap{display:flex;align-items:center;justify-content:center;width:40vmin;height:40vmin;max-width:40vh;max-height:40vh;flex-shrink:0}
-#landscape .icon-wrap img{width:100%;height:100%;object-fit:contain}
+#landscape .icon-wrap img{width:100%;height:100%;object-fit:contain;transition:filter 0.8s ease}
 #landscape .meta{display:flex;flex-direction:column;justify-content:center;gap:0.25em}
 #landscape .location{font-size:clamp(0.7rem,3.5vmin,1.4rem);opacity:0.7;letter-spacing:0.04em}
 #landscape .temperature{font-size:clamp(1.6rem,10vmin,4.5rem);font-weight:700;letter-spacing:-0.02em;line-height:1}
@@ -137,10 +137,36 @@ function wmoToIcon(wmo, isDay) {
   return d ? 'partly-cloudy-day' : 'partly-cloudy-night';
 }
 
+function wmoToGlow(wmo, isDay) {
+  var n = parseInt(wmo) || 0;
+  var d = (isDay === 1 || isDay === '1');
+  if (n === 0 || n === 1) return d
+    ? 'drop-shadow(0 0 28px rgba(251,191,36,0.9))'
+    : 'drop-shadow(0 0 22px rgba(96,165,250,0.75))';
+  if (n === 2) return d
+    ? 'drop-shadow(0 0 20px rgba(125,211,252,0.75))'
+    : 'drop-shadow(0 0 20px rgba(30,64,175,0.65))';
+  if (n === 3)                       return 'drop-shadow(0 0 16px rgba(148,163,184,0.65))';
+  if (n === 45 || n === 48)          return 'drop-shadow(0 0 16px rgba(203,213,225,0.6))';
+  if (n >= 51 && n <= 55)            return 'drop-shadow(0 0 18px rgba(147,197,253,0.75))';
+  if (n === 56 || n === 57 || n === 66 || n === 67)
+                                     return 'drop-shadow(0 0 18px rgba(186,230,253,0.8))';
+  if ((n >= 61 && n <= 65) || (n >= 80 && n <= 82))
+                                     return 'drop-shadow(0 0 22px rgba(59,130,246,0.85))';
+  if (n >= 71 && n <= 77)            return 'drop-shadow(0 0 20px rgba(186,230,253,0.9))';
+  if (n === 85 || n === 86)          return 'drop-shadow(0 0 18px rgba(147,197,253,0.75))';
+  if (n >= 95)                       return 'drop-shadow(0 0 28px rgba(99,102,241,0.9))';
+  return 'drop-shadow(0 0 14px rgba(148,163,184,0.5))';
+}
+
 function updateIcon(wmo, isDay) {
-  var src = ICON_BASE + wmoToIcon(wmo, isDay) + '.svg';
-  document.getElementById('p-icon').src = src;
-  document.getElementById('l-icon').src = src;
+  var src  = ICON_BASE + wmoToIcon(wmo, isDay) + '.svg';
+  var glow = wmoToGlow(wmo, isDay);
+  ['p','l'].forEach(function(pfx) {
+    var img = document.getElementById(pfx + '-icon');
+    img.src          = src;
+    img.style.filter = glow;
+  });
 }
 
 // ── AQI dot colour (European AQI scale) ──────────────────────────────────────
