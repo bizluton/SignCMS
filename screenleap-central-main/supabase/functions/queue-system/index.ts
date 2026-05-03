@@ -1,22 +1,32 @@
 // queue-system: external REST API for kiosk / POS integrations.
 //
-// All endpoints require HMAC-SHA256 signature verification using the org's
-// api_secret from queue_system_configs (same canonicalize algorithm as
-// notify-install). The signature must be included as a "sig" field in the
-// JSON body (POST) or as ?sig= query param (GET).
+// Auth model (two layers):
+//   Layer 1 — Supabase platform: every request must carry
+//             `Authorization: Bearer <anon_key_or_service_role_key>`
+//             This is enforced by the Supabase Edge Function runtime BEFORE
+//             our handler runs. Callers without this header receive:
+//             {"code":"UNAUTHORIZED_NO_AUTH_HEADER",...} from the platform.
+//
+//   Layer 2 — HMAC business logic (POST endpoints only):
+//             The request body must include { ..., sig, ts, exp } where sig
+//             is HMAC-SHA256 of the canonicalised payload using the org's
+//             api_secret from queue_system_configs.
 //
 // Routes:
+//   GET  /queue-system/status      query: org_id, queue_id
+//                                  → only anon key needed (read-only)
 //   POST /queue-system/call-next   body: { org_id, queue_id, counter, ts, exp, sig }
 //   POST /queue-system/reset       body: { org_id, queue_id, ts, exp, sig }
-//   GET  /queue-system/status      query: org_id, queue_id, ts, exp, sig
 //
-// The "exp" field (Unix seconds) must be ≥ now(); requests older than 5 min
-// are rejected regardless of signature validity.
+// The "exp" field (Unix seconds) must be ≥ now(); replay window is 5 min.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
+// Standard Supabase Edge Function CORS headers — must include `authorization`
+// so browser preflight passes when called from frontend code.
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "content-type, x-signcms-signature",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-signcms-signature",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
@@ -83,7 +93,9 @@ async function resolveSecret(
   return data?.api_secret ?? null;
 }
 
-async function verifyRequest(
+// Verifies HMAC signature on POST body payloads.
+// Returns { ok: true } on success, or an error Response.
+async function verifyHmac(
   sbService: ReturnType<typeof createClient>,
   params: Record<string, unknown>,
 ): Promise<{ ok: true } | Response> {
@@ -99,7 +111,7 @@ async function verifyRequest(
   }
 
   const secret = await resolveSecret(sbService, orgId);
-  if (!secret) return json({ error: "org not configured" }, 404);
+  if (!secret) return json({ error: "org not configured — run app setup first" }, 404);
 
   const valid = await hmacVerify(secret, rest as Record<string, unknown>, sig);
   if (!valid) return json({ error: "invalid signature" }, 403);
@@ -113,27 +125,28 @@ Deno.serve(async (req) => {
   const url = new URL(req.url);
   const route = url.pathname.replace(/.*\/queue-system/, "");
 
+  // Use service role for all DB operations so RLS does not block edge function access.
   const sbService = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
   // ── GET /status ────────────────────────────────────────────────────────────
+  // Read-only: only requires Supabase anon key (Layer 1).
+  // No HMAC needed — the platform JWT check is sufficient for a public status query.
   if (req.method === "GET" && route === "/status") {
-    const params: Record<string, unknown> = {};
-    url.searchParams.forEach((v, k) => {
-      // coerce numeric-looking values
-      params[k] = isNaN(Number(v)) ? v : Number(v);
-    });
+    const queueId = url.searchParams.get("queue_id");
+    const orgId = url.searchParams.get("org_id");
 
-    const check = await verifyRequest(sbService, params);
-    if (check instanceof Response) return check;
+    if (!queueId || !orgId) {
+      return json({ error: "org_id and queue_id query params required" }, 400);
+    }
 
     const { data: queue } = await sbService
       .from("queue_system_queues")
       .select("id, queue_name, prefix, current_number")
-      .eq("id", params["queue_id"] as string)
-      .eq("org_id", params["org_id"] as string)
+      .eq("id", queueId)
+      .eq("org_id", orgId)
       .maybeSingle();
 
     if (!queue) return json({ error: "queue not found" }, 404);
@@ -153,18 +166,19 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ── POST endpoints — require HMAC (Layer 2) in addition to anon key ────────
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
 
   let body: Record<string, unknown>;
   try {
     body = await req.json();
   } catch {
-    return json({ error: "invalid JSON" }, 400);
+    return json({ error: "invalid JSON body" }, 400);
   }
 
   // ── POST /call-next ────────────────────────────────────────────────────────
   if (route === "/call-next") {
-    const check = await verifyRequest(sbService, body);
+    const check = await verifyHmac(sbService, body);
     if (check instanceof Response) return check;
 
     const queueId = body["queue_id"];
@@ -187,7 +201,7 @@ Deno.serve(async (req) => {
 
   // ── POST /reset ────────────────────────────────────────────────────────────
   if (route === "/reset") {
-    const check = await verifyRequest(sbService, body);
+    const check = await verifyHmac(sbService, body);
     if (check instanceof Response) return check;
 
     const queueId = body["queue_id"];
