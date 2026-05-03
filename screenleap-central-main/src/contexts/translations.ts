@@ -592,6 +592,8 @@ const translations = {
   widgetCountdownTitlePlaceholder: { zh: "例如：新品上市倒數", en: "e.g. Product Launch", ja: "例：新商品発売" },
   widgetYoutubeUrl: { zh: "YouTube 網址", en: "YouTube URL", ja: "YouTube URL" },
   widgetYoutubeUrlPlaceholder: { zh: "https://www.youtube.com/watch?v=...", en: "https://www.youtube.com/watch?v=...", ja: "https://www.youtube.com/watch?v=..." },
+  widgetYoutubeEnableSound: { zh: "啟用影片聲音", en: "Enable Video Sound", ja: "動画の音声を有効にする" },
+  widgetYoutubeMuteBgm: { zh: "同時靜音 BGM", en: "Mute BGM Simultaneously", ja: "BGMも同時にミュート" },
   widgetStream: { zh: "串流影片", en: "Streaming Video", ja: "ストリーミング動画" },
   widgetStreamDesc: { zh: "播放 HLS / RTSP / RTMP 串流", en: "Play HLS / RTSP / RTMP streams", ja: "HLS/RTSP/RTMPストリームを再生" },
   widgetStreamUrl: { zh: "串流網址", en: "Stream URL", ja: "ストリームURL" },

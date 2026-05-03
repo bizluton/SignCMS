@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import Hls from "hls.js";
 
 /**
  * DesignStage — faithful renderer for a `design_project` saved by Content Studio.
@@ -28,9 +29,105 @@ interface WidgetConfig {
   countdownTitle?: string;
   url?: string;
   youtubeId?: string;
+  youtubeUrl?: string;
+  youtubeMuted?: boolean;
+  youtubeMuteBgm?: boolean;
+  streamUrl?: string;
+  streamMuted?: boolean;
+  streamFit?: string;
   paramsSchema?: Array<{ key: string; [k: string]: unknown }>;
   params?: Record<string, unknown>;
   [key: string]: unknown;
+}
+
+function _parseYoutubeId(url: string): string | null {
+  if (!url) return null;
+  for (const p of [/(?:v=|\/embed\/|\.be\/)([A-Za-z0-9_-]{11})/, /^([A-Za-z0-9_-]{11})$/]) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+/** YouTube widget — cover mode + end-screen prevention via postMessage seek-back */
+function YoutubeWidgetRender({ videoId, muted = true }: { videoId: string; muted?: boolean }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [dims, setDims] = useState({ w: 0, h: 0 });
+
+  useEffect(() => {
+    const obs = new ResizeObserver(entries => {
+      const r = entries[0].contentRect;
+      setDims({ w: Math.round(r.width), h: Math.round(r.height) });
+    });
+    if (containerRef.current) obs.observe(containerRef.current);
+    return () => obs.disconnect();
+  }, []);
+
+  // Seek back when currentTime > duration - 22s to prevent end-screens
+  useEffect(() => {
+    const handleMsg = (e: MessageEvent) => {
+      if (!['https://www.youtube.com', 'https://www.youtube-nocookie.com'].includes(e.origin)) return;
+      try {
+        const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+        if (d.event === 'infoDelivery' && d.info?.duration > 30 && d.info.currentTime > d.info.duration - 22) {
+          iframeRef.current?.contentWindow?.postMessage(
+            JSON.stringify({ event: 'command', func: 'seekTo', args: [0, true] }), '*'
+          );
+        }
+      } catch {}
+    };
+    window.addEventListener('message', handleMsg);
+    return () => window.removeEventListener('message', handleMsg);
+  }, [videoId]);
+
+  const muteParam = muted ? 1 : 0;
+  const src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=${muteParam}&loop=1&playlist=${videoId}&controls=0&rel=0&iv_load_policy=3&disablekb=1&enablejsapi=1`;
+  const base = { border: 0 as const, pointerEvents: 'none' as const, transform: 'scale(1.22)', transformOrigin: 'center center' };
+  let style: Record<string, unknown> = { ...base, position: 'absolute', inset: 0, width: '100%', height: '100%' };
+  if (dims.w > 0 && dims.h > 0) {
+    const za = dims.w / dims.h, va = 16 / 9;
+    if (za > va) {
+      const ih = Math.ceil(dims.w / va);
+      style = { ...base, position: 'absolute', width: `${dims.w}px`, height: `${ih}px`, top: `${Math.floor((dims.h - ih) / 2)}px`, left: 0 };
+    } else {
+      const iw = Math.ceil(dims.h * va);
+      style = { ...base, position: 'absolute', height: `${dims.h}px`, width: `${iw}px`, left: `${Math.floor((dims.w - iw) / 2)}px`, top: 0 };
+    }
+  }
+  return (
+    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+      {dims.w > 0 && <iframe ref={iframeRef} src={src} style={style as React.CSSProperties} allow="autoplay; encrypted-media" />}
+    </div>
+  );
+}
+
+/** HLS / stream widget */
+function StreamWidgetRender({ url, muted = true, fitMode = "cover" }: { url: string; muted?: boolean; fitMode?: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const isHls = !!url && !/^rtmp[se]?:\/\//i.test(url) && !/^rtsps?:\/\//i.test(url);
+
+  useEffect(() => {
+    if (!isHls) return;
+    const video = videoRef.current;
+    if (!video) return;
+    let hls: Hls | null = null;
+    if (Hls.isSupported()) {
+      hls = new Hls({ enableWorker: false, lowLatencyMode: true });
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = url;
+      video.play().catch(() => {});
+    }
+    return () => { hls?.destroy(); };
+  }, [url, isHls]);
+
+  return (
+    <video ref={videoRef} muted={muted} playsInline autoPlay
+      style={{ width: '100%', height: '100%', objectFit: fitMode === 'contain' ? 'contain' : 'cover', display: 'block' }} />
+  );
 }
 
 interface MediaItem {
@@ -252,9 +349,13 @@ export function WidgetRender({ config }: { config: WidgetConfig | null | undefin
     return <WebpageWidgetRender config={config} />;
   }
 
-  if (config.widgetType === "youtube" && config.youtubeId) {
-    const src = `https://www.youtube-nocookie.com/embed/${config.youtubeId}?autoplay=1&mute=1&loop=1&playlist=${config.youtubeId}&controls=0`;
-    return <iframe title="youtube-widget" src={src} className="w-full h-full border-0" allow="autoplay; encrypted-media" />;
+  if (config.widgetType === "youtube") {
+    const vid = config.youtubeId || _parseYoutubeId(config.youtubeUrl || "");
+    if (vid) return <YoutubeWidgetRender videoId={vid} muted={config.youtubeMuted !== false} />;
+  }
+
+  if (config.widgetType === "stream" && config.streamUrl) {
+    return <StreamWidgetRender url={config.streamUrl} muted={config.streamMuted !== false} fitMode={config.streamFit as string | undefined} />;
   }
 
   // Unknown widget — render label.

@@ -51,6 +51,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Label } from "@/components/ui/label";
 import { QRCodeSVG } from "qrcode.react";
+import Hls from "hls.js";
 import { useWidgets, widgetsToStudioRows } from "@/hooks/useWidgets";
 import { WidgetPreviewCard } from "@/components/widgets/WidgetPreviewCard";
 import { StudioPreviewDialog } from "@/components/studio/StudioPreviewDialog";
@@ -106,6 +107,8 @@ interface WidgetConfig {
   countdownTitle?: string;
   targetDate?: string;
   youtubeUrl?: string;
+  youtubeMuted?: boolean;
+  youtubeMuteBgm?: boolean;
   streamUrl?: string;
   streamMuted?: boolean;
   streamFit?: string;
@@ -2159,7 +2162,7 @@ function ZoneTimeline({
                                       </Button>
                                     </PopoverTrigger>
                                     <PopoverContent
-                                      className="w-64 p-3 space-y-3"
+                                      className="w-64 p-3 space-y-3 max-h-[80vh] overflow-y-auto"
                                       align="end"
                                       onClick={(e) => e.stopPropagation()}
                                       onMouseDown={(e) => e.stopPropagation()}
@@ -2193,6 +2196,10 @@ function ZoneTimeline({
                                           config={item.widgetConfig}
                                           onChange={(next) => {
                                             const newItems = track.items.map((it, i) => i === idx ? { ...it, widgetConfig: next } : it);
+                                            track.onUpdate(newItems);
+                                          }}
+                                          onItemPatch={(patch) => {
+                                            const newItems = track.items.map((it, i) => i === idx ? { ...it, ...patch } : it);
                                             track.onUpdate(newItems);
                                           }}
                                         />
@@ -3155,11 +3162,86 @@ function DynamicParamControl({ param, value, onChange, lang }: {
   );
 }
 
+// ── YouTube video-ID extractor (shared with YoutubeZonePreview below) ─
+function parseYoutubeId(url: string): string | null {
+  if (!url) return null;
+  const patterns = [
+    /(?:v=|\/embed\/|\.be\/)([A-Za-z0-9_-]{11})/,
+    /^([A-Za-z0-9_-]{11})$/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+// ── YouTube IFrame API — singleton loader + duration probe ─────────
+declare global { interface Window { onYouTubeIframeAPIReady?: () => void; YT?: { Player: new (el: HTMLElement, opts: object) => unknown } } }
+let _ytReady = false;
+const _ytQueue: Array<() => void> = [];
+function _ensureYTApi(): Promise<void> {
+  if (_ytReady) return Promise.resolve();
+  return new Promise((resolve) => {
+    _ytQueue.push(resolve);
+    if (document.querySelector('script[src*="youtube.com/iframe_api"]')) return;
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => { _ytReady = true; prev?.(); _ytQueue.splice(0).forEach(cb => cb()); };
+    const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s);
+  });
+}
+function fetchYoutubeDuration(videoId: string): Promise<number> {
+  return _ensureYTApi().then(() => new Promise<number>((resolve) => {
+    const el = document.createElement('div');
+    el.style.cssText = 'position:fixed;left:-9999px;width:160px;height:90px;overflow:hidden';
+    document.body.appendChild(el);
+    let settled = false;
+    const done = (dur: number) => {
+      if (settled) return; settled = true;
+      clearTimeout(timer);
+      try { (player as { destroy?: () => void }).destroy?.(); } catch {}
+      try { document.body.removeChild(el); } catch {}
+      resolve(dur);
+    };
+    const timer = setTimeout(() => done(0), 12000);
+    const player = new window.YT!.Player(el, {
+      videoId,
+      playerVars: { autoplay: 1, mute: 1, controls: 0, playsinline: 1 },
+      events: {
+        // onStateChange fires with PLAYING(1) once metadata is loaded — getDuration() is reliable here
+        onStateChange: (e: { data: number; target: { getDuration: () => number; pauseVideo: () => void } }) => {
+          if (e.data === 1) { e.target.pauseVideo(); done(e.target.getDuration()); }
+          if (e.data === 0) done(0); // ended (live stream or very short)
+        },
+        onError: () => done(0),
+      },
+    });
+  }));
+}
+
 // ── Widget Item Settings (timeline popover) ────────────────────────
-function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChange: (next: WidgetConfig) => void }) {
+function WidgetItemSettings({ config, onChange, onItemPatch }: {
+  config: WidgetConfig;
+  onChange: (next: WidgetConfig) => void;
+  onItemPatch?: (patch: { duration?: number }) => void;
+}) {
   const { t, language } = useLanguage();
   const wt = config?.widgetType as string | undefined;
   const set = (patch: Record<string, unknown>) => onChange({ ...config, ...patch });
+
+  // Auto-detect YouTube duration when URL changes
+  const onItemPatchRef = useRef(onItemPatch);
+  onItemPatchRef.current = onItemPatch;
+  const lastFetchedId = useRef<string | null>(null);
+  useEffect(() => {
+    if (wt !== "youtube") return;
+    const vid = parseYoutubeId(config.youtubeUrl || "");
+    if (!vid || vid === lastFetchedId.current) return;
+    lastFetchedId.current = vid;
+    fetchYoutubeDuration(vid).then(dur => {
+      onItemPatchRef.current?.({ duration: dur > 0 ? Math.round(dur) : 300 });
+    });
+  }, [config.youtubeUrl, wt]);
 
   return (
     <div className="space-y-2 pt-2 border-t border-border">
@@ -3276,9 +3358,21 @@ function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChan
       )}
 
       {wt === "youtube" && (
-        <div className="space-y-1">
-          <Label className="text-[10px] text-muted-foreground">{t("widgetYoutubeUrl")}</Label>
-          <Input value={config.youtubeUrl || ""} onChange={(e) => set({ youtubeUrl: e.target.value })} placeholder={t("widgetYoutubeUrlPlaceholder")} className="h-7 text-xs" />
+        <div className="space-y-2">
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground">{t("widgetYoutubeUrl")}</Label>
+            <Input value={config.youtubeUrl || ""} onChange={(e) => set({ youtubeUrl: e.target.value })} placeholder={t("widgetYoutubeUrlPlaceholder")} className="h-7 text-xs" />
+          </div>
+          <div className="flex items-center justify-between pt-0.5">
+            <Label className="text-[10px]">{t("widgetYoutubeEnableSound")}</Label>
+            <Switch checked={config.youtubeMuted === false} onCheckedChange={(c) => set({ youtubeMuted: !c })} />
+          </div>
+          {config.youtubeMuted === false && (
+            <div className="flex items-center justify-between">
+              <Label className="text-[10px]">{t("widgetYoutubeMuteBgm")}</Label>
+              <Switch checked={!!config.youtubeMuteBgm} onCheckedChange={(c) => set({ youtubeMuteBgm: c })} />
+            </div>
+          )}
         </div>
       )}
 
@@ -3559,20 +3653,31 @@ function detectStreamProtocol(url: string): "hls" | "rtmp" | "rtsp" | "unknown" 
 
 function StreamZonePreview({ url, muted = true, fitMode = "cover" }: { url?: string; muted?: boolean; fitMode?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [dims, setDims] = useState({ w: 0, h: 0 });
-  useEffect(() => {
-    const obs = new ResizeObserver(entries => {
-      const { width, height } = entries[0].contentRect;
-      setDims({ w: Math.round(width), h: Math.round(height) });
-    });
-    if (containerRef.current) obs.observe(containerRef.current);
-    return () => obs.disconnect();
-  }, []);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   const proto = url ? detectStreamProtocol(url) : "unknown";
+  const isHls = !!url && proto === "hls";
+
+  useEffect(() => {
+    if (!isHls) return;
+    const video = videoRef.current;
+    if (!video || !url) return;
+    let hls: Hls | null = null;
+    if (Hls.isSupported()) {
+      hls = new Hls({ enableWorker: false, lowLatencyMode: true });
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); });
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = url;
+      video.play().catch(() => {});
+    }
+    return () => { hls?.destroy(); };
+  }, [url, isHls]);
+
   const protoColor = proto === "hls" ? "#10b981" : proto !== "unknown" ? "#f59e0b" : "#6b7280";
 
-  if (!url || proto === "rtmp" || proto === "rtsp") {
+  if (!isHls) {
     const hint = proto === "rtmp" ? "nginx-rtmp / Wowza → HLS" : proto === "rtsp" ? "go2rtc / mediamtx → HLS" : null;
     return (
       <div ref={containerRef} className="w-full h-full flex flex-col items-center justify-center gap-1.5 px-3" style={{ background: '#0a0a1a' }}>
@@ -3590,35 +3695,27 @@ function StreamZonePreview({ url, muted = true, fitMode = "cover" }: { url?: str
     );
   }
 
-  // HLS: render via hls.js in a sandboxed iframe
   const objFit = fitMode === 'contain' ? 'contain' : 'cover';
-  const srcDoc = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{margin:0;padding:0}body{background:#000;overflow:hidden}video{width:100vw;height:100vh;object-fit:${objFit}}</style></head><body><video id="v" autoplay ${muted ? 'muted' : ''} playsinline></video><script src="https://cdn.jsdelivr.net/npm/hls.js@1.5/dist/hls.min.js"></script><script>var v=document.getElementById('v'),u=${JSON.stringify(url)},h;function play(src){if(typeof Hls!=='undefined'&&Hls.isSupported()){if(h)h.destroy();h=new Hls({enableWorker:false,lowLatencyMode:true});h.loadSource(src);h.attachMedia(v);v.play().catch(function(){})}else if(v.canPlayType('application/vnd.apple.mpegurl')){v.src=src;v.play().catch(function(){})}}play(u);window.addEventListener('message',function(e){if(e.data&&e.data.widgetParams&&e.data.widgetParams.streamUrl&&e.data.widgetParams.streamUrl!==u){u=e.data.widgetParams.streamUrl;play(u);}});</script></body></html>`;
-
   return (
     <div ref={containerRef} className="w-full h-full relative overflow-hidden" style={{ background: '#000' }}>
-      {dims.w > 0 && (
-        <iframe key={url} srcDoc={srcDoc} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 0, pointerEvents: 'none' }} sandbox="allow-scripts" title="stream" />
-      )}
+      <video
+        ref={videoRef}
+        muted={muted}
+        playsInline
+        autoPlay
+        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: objFit, pointerEvents: 'none' }}
+      />
     </div>
   );
 }
 
-function extractYoutubeId(url: string): string | null {
-  if (!url) return null;
-  const patterns = [
-    /(?:v=|\/embed\/|\.be\/)([A-Za-z0-9_-]{11})/,
-    /^([A-Za-z0-9_-]{11})$/,
-  ];
-  for (const p of patterns) {
-    const m = url.match(p);
-    if (m) return m[1];
-  }
-  return null;
-}
+function extractYoutubeId(url: string): string | null { return parseYoutubeId(url); }
 
-function YoutubeZonePreview({ url, bg }: { url: string; bg: string }) {
+function YoutubeZonePreview({ url, bg, muted = true }: { url: string; bg: string; muted?: boolean }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const [dims, setDims] = useState({ w: 0, h: 0 });
+
   useEffect(() => {
     const obs = new ResizeObserver(entries => {
       const { width, height } = entries[0].contentRect;
@@ -3630,18 +3727,34 @@ function YoutubeZonePreview({ url, bg }: { url: string; bg: string }) {
 
   const videoId = extractYoutubeId(url);
 
+  // Seek back before end-screens (last 22s): prevents recommendations from ever appearing
+  useEffect(() => {
+    if (!videoId) return;
+    const handleMsg = (e: MessageEvent) => {
+      if (!['https://www.youtube.com', 'https://www.youtube-nocookie.com'].includes(e.origin)) return;
+      try {
+        const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
+        if (d.event === 'infoDelivery' && d.info?.duration > 30 && d.info.currentTime > d.info.duration - 22) {
+          iframeRef.current?.contentWindow?.postMessage(
+            JSON.stringify({ event: 'command', func: 'seekTo', args: [0, true] }), '*'
+          );
+        }
+      } catch {}
+    };
+    window.addEventListener('message', handleMsg);
+    return () => window.removeEventListener('message', handleMsg);
+  }, [videoId]);
+
   if (!videoId) return (
     <div ref={containerRef} className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
       <Youtube className="w-8 h-8 opacity-50" />
     </div>
   );
 
-  // rel=0: limit end-screen to same channel; iv_load_policy=3: no annotations
-  // loop=1+playlist: video loops so end-screen recommendations never appear
-  const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&iv_load_policy=3&disablekb=1`;
+  const muteParam = muted ? 1 : 0;
+  const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=${muteParam}&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&iv_load_policy=3&disablekb=1&enablejsapi=1`;
 
-  // Cover mode: scale iframe to fill zone without black bars; pointer-events:none prevents click-to-YouTube
-  // scale(1.22): crops ~11% from each edge, pushing YouTube's title overlay (top) and branding bar (bottom) outside the container's overflow:hidden boundary
+  // Cover mode fills zone; scale(1.22) clips YouTube UI chrome at top/bottom edges
   const baseStyle: React.CSSProperties = { border: 0, pointerEvents: 'none', transform: 'scale(1.22)', transformOrigin: 'center center' };
   let iframeStyle: React.CSSProperties = { ...baseStyle, position: 'absolute', inset: 0, width: '100%', height: '100%' };
   if (dims.w > 0 && dims.h > 0) {
@@ -3658,7 +3771,7 @@ function YoutubeZonePreview({ url, bg }: { url: string; bg: string }) {
 
   return (
     <div ref={containerRef} className="w-full h-full relative overflow-hidden" style={{ background: bg }}>
-      {dims.w > 0 && <iframe src={embedUrl} style={iframeStyle} allow="autoplay; encrypted-media" allowFullScreen />}
+      {dims.w > 0 && <iframe ref={iframeRef} src={embedUrl} style={iframeStyle} allow="autoplay; encrypted-media" />}
     </div>
   );
 }
@@ -3747,7 +3860,7 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
   }
 
   if (config.widgetType === "youtube") {
-    return <YoutubeZonePreview url={config.youtubeUrl || ""} bg={bg} />;
+    return <YoutubeZonePreview url={config.youtubeUrl || ""} bg={bg} muted={config.youtubeMuted !== false} />;
   }
 
   if (config.widgetType === "stream") {
