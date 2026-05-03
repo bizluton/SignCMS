@@ -1,6 +1,29 @@
 import { useEffect, useState } from "react";
-import { Globe, Code2, Youtube, CloudSun } from "lucide-react";
+import { Globe, Code2, Youtube, CloudSun, Loader2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+
+function WebpageWidgetPreview({ url, bg }: { url: string; bg: string }) {
+  const [srcDoc, setSrcDoc] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetch(url)
+      .then((r) => r.text())
+      .then((html) => { if (!cancelled) setSrcDoc(html); })
+      .catch(() => { if (!cancelled) setSrcDoc(""); });
+    return () => { cancelled = true; };
+  }, [url]);
+  if (srcDoc === null) return (
+    <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
+      <Loader2 className="w-5 h-5 animate-spin opacity-40" />
+    </div>
+  );
+  if (!srcDoc) return (
+    <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
+      <Globe className="w-6 h-6 opacity-40" />
+    </div>
+  );
+  return <iframe srcDoc={srcDoc} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
+}
 
 export type WidgetSubType = "date" | "clock" | "webpage" | "marquee" | "qrcode" | "countdown" | "youtube" | "weather";
 export type WidgetAnimation = "none" | "fadeIn" | "slideUp" | "bounce" | "zoomIn" | "flipIn";
@@ -100,10 +123,11 @@ export function WidgetPreviewCard({ config }: { config: WidgetConfig }) {
   }
 
   if (config.widgetType === "webpage") {
+    if (config.url) return <WebpageWidgetPreview url={config.url} bg={bg} />;
     return (
       <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
         <Globe className="w-6 h-6 opacity-50" />
-        <span className="text-[10px] opacity-60 truncate max-w-[80%]">{config.url || "URL"}</span>
+        <span className="text-[10px] opacity-60">URL</span>
       </div>
     );
   }
