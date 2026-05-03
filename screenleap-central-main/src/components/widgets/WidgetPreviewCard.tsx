@@ -1,28 +1,22 @@
-import { useEffect, useState } from "react";
-import { Globe, Code2, Youtube, CloudSun, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { Globe, Code2, Youtube, CloudSun } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
 function WebpageWidgetPreview({ url, bg }: { url: string; bg: string }) {
-  const [srcDoc, setSrcDoc] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetch(url)
-      .then((r) => r.text())
-      .then((html) => { if (!cancelled) setSrcDoc(html); })
-      .catch(() => { if (!cancelled) setSrcDoc(""); });
-    return () => { cancelled = true; };
-  }, [url]);
-  if (srcDoc === null) return (
-    <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
-      <Loader2 className="w-5 h-5 animate-spin opacity-40" />
-    </div>
-  );
-  if (!srcDoc) return (
+  const [failed, setFailed] = useState(false);
+  if (failed) return (
     <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
       <Globe className="w-6 h-6 opacity-40" />
     </div>
   );
-  return <iframe srcDoc={srcDoc} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
+  return (
+    <iframe
+      src={url}
+      className="w-full h-full border-0 pointer-events-none"
+      sandbox="allow-scripts"
+      onError={() => setFailed(true)}
+    />
+  );
 }
 
 export type WidgetSubType = "date" | "clock" | "webpage" | "marquee" | "qrcode" | "countdown" | "youtube" | "weather";
