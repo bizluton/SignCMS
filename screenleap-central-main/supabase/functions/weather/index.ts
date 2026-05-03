@@ -6,8 +6,12 @@
  *   Lat / Lon  →  ?lat=35.68&lon=139.76                   → Open-Meteo
  *   City name  →  ?city=Tokyo&country=JP                   → geocode → Open-Meteo
  *
- * All responses are cached in public.weather_cache (30-min TTL).
- * Stale cache is returned when upstream APIs are unreachable.
+ * Fallback rules:
+ *   Open-Meteo fails            → stale cache + email admin
+ *   CWA fails                   → Open-Meteo county-level → if also fails → stale cache + email admin
+ *
+ * Alert email: at most once per hour per source type (cooldown stored in weather_cache as _alert:* keys).
+ * Recipients are all rows in public.system_admins (joined to auth.users via get_system_admin_emails()).
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -27,7 +31,8 @@ function json(body: unknown, status = 200) {
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const CACHE_TTL_MIN = 30;
+const CACHE_TTL_MIN   = 30;
+const ALERT_TTL_MIN   = 60; // cooldown between alert emails for the same source
 
 const CWA_KEY = Deno.env.get("CWA_API_KEY") ||
   "CWA-DDEBA554-096E-424E-8529-A04E77AF6FD1";
@@ -58,7 +63,7 @@ const CWA_MAP: Record<string, string> = {
   "連江縣": "F-D0047-081",
 };
 
-// ── Taiwan county → lat/lon (for Open-Meteo UV/AQ supplement) ────────────────
+// ── Taiwan county → lat/lon (for Open-Meteo UV/AQ supplement + CWA fallback) ─
 const CWA_COORDS: Record<string, { lat: number; lon: number }> = {
   "臺北市": { lat: 25.038, lon: 121.564 }, "台北市": { lat: 25.038, lon: 121.564 },
   "新北市": { lat: 25.017, lon: 121.463 },
@@ -141,6 +146,80 @@ async function upsertCache(
   );
 }
 
+// ── Alert cooldown (stored as _alert:* rows in weather_cache) ─────────────────
+async function alertCoolingDown(alertKey: string): Promise<boolean> {
+  const { data } = await sb()
+    .from("weather_cache")
+    .select("expires_at")
+    .eq("cache_key", alertKey)
+    .single();
+  if (!data) return false;
+  return new Date((data as { expires_at: string }).expires_at).getTime() > Date.now();
+}
+
+async function setAlertCooldown(alertKey: string): Promise<void> {
+  const now = new Date();
+  const expires = new Date(now.getTime() + ALERT_TTL_MIN * 60_000);
+  await sb().from("weather_cache").upsert(
+    { cache_key: alertKey, location: "_alert", lat: null, lon: null,
+      data: {}, source: "alert",
+      fetched_at: now.toISOString(), expires_at: expires.toISOString() },
+    { onConflict: "cache_key" },
+  );
+}
+
+// ── Admin email notification (fire-and-forget, 1-hour cooldown per source) ────
+// Sends to all rows in public.system_admins (via auth.users join).
+function notifyAdmins(
+  source: string,
+  fallback: string,
+  location: string,
+  err: unknown,
+): void {
+  const alertKey    = `_alert:${source.toLowerCase().replace(/[^a-z0-9]/g, "-")}`;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+  (async () => {
+    try {
+      if (await alertCoolingDown(alertKey)) return; // already alerted within 1h
+      await setAlertCooldown(alertKey);
+
+      // Fetch all system admin emails via service-role RPC
+      const { data: admins } = await sb()
+        .rpc("get_system_admin_emails") as { data: { email: string }[] | null };
+
+      const emails: string[] = admins?.map((r) => r.email).filter(Boolean) ?? [];
+      if (!emails.length) return;
+
+      const templateData = {
+        source,
+        fallback,
+        location,
+        errorMsg: String(err),
+        timestamp: new Date().toISOString(),
+      };
+
+      await Promise.all(emails.map((email) =>
+        fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${serviceKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            templateName: "weather-alert",
+            recipientEmail: email,
+            templateData,
+          }),
+        }).catch(() => { /* ignore per-recipient failures */ }),
+      ));
+    } catch {
+      // never let email failure affect weather response
+    }
+  })();
+}
+
 // ── UV index + Air Quality (Open-Meteo, free) ─────────────────────────────────
 async function fetchUVandAQ(
   lat: number,
@@ -159,8 +238,8 @@ async function fetchUVandAQ(
     ]);
     const [f, aq] = await Promise.all([fRes.json(), aqRes.json()]);
     return {
-      uv:   String(Math.round(f?.current?.uv_index   ?? 0)),
-      pm25: String(Math.round(aq?.current?.pm2_5      ?? 0)),
+      uv:   String(Math.round(f?.current?.uv_index     ?? 0)),
+      pm25: String(Math.round(aq?.current?.pm2_5        ?? 0)),
       aqi:  String(Math.round(aq?.current?.european_aqi ?? 0)),
     };
   } catch {
@@ -245,8 +324,7 @@ async function fetchOpenMeteo(
 }
 
 // Geocoding: Open-Meteo geocoding API (free)
-// Note: the API only searches by city name; country code is used only for
-// filtering among results after the search, not as part of the name query.
+// Only city name is used in query; country_code is used to pick the best match.
 async function geocode(
   city: string,
   country?: string,
@@ -261,7 +339,6 @@ async function geocode(
     payload?.results ?? [];
   if (!results.length) return null;
 
-  // Prefer a result whose country_code matches (case-insensitive), fall back to first result
   const match = country
     ? (results.find((r) => r.country_code?.toUpperCase() === country.toUpperCase()) ?? results[0])
     : results[0];
@@ -283,8 +360,7 @@ Deno.serve(async (req) => {
   const lang         = p.get("lang")         || "zh";
 
   let cacheKey = "";
-  let weatherData: Record<string, string>;
-  let source = "";
+  let source   = "";
   let lat: number | null = null;
   let lon: number | null = null;
 
@@ -306,6 +382,7 @@ Deno.serve(async (req) => {
     );
   }
 
+  // ── Cache check ──────────────────────────────────────────────────────────
   const cached = await getCached(cacheKey);
   const now = Date.now();
 
@@ -313,31 +390,70 @@ Deno.serve(async (req) => {
     return json({ ...cached.data, source: cached.source, cached_at: cached.fetched_at, cache: "hit" });
   }
 
-  try {
-    if (source === "cwa") {
+  // ── Fetch with per-route fallback logic ──────────────────────────────────
+  let weatherData: Record<string, string>;
+
+  if (source === "cwa") {
+    // ── CWA route ─────────────────────────────────────────────────────────
+    let cwaErr: unknown;
+    try {
       weatherData = await fetchCWA(locationName, regionName);
+    } catch (err) {
+      cwaErr = err;
+      // CWA failed → try Open-Meteo with county-level coordinates
+      const coords = CWA_COORDS[locationName];
+      if (coords) {
+        try {
+          weatherData = await fetchOpenMeteo(coords.lat, coords.lon, locationName);
+          weatherData.fallback = "open-meteo-county";
+        } catch (omErr) {
+          // Both CWA and Open-Meteo failed → stale cache + email
+          notifyAdmins(
+            "CWA + Open-Meteo",
+            "快取（stale）",
+            `${locationName} ${regionName}`,
+            `CWA: ${cwaErr} | Open-Meteo: ${omErr}`,
+          );
+          if (cached) return json({ ...cached.data, source: cached.source, cached_at: cached.fetched_at, cache: "stale" });
+          return json({ error: String(omErr) }, 502);
+        }
+      } else {
+        // No coordinates for this county — fall back to cache
+        notifyAdmins("CWA", "快取（stale）", `${locationName} ${regionName}`, String(cwaErr));
+        if (cached) return json({ ...cached.data, source: cached.source, cached_at: cached.fetched_at, cache: "stale" });
+        return json({ error: String(cwaErr) }, 502);
+      }
+    }
 
-    } else if (latStr && lonStr) {
+  } else if (latStr && lonStr) {
+    // ── Lat/Lon route ─────────────────────────────────────────────────────
+    try {
       weatherData = await fetchOpenMeteo(lat!, lon!);
+    } catch (err) {
+      notifyAdmins("Open-Meteo", "快取（stale）", `${lat!.toFixed(2)},${lon!.toFixed(2)}`, String(err));
+      if (cached) return json({ ...cached.data, source: cached.source, cached_at: cached.fetched_at, cache: "stale" });
+      return json({ error: String(err) }, 502);
+    }
 
-    } else {
+  } else {
+    // ── City geocode route ────────────────────────────────────────────────
+    try {
       const geo = await geocode(city, country || undefined, lang);
       if (!geo) {
+        notifyAdmins("Open-Meteo (geocode)", "快取（stale）", city, `無法解析城市: ${city}`);
         if (cached) return json({ ...cached.data, source: cached.source, cached_at: cached.fetched_at, cache: "stale" });
         return json({ error: `Cannot geocode city: ${city}` }, 404);
       }
       lat = geo.lat;
       lon = geo.lon;
       weatherData = await fetchOpenMeteo(lat, lon, geo.name);
+    } catch (err) {
+      notifyAdmins("Open-Meteo", "快取（stale）", city, String(err));
+      if (cached) return json({ ...cached.data, source: cached.source, cached_at: cached.fetched_at, cache: "stale" });
+      return json({ error: String(err) }, 502);
     }
-
-    await upsertCache(cacheKey, weatherData.location, lat, lon, weatherData, source);
-    return json({ ...weatherData, source, cached_at: new Date().toISOString(), cache: "miss" });
-
-  } catch (err) {
-    if (cached) {
-      return json({ ...cached.data, source: cached.source, cached_at: cached.fetched_at, cache: "stale" });
-    }
-    return json({ error: String(err) }, 502);
   }
+
+  await upsertCache(cacheKey, weatherData.location, lat, lon, weatherData, source);
+  return json({ ...weatherData, source, cached_at: new Date().toISOString(), cache: "miss" });
 });

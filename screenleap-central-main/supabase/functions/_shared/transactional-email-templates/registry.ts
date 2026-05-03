@@ -10,7 +10,9 @@ export interface TemplateEntry {
 }
 
 import { template as screenHealthReport } from './screen-health-report.tsx'
+import { template as weatherAlert }      from './weather-alert.tsx'
 
 export const TEMPLATES: Record<string, TemplateEntry> = {
   'screen-health-report': screenHealthReport,
+  'weather-alert':        weatherAlert,
 }
