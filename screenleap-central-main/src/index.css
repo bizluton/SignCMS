@@ -122,6 +122,12 @@
   animation: marquee 15s linear infinite;
 }
 
+/* Canvas zone marquee — starts from right edge of container, font scales with height */
+@keyframes marqueeScroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
 @keyframes widgetFadeIn {
   0% { opacity: 0; }
   100% { opacity: 1; }

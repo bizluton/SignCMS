@@ -3323,31 +3323,45 @@ function injectWidgetParams(html: string, params?: Record<string, unknown>): str
 }
 
 function WebpageZonePreview({ url, bg, fg, params }: { url: string; bg: string; fg: string; params?: Record<string, unknown> }) {
-  const [rawHtml, setRawHtml] = useState<string | null>(null);
+  const isStorageUrl = url.includes('supabase.co/storage');
+  const [rawHtml, setRawHtml] = useState<string | null>(isStorageUrl ? null : undefined as unknown as null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const paramsRef = useRef(params);
   paramsRef.current = params;
 
-  // Fetch HTML only when URL changes
+  // Fetch HTML only for Supabase Storage URLs (text/plain content-type workaround)
   useEffect(() => {
+    if (!isStorageUrl) return;
     if (!url) { setRawHtml(""); return; }
+    setRawHtml(null);
     let cancelled = false;
     fetch(url)
       .then((r) => r.text())
       .then((html) => { if (!cancelled) setRawHtml(html); })
       .catch(() => { if (!cancelled) setRawHtml(""); });
     return () => { cancelled = true; };
-  }, [url]);
+  }, [url, isStorageUrl]);
 
-  // Live param update via postMessage — no iframe reload needed
+  // Live param updates via postMessage (no iframe reload)
   useEffect(() => {
-    if (!rawHtml || !params) return;
+    if (!params) return;
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
-    // Send both generic widgetParams and widget-specific clockConfig so the widget can handle either
     win.postMessage({ widgetParams: params, clockConfig: params }, '*');
   }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // External URL: use iframe src directly (no CORS issue for navigation)
+  if (!isStorageUrl) {
+    if (!url) return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
+        <Globe className="w-6 h-6 opacity-50" />
+        <span className="text-[10px] opacity-60">URL</span>
+      </div>
+    );
+    return <iframe ref={iframeRef} src={url} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts allow-same-origin" />;
+  }
+
+  // Supabase Storage HTML: fetch+srcDoc to bypass text/plain content-type
   if (rawHtml === null) return (
     <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
       <Loader2 className="w-6 h-6 animate-spin opacity-40" style={{ color: fg }} />
@@ -3359,9 +3373,28 @@ function WebpageZonePreview({ url, bg, fg, params }: { url: string; bg: string; 
       <span className="text-[10px] opacity-60">URL</span>
     </div>
   );
-  // Inject params into srcDoc so initial render uses correct config
-  const srcDoc = injectWidgetParams(rawHtml, paramsRef.current);
-  return <iframe ref={iframeRef} srcDoc={srcDoc} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
+  return <iframe ref={iframeRef} srcDoc={injectWidgetParams(rawHtml, paramsRef.current)} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
+}
+
+function MarqueeZonePreview({ text, bg, fg, speed }: { text: string; bg: string; fg: string; speed?: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [containerHeight, setContainerHeight] = useState(0);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(entries => setContainerHeight(entries[0].contentRect.height));
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+  const duration = speed === 'slow' ? '30s' : speed === 'fast' ? '8s' : '15s';
+  const fontSize = containerHeight > 0 ? Math.max(12, Math.round(containerHeight * 0.35)) : 16;
+  return (
+    <div ref={containerRef} className="w-full h-full flex items-center overflow-hidden" style={{ background: bg, color: fg }}>
+      <span style={{ display: 'inline-block', whiteSpace: 'nowrap', paddingLeft: '100%', fontSize: `${fontSize}px`, fontWeight: 500, animation: `marqueeScroll ${duration} linear infinite` }}>
+        {text}
+      </span>
+    </div>
+  );
 }
 
 function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Date }) {
@@ -3427,11 +3460,7 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
   }
 
   if (config.widgetType === "marquee" && config.text) {
-    return (
-      <div className="w-full h-full flex items-center overflow-hidden" style={{ background: bg, color: fg }}>
-        <div className={`animate-marquee whitespace-nowrap ${zfs.marquee} font-medium`}>{config.text}</div>
-      </div>
-    );
+    return <MarqueeZonePreview text={config.text} bg={bg} fg={fg} speed={config.speed} />;
   }
 
   if (config.widgetType === "webpage") {
