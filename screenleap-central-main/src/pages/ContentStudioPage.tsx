@@ -2194,47 +2194,46 @@ function ZoneTimeline({
                                         />
                                       )}
 
-                                      {/* Volume: only meaningful for video items */}
-                                      <div className={`space-y-1 ${isVid ? "" : "opacity-50 pointer-events-none"}`}>
-                                        <div className="flex items-center justify-between">
-                                          <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
-                                            <Volume2 className="w-3 h-3" />
-                                            {t("studioTimelineItemVolume")}
-                                          </Label>
-                                          <span className="text-[10px] font-mono tabular-nums">{item.muted ? 0 : (typeof item.volume === "number" ? item.volume : 100)}%</span>
+                                      {/* Volume + mute: only meaningful for video items */}
+                                      {isVid && (<>
+                                        <div className="space-y-1">
+                                          <div className="flex items-center justify-between">
+                                            <Label className="text-[10px] text-muted-foreground flex items-center gap-1">
+                                              <Volume2 className="w-3 h-3" />
+                                              {t("studioTimelineItemVolume")}
+                                            </Label>
+                                            <span className="text-[10px] font-mono tabular-nums">{item.muted ? 0 : (typeof item.volume === "number" ? item.volume : 100)}%</span>
+                                          </div>
+                                          <Slider
+                                            value={[item.muted ? 0 : (typeof item.volume === "number" ? item.volume : 100)]}
+                                            min={0}
+                                            max={100}
+                                            step={1}
+                                            disabled={!!item.muted}
+                                            onValueChange={(v) => {
+                                              const vol = Math.max(0, Math.min(100, Math.round(v[0])));
+                                              const newItems = track.items.map((it, i) => i === idx ? { ...it, volume: vol } : it);
+                                              track.onUpdate(newItems);
+                                            }}
+                                          />
                                         </div>
-                                        <Slider
-                                          value={[item.muted ? 0 : (typeof item.volume === "number" ? item.volume : 100)]}
-                                          min={0}
-                                          max={100}
-                                          step={1}
-                                          disabled={!isVid || !!item.muted}
-                                          onValueChange={(v) => {
-                                            const vol = Math.max(0, Math.min(100, Math.round(v[0])));
-                                            const newItems = track.items.map((it, i) => i === idx ? { ...it, volume: vol } : it);
-                                            track.onUpdate(newItems);
-                                          }}
-                                        />
-                                      </div>
-
-                                      {/* Mute switch (BGM plays when muted) */}
-                                      <div className={`flex items-center justify-between pt-1 border-t border-border ${isVid ? "" : "opacity-50 pointer-events-none"}`}>
-                                        <div className="space-y-0.5">
-                                          <Label className="text-[10px] font-medium flex items-center gap-1">
-                                            <VolumeX className="w-3 h-3" />
-                                            {t("studioTimelineItemMute")}
-                                          </Label>
-                                          <p className="text-[9px] text-muted-foreground leading-tight">{t("studioTimelineItemMuteHint")}</p>
+                                        <div className="flex items-center justify-between pt-1 border-t border-border">
+                                          <div className="space-y-0.5">
+                                            <Label className="text-[10px] font-medium flex items-center gap-1">
+                                              <VolumeX className="w-3 h-3" />
+                                              {t("studioTimelineItemMute")}
+                                            </Label>
+                                            <p className="text-[9px] text-muted-foreground leading-tight">{t("studioTimelineItemMuteHint")}</p>
+                                          </div>
+                                          <Switch
+                                            checked={!!item.muted}
+                                            onCheckedChange={(checked) => {
+                                              const newItems = track.items.map((it, i) => i === idx ? { ...it, muted: checked } : it);
+                                              track.onUpdate(newItems);
+                                            }}
+                                          />
                                         </div>
-                                        <Switch
-                                          checked={!!item.muted}
-                                          disabled={!isVid}
-                                          onCheckedChange={(checked) => {
-                                            const newItems = track.items.map((it, i) => i === idx ? { ...it, muted: checked } : it);
-                                            track.onUpdate(newItems);
-                                          }}
-                                        />
-                                      </div>
+                                      </>)}
                                     </PopoverContent>
                                   </Popover>
                                   <Button variant="ghost" size="icon" className="h-4 w-4 text-destructive hover:text-destructive" title={t("studioTimelineRemove")} onClick={() => removeItem(idx)}>
@@ -3140,7 +3139,7 @@ function DynamicParamControl({ param, value, onChange, lang }: {
     return (
       <div className="space-y-1">
         <Label className="text-[10px] text-muted-foreground">{label}</Label>
-        <Input type="number" value={String(value ?? param.default ?? "")} min={param.min} max={param.max} onChange={(e) => onChange(Number(e.target.value))} className="h-7 text-xs" />
+        <Input type="number" value={String(value ?? param.default ?? "")} min={param.min} onChange={(e) => onChange(Number(e.target.value))} className="h-7 text-xs" />
       </div>
     );
   }
@@ -3270,8 +3269,8 @@ function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChan
         </div>
       )}
 
-      {/* Common appearance — applies to all widget types except youtube */}
-      {wt !== "youtube" && <div className="grid grid-cols-2 gap-2 pt-1">
+      {/* Common appearance — hidden for youtube and for webpage widgets that have their own paramsSchema color settings */}
+      {wt !== "youtube" && !(wt === "webpage" && config.paramsSchema && config.paramsSchema.length > 0) && <div className="grid grid-cols-2 gap-2 pt-1">
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetBgColor")}</Label>
           <div className="flex items-center gap-1">
