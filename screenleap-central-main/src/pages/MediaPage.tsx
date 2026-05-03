@@ -1891,9 +1891,7 @@ const MediaPage = () => {
                 )}
                 <div className="aspect-video bg-muted flex items-center justify-center overflow-hidden relative">
                   {item.type === "widget" && item.url ? (
-                    item.thumbnail
-                      ? <img src={item.thumbnail} alt={displayName} className="w-full h-full object-cover" />
-                      : (() => { const c = parseWidgetConfig(item.url); return c ? <WidgetPreviewCard config={c} /> : <Code2 className="w-10 h-10 text-muted-foreground" />; })()
+                    (() => { const c = parseWidgetConfig(item.url); return c ? <WidgetPreviewCard config={c} /> : <Code2 className="w-10 h-10 text-muted-foreground" />; })()
                   ) : item.type === "image" && item.url ? (
                     <img
                       src={item.thumbnail || item.url}
@@ -2039,9 +2037,7 @@ const MediaPage = () => {
                 )}
                 <div className="relative flex h-12 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted">
                   {item.type === "widget" && item.url ? (
-                    item.thumbnail
-                      ? <img src={item.thumbnail} alt={displayName} className="w-full h-full object-cover" />
-                      : (() => { const c = parseWidgetConfig(item.url); return c ? <WidgetPreviewCard config={c} /> : <Code2 className="w-6 h-6 text-muted-foreground" />; })()
+                    (() => { const c = parseWidgetConfig(item.url); return c ? <WidgetPreviewCard config={c} /> : <Code2 className="w-6 h-6 text-muted-foreground" />; })()
                   ) : item.type === "image" && item.url ? (
                     <img
                       src={item.thumbnail || item.url}

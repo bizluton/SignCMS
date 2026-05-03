@@ -22,6 +22,8 @@ import {
   Clock, Calendar, Globe, AlignLeft, QrCode, Timer, Play, Cloud,
 } from "lucide-react";
 import { logActivity } from "@/lib/activityLogger";
+import { WidgetPreviewCard } from "@/components/widgets/WidgetPreviewCard";
+import type { WidgetConfig } from "@/components/widgets/WidgetPreviewCard";
 
 interface WidgetRow {
   id: string;
@@ -79,20 +81,9 @@ function WidgetCard({
   const Icon = WIDGET_ICONS[row.widget_type] ?? Code2;
   return (
     <div className="group relative rounded-xl border bg-card overflow-hidden hover:shadow-md transition-all">
-      {/* Thumbnail / icon area */}
+      {/* Live preview area */}
       <div className="aspect-video relative overflow-hidden bg-muted">
-        {row.thumbnail ? (
-          <img
-            src={row.thumbnail}
-            alt={row.name}
-            className="w-full h-full object-cover"
-            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
-            <Icon className="w-9 h-9 text-slate-400" />
-          </div>
-        )}
+        <WidgetPreviewCard config={{ widgetType: row.widget_type, ...row.config } as WidgetConfig} />
         {/* Org badge on user-scope cards */}
         {row.scope === "user" && orgName && (
           <div className="absolute top-2 left-2">
