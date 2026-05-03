@@ -124,8 +124,9 @@ export function widgetsToMediaRows(widgets: CatalogWidget[], orgId: string | nul
     duration_seconds: null as number | null,
     created_at: w.created_at,
     design_project_id: null as string | null,
-    is_system: w.scope === "system", // user-scope catalog widgets can be deleted
+    is_system: w.scope === "system",
     catalog_scope: w.scope,
+    catalog_app_id: w.app_id,
     org_id: orgId || "",
     md5: null as string | null,
     mime_type: "application/x-widget",

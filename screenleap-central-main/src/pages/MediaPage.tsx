@@ -117,6 +117,7 @@ interface MediaItemRow {
   created_at: string;
   design_project_id?: string | null;
   is_system?: boolean;
+  catalog_app_id?: string | null;
   md5?: string | null;
   mime_type?: string | null;
   uploaded_by?: string | null;
@@ -170,6 +171,13 @@ const WIDGET_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
   date: Calendar, clock: Clock, webpage: Globe, marquee: Type, qrcode: QrCode,
   countdown: Timer, youtube: Youtube, weather: CloudSun, weather_tw: CloudSun, stream: Radio,
   announcement: Megaphone,
+};
+
+// Maps app_id → { icon component, tailwind gradient } for the widget card badge
+const APP_BADGE_MAP: Record<string, { Icon: React.ComponentType<{ className?: string }>; gradient: string }> = {
+  announcement: { Icon: Megaphone,  gradient: "from-orange-500 to-amber-500" },
+  queue:        { Icon: Users,      gradient: "from-blue-500 to-cyan-500"   },
+  weather:      { Icon: CloudSun,   gradient: "from-emerald-500 to-teal-500"},
 };
 
 const WIDGET_TYPE_LABEL_KEYS: Record<string, string> = {
@@ -1969,11 +1977,24 @@ const MediaPage = () => {
                       }>{o}</span>
                     ) : null; })()}
                   </div>
-                  {item.type === "widget" && (
-                    <Badge variant={item.is_system ? "destructive" : "outline"} className="absolute right-2 top-2 text-[10px]">
-                      {item.is_system ? t("widgetSystem") : t("widgetRegular")}
-                    </Badge>
-                  )}
+                  {item.type === "widget" && (() => {
+                    const appBadge = (item as MediaItemRow & { catalog_app_id?: string | null }).catalog_app_id
+                      ? APP_BADGE_MAP[(item as MediaItemRow & { catalog_app_id?: string | null }).catalog_app_id!]
+                      : null;
+                    if (appBadge) {
+                      const { Icon, gradient } = appBadge;
+                      return (
+                        <div className={`absolute right-2 top-2 w-6 h-6 rounded-lg bg-gradient-to-br ${gradient} flex items-center justify-center shadow`}>
+                          <Icon className="w-3.5 h-3.5 text-white" />
+                        </div>
+                      );
+                    }
+                    return (
+                      <Badge variant={item.is_system ? "destructive" : "outline"} className="absolute right-2 top-2 text-[10px]">
+                        {item.is_system ? t("widgetSystem") : t("widgetRegular")}
+                      </Badge>
+                    );
+                  })()}
                   {/* Transcode status overlay badge */}
                   {item.type === "video" && item.transcode_status === "pending_transcode" && (
                     <Badge className="absolute right-2 top-2 text-[10px] bg-yellow-500 text-white border-0">
@@ -2101,11 +2122,25 @@ const MediaPage = () => {
                           : t("mediaOwnerOrg")
                       }>{o}</span>
                     ) : null; })()}
-                    {item.type === "widget" && (
-                      <Badge variant={item.is_system ? "destructive" : "secondary"} className="text-[10px] px-1.5 py-0 h-4">
-                        {item.is_system ? t("widgetSystem") : t("widgetRegular")}
-                      </Badge>
-                    )}
+                    {item.type === "widget" && (() => {
+                      const appBadge = (item as MediaItemRow & { catalog_app_id?: string | null }).catalog_app_id
+                        ? APP_BADGE_MAP[(item as MediaItemRow & { catalog_app_id?: string | null }).catalog_app_id!]
+                        : null;
+                      if (appBadge) {
+                        const { Icon, gradient } = appBadge;
+                        return (
+                          <span className={`inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 bg-gradient-to-r ${gradient} text-[10px] text-white font-medium`}>
+                            <Icon className="w-2.5 h-2.5" />
+                            App
+                          </span>
+                        );
+                      }
+                      return (
+                        <Badge variant={item.is_system ? "destructive" : "secondary"} className="text-[10px] px-1.5 py-0 h-4">
+                          {item.is_system ? t("widgetSystem") : t("widgetRegular")}
+                        </Badge>
+                      );
+                    })()}
                     {item.type === "video" && item.transcode_status === "pending_transcode" && (
                       <Badge className="text-[10px] px-1.5 py-0 h-4 bg-yellow-500 text-white border-0">{t("transcodeStatusPending")}</Badge>
                     )}
