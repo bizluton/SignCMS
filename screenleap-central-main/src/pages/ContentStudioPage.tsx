@@ -3139,6 +3139,28 @@ TW_DISTRICTS["台中市"] = TW_DISTRICTS["臺中市"];
 TW_DISTRICTS["台南市"] = TW_DISTRICTS["臺南市"];
 TW_DISTRICTS["台東縣"] = TW_DISTRICTS["臺東縣"];
 
+// ── Pill-shaped colour swatch (label wraps a hidden input for click-to-pick) ──
+function ColorSwatchInput({ value, onChange, fallback = "#000000", disabled = false }: {
+  value: string; onChange: (v: string) => void; fallback?: string; disabled?: boolean;
+}) {
+  const display = (value === "transparent" || !value) ? fallback : value;
+  return (
+    <label className="relative flex-1 min-w-0 h-8 block cursor-pointer">
+      <div
+        className="absolute inset-0 rounded-full border border-input"
+        style={{ background: display, opacity: disabled ? 0.45 : 1 }}
+      />
+      <input
+        type="color"
+        value={display}
+        onChange={(e) => { if (!disabled) onChange(e.target.value); }}
+        disabled={disabled}
+        className="absolute inset-0 opacity-0 w-full h-full cursor-pointer disabled:cursor-not-allowed"
+      />
+    </label>
+  );
+}
+
 // ── Dynamic param control (for HTML/catalog widgets with paramsSchema) ──
 function DynamicParamControl({ param, value, onChange, lang }: {
   param: WidgetParamDef;
@@ -3179,18 +3201,12 @@ function DynamicParamControl({ param, value, onChange, lang }: {
       return (
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{label}</Label>
-          <div className="flex items-center gap-1">
-            <Input
-              type="color"
-              value={isT ? "#0f172a" : raw}
-              onChange={(e) => onChange(e.target.value)}
-              className="h-7 p-0.5 flex-1 min-w-0"
-              disabled={isT}
-            />
+          <div className="flex items-center gap-1.5">
+            <ColorSwatchInput value={raw} onChange={onChange} fallback="#0f172a" disabled={isT} />
             <button
               type="button"
               onClick={() => onChange(isT ? "#0f172a" : "transparent")}
-              className={`h-7 px-1.5 rounded border text-[10px] shrink-0 transition-colors ${isT ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary hover:text-foreground"}`}
+              className={`h-8 px-2.5 rounded-full border text-[10px] shrink-0 transition-colors ${isT ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary hover:text-foreground"}`}
             >
               透明
             </button>
@@ -3201,7 +3217,7 @@ function DynamicParamControl({ param, value, onChange, lang }: {
     return (
       <div className="space-y-1">
         <Label className="text-[10px] text-muted-foreground">{label}</Label>
-        <Input type="color" value={String(value ?? param.default ?? "#000000")} onChange={(e) => onChange(e.target.value)} className="h-7 p-0.5 w-full" />
+        <ColorSwatchInput value={String(value ?? param.default ?? "#000000")} onChange={onChange} />
       </div>
     );
   }
@@ -3590,19 +3606,17 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
       {wt !== "youtube" && wt !== "stream" && wt !== "weather_tw" && wt !== "weather" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetBgColor")}</Label>
-          <div className="flex items-center gap-1">
-            <Input
-              type="color"
-              value={config.bgColor === "transparent" ? "#1a1a2e" : (config.bgColor || "#1a1a2e")}
-              onChange={(e) => set({ bgColor: e.target.value })}
-              className="h-7 p-0.5 flex-1 min-w-0"
+          <div className="flex items-center gap-1.5">
+            <ColorSwatchInput
+              value={config.bgColor || "#1a1a2e"}
+              onChange={(v) => set({ bgColor: v })}
+              fallback="#1a1a2e"
               disabled={config.bgColor === "transparent"}
             />
             <button
               type="button"
-              title={t("transparent")}
               onClick={() => set({ bgColor: config.bgColor === "transparent" ? "#1a1a2e" : "transparent" })}
-              className={`h-7 px-1.5 rounded border text-[10px] shrink-0 transition-colors ${config.bgColor === "transparent" ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary hover:text-foreground"}`}
+              className={`h-8 px-2.5 rounded-full border text-[10px] shrink-0 transition-colors ${config.bgColor === "transparent" ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary hover:text-foreground"}`}
             >
               {t("transparent")}
             </button>
@@ -3610,7 +3624,7 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
         </div>
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetTextColor")}</Label>
-          <Input type="color" value={config.textColor || "#ffffff"} onChange={(e) => set({ textColor: e.target.value })} className="h-7 p-0.5" />
+          <ColorSwatchInput value={config.textColor || "#ffffff"} onChange={(v) => set({ textColor: v })} />
         </div>
       </div>}
 
