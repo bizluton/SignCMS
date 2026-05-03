@@ -234,7 +234,7 @@ export default function QueueControlPanel() {
         { p_queue_id: selectedQueueId, p_counter: counter || t("服務台", "Counter", "カウンター") },
       );
       if (error) throw error;
-      const ticket = data as { number: number; queue_id: string };
+      const ticket = data as { id: string; number: number; queue_id: string };
       const queue = queues.find((q) => q.id === selectedQueueId);
       setLastCalled({ number: ticket.number, prefix: queue?.prefix ?? "" });
       setQueues((prev) =>
@@ -242,6 +242,10 @@ export default function QueueControlPanel() {
           q.id === selectedQueueId ? { ...q, current_number: ticket.number } : q,
         ),
       );
+      // Fire LINE Multicast notification for ticket owner + members (fire-and-forget)
+      void supabase.functions.invoke("queue-system/notify-calling", {
+        body: { ticket_id: ticket.id },
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(msg.includes("queue_not_found")
