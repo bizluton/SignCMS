@@ -32,6 +32,7 @@ interface WidgetConfig {
   youtubeUrl?: string;
   youtubeMuted?: boolean;
   youtubeMuteBgm?: boolean;
+  youtubeVolume?: number;
   streamUrl?: string;
   streamMuted?: boolean;
   streamFit?: string;
@@ -50,7 +51,7 @@ function _parseYoutubeId(url: string): string | null {
 }
 
 /** YouTube widget — cover mode + end-screen prevention via postMessage seek-back */
-function YoutubeWidgetRender({ videoId, muted = true }: { videoId: string; muted?: boolean }) {
+function YoutubeWidgetRender({ videoId, muted = true, volume = 100 }: { videoId: string; muted?: boolean; volume?: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [dims, setDims] = useState({ w: 0, h: 0 });
@@ -64,22 +65,28 @@ function YoutubeWidgetRender({ videoId, muted = true }: { videoId: string; muted
     return () => obs.disconnect();
   }, []);
 
-  // Seek back when currentTime > duration - 22s to prevent end-screens
+  // End-screen prevention + initial volume set on first PLAYING
   useEffect(() => {
+    let volumeApplied = false;
+    const sendCmd = (func: string, args: unknown[]) =>
+      iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
     const handleMsg = (e: MessageEvent) => {
       if (!['https://www.youtube.com', 'https://www.youtube-nocookie.com'].includes(e.origin)) return;
       try {
         const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-        if (d.event === 'infoDelivery' && d.info?.duration > 30 && d.info.currentTime > d.info.duration - 22) {
-          iframeRef.current?.contentWindow?.postMessage(
-            JSON.stringify({ event: 'command', func: 'seekTo', args: [0, true] }), '*'
-          );
+        if (d.event === 'infoDelivery' && d.info) {
+          if (d.info.duration > 30 && d.info.currentTime > d.info.duration - 22)
+            sendCmd('seekTo', [0, true]);
+          if (!muted && !volumeApplied && d.info.playerState === 1) {
+            volumeApplied = true;
+            sendCmd('setVolume', [volume]);
+          }
         }
       } catch {}
     };
     window.addEventListener('message', handleMsg);
     return () => window.removeEventListener('message', handleMsg);
-  }, [videoId]);
+  }, [videoId, muted, volume]);
 
   const muteParam = muted ? 1 : 0;
   const src = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=${muteParam}&loop=1&playlist=${videoId}&controls=0&rel=0&iv_load_policy=3&disablekb=1&enablejsapi=1`;
@@ -351,7 +358,7 @@ export function WidgetRender({ config }: { config: WidgetConfig | null | undefin
 
   if (config.widgetType === "youtube") {
     const vid = config.youtubeId || _parseYoutubeId(config.youtubeUrl || "");
-    if (vid) return <YoutubeWidgetRender videoId={vid} muted={config.youtubeMuted !== false} />;
+    if (vid) return <YoutubeWidgetRender videoId={vid} muted={config.youtubeMuted !== false} volume={config.youtubeVolume ?? 100} />;
   }
 
   if (config.widgetType === "stream" && config.streamUrl) {

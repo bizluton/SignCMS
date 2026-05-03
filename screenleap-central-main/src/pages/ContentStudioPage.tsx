@@ -109,6 +109,7 @@ interface WidgetConfig {
   youtubeUrl?: string;
   youtubeMuted?: boolean;
   youtubeMuteBgm?: boolean;
+  youtubeVolume?: number;
   streamUrl?: string;
   streamMuted?: boolean;
   streamFit?: string;
@@ -3364,13 +3365,28 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
             <Input value={config.youtubeUrl || ""} onChange={(e) => set({ youtubeUrl: e.target.value })} placeholder={t("widgetYoutubeUrlPlaceholder")} className="h-7 text-xs" />
           </div>
           <div className="flex items-center justify-between pt-0.5">
-            <Label className="text-[10px]">{t("widgetYoutubeEnableSound")}</Label>
-            <Switch checked={config.youtubeMuted === false} onCheckedChange={(c) => set({ youtubeMuted: !c })} />
+            <div>
+              <Label className="text-[10px]">{t("widgetYoutubeEnableSound")}</Label>
+              {config.youtubeMuted === false && (
+                <p className="text-[9px] text-muted-foreground">{t("widgetYoutubeMuteBgmAuto")}</p>
+              )}
+            </div>
+            <Switch
+              checked={config.youtubeMuted === false}
+              onCheckedChange={(c) => set({ youtubeMuted: !c, youtubeMuteBgm: c })}
+            />
           </div>
           {config.youtubeMuted === false && (
-            <div className="flex items-center justify-between">
-              <Label className="text-[10px]">{t("widgetYoutubeMuteBgm")}</Label>
-              <Switch checked={!!config.youtubeMuteBgm} onCheckedChange={(c) => set({ youtubeMuteBgm: c })} />
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] text-muted-foreground">{t("widgetYoutubeVolume")}</Label>
+                <span className="text-[10px] font-mono tabular-nums">{config.youtubeVolume ?? 100}%</span>
+              </div>
+              <Slider
+                value={[config.youtubeVolume ?? 100]}
+                min={0} max={100} step={1}
+                onValueChange={(v) => set({ youtubeVolume: v[0] })}
+              />
             </div>
           )}
         </div>
@@ -3711,7 +3727,7 @@ function StreamZonePreview({ url, muted = true, fitMode = "cover" }: { url?: str
 
 function extractYoutubeId(url: string): string | null { return parseYoutubeId(url); }
 
-function YoutubeZonePreview({ url, bg, muted = true }: { url: string; bg: string; muted?: boolean }) {
+function YoutubeZonePreview({ url, bg, muted = true, volume = 100 }: { url: string; bg: string; muted?: boolean; volume?: number }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [dims, setDims] = useState({ w: 0, h: 0 });
@@ -3727,23 +3743,37 @@ function YoutubeZonePreview({ url, bg, muted = true }: { url: string; bg: string
 
   const videoId = extractYoutubeId(url);
 
-  // Seek back before end-screens (last 22s): prevents recommendations from ever appearing
+  // End-screen prevention (seek back) + initial volume set on first PLAYING state
   useEffect(() => {
     if (!videoId) return;
+    let volumeApplied = false;
+    const sendCmd = (func: string, args: unknown[]) =>
+      iframeRef.current?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
     const handleMsg = (e: MessageEvent) => {
       if (!['https://www.youtube.com', 'https://www.youtube-nocookie.com'].includes(e.origin)) return;
       try {
         const d = typeof e.data === 'string' ? JSON.parse(e.data) : e.data;
-        if (d.event === 'infoDelivery' && d.info?.duration > 30 && d.info.currentTime > d.info.duration - 22) {
-          iframeRef.current?.contentWindow?.postMessage(
-            JSON.stringify({ event: 'command', func: 'seekTo', args: [0, true] }), '*'
-          );
+        if (d.event === 'infoDelivery' && d.info) {
+          if (d.info.duration > 30 && d.info.currentTime > d.info.duration - 22)
+            sendCmd('seekTo', [0, true]);
+          if (!muted && !volumeApplied && d.info.playerState === 1) {
+            volumeApplied = true;
+            sendCmd('setVolume', [volume]);
+          }
         }
       } catch {}
     };
     window.addEventListener('message', handleMsg);
     return () => window.removeEventListener('message', handleMsg);
-  }, [videoId]);
+  }, [videoId, muted]);
+
+  // Live-update volume when slider changes (iframe already playing)
+  useEffect(() => {
+    if (muted || !videoId) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      JSON.stringify({ event: 'command', func: 'setVolume', args: [volume] }), '*'
+    );
+  }, [volume, muted, videoId]);
 
   if (!videoId) return (
     <div ref={containerRef} className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
@@ -3860,7 +3890,7 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
   }
 
   if (config.widgetType === "youtube") {
-    return <YoutubeZonePreview url={config.youtubeUrl || ""} bg={bg} muted={config.youtubeMuted !== false} />;
+    return <YoutubeZonePreview url={config.youtubeUrl || ""} bg={bg} muted={config.youtubeMuted !== false} volume={config.youtubeVolume ?? 100} />;
   }
 
   if (config.widgetType === "stream") {
