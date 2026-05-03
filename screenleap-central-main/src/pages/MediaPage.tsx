@@ -220,6 +220,31 @@ function parseWidgetConfig(url: string): WidgetConfig | null {
   try { return JSON.parse(url.replace("widget://", "")); } catch { return null; }
 }
 
+function WebpageCardPreview({ url, bg, fg }: { url: string; bg: string; fg: string }) {
+  const [srcDoc, setSrcDoc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!url) { setSrcDoc(""); return; }
+    let cancelled = false;
+    fetch(url)
+      .then((r) => r.text())
+      .then((html) => { if (!cancelled) setSrcDoc(html); })
+      .catch(() => { if (!cancelled) setSrcDoc(""); });
+    return () => { cancelled = true; };
+  }, [url]);
+  if (srcDoc === null) return (
+    <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
+      <Loader2 className="w-5 h-5 animate-spin opacity-40" style={{ color: fg }} />
+    </div>
+  );
+  if (!srcDoc) return (
+    <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
+      <Globe className="w-6 h-6 opacity-50" />
+      <span className="text-[10px] opacity-60">URL</span>
+    </div>
+  );
+  return <iframe srcDoc={srcDoc} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
+}
+
 // ── Widget Preview (lightweight) ───────────────────────────────────
 function WidgetPreviewCard({ config }: { config: WidgetConfig }) {
   const [now, setNow] = useState(new Date());
@@ -293,13 +318,7 @@ function WidgetPreviewCard({ config }: { config: WidgetConfig }) {
   }
 
   if (config.widgetType === "webpage") {
-    if (config.url) return <iframe src={config.url} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
-    return (
-      <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
-        <Globe className="w-6 h-6 opacity-50" />
-        <span className="text-[10px] opacity-60">URL</span>
-      </div>
-    );
+    return <WebpageCardPreview url={config.url || ""} bg={bg} fg={fg} />;
   }
 
   if (config.widgetType === "qrcode") {
