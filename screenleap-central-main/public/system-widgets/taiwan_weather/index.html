@@ -129,8 +129,11 @@ function applyLayout() {
   isLandscape = forced;
   document.getElementById('portrait' ).hidden = isLandscape;
   document.getElementById('landscape').hidden = !isLandscape;
-  // resize canvas to fill icon-wrap naturally
-  resizeCanvas();
+  // rAF lets the browser recalculate layout dims before resizing + re-attaching Skycons
+  requestAnimationFrame(function() {
+    resizeCanvas();
+    if (currentIcon) initSkycons(currentIcon);
+  });
 }
 
 function resizeCanvas() {
@@ -143,8 +146,10 @@ function resizeCanvas() {
 
 // ── Skycons setup ──────────────────────────────────────────────────────────
 var skycons = null;
+var currentIcon = null;
 
 function initSkycons(icon) {
+  currentIcon = icon;
   if (skycons) skycons.pause();
   skycons = new Skycons({ color: iconColor });
   var canvasId = isLandscape ? 'l-canvas' : 'p-canvas';
@@ -210,7 +215,10 @@ window.addEventListener('load', function() {
   applyLayout();
   fetchWeather();
 });
-window.addEventListener('resize', function() { applyLayout(); resizeCanvas(); });
+window.addEventListener('resize', function() {
+  applyLayout();
+  requestAnimationFrame(function() { resizeCanvas(); });
+});
 </script>
 </body>
 </html>
