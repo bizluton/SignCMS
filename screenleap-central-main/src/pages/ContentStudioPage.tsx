@@ -53,6 +53,7 @@ import { Label } from "@/components/ui/label";
 import { QRCodeSVG } from "qrcode.react";
 import Hls from "hls.js";
 import { useWidgets, widgetsToStudioRows } from "@/hooks/useWidgets";
+import { useInstalledApps } from "@/contexts/InstalledAppsContext";
 import { WidgetPreviewCard } from "@/components/widgets/WidgetPreviewCard";
 import { StudioPreviewDialog } from "@/components/studio/StudioPreviewDialog";
 import {
@@ -4132,7 +4133,8 @@ export default function ContentStudioPage() {
   const { user } = useAuth();
   const { activeOrgId } = useActiveOrg();
   const { defaultOrgId } = useUserOrgs();
-  const { widgets: catalogWidgets } = useWidgets();
+  const { installedApps } = useInstalledApps();
+  const { widgets: catalogWidgets } = useWidgets(installedApps);
   const [aspect, setAspect] = useState<AspectRatio>("16:9");
   const [resolution, setResolution] = useState<Resolution>(() => getDefaultResolution("16:9"));
   const [showCustomResDialog, setShowCustomResDialog] = useState(false);

@@ -40,7 +40,7 @@ function pickName(row: WidgetRow, lang: string): string {
   return (i18n[lang] as string) || (i18n.en as string) || (i18n.zh as string) || row.name;
 }
 
-export function useWidgets() {
+export function useWidgets(installedApps?: Set<string>) {
   const { activeOrgId } = useActiveOrg();
   const { language } = useLanguage();
   const [widgets, setWidgets] = useState<CatalogWidget[]>([]);
@@ -73,6 +73,8 @@ export function useWidgets() {
 
     const mapped: CatalogWidget[] = ((widgetRes.data || []) as WidgetRow[])
       .filter((r) => !hiddenIds.has(r.id))
+      // Hide app-scope widgets when that app is not installed for this org
+      .filter((r) => !r.app_id || !installedApps || installedApps.has(r.app_id))
       .map((r) => ({
         id: r.id,
         scope: r.scope,
@@ -86,7 +88,7 @@ export function useWidgets() {
       }));
     setWidgets(mapped);
     setLoading(false);
-  }, [language, activeOrgId]);
+  }, [language, activeOrgId, installedApps]);
 
   useEffect(() => { reload(); }, [reload]);
 

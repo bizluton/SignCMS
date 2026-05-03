@@ -98,6 +98,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
 import { useWidgets, widgetsToMediaRows, isCatalogWidgetId } from "@/hooks/useWidgets";
+import { useInstalledApps } from "@/contexts/InstalledAppsContext";
 
 type MediaType = "image" | "video" | "widget" | "audio";
 
@@ -433,7 +434,8 @@ const MediaPage = () => {
   const canManageMedia = !license?.expired && (isAdmin || isOrgAdmin || isCsAgent || (orgs && orgs.length > 0));
   const { activeOrgId } = useActiveOrg();
   const { ensureProfiles, getProfile, profilesVersion } = useProfiles();
-  const { widgets: catalogWidgets, reload: reloadWidgets } = useWidgets();
+  const { installedApps } = useInstalledApps();
+  const { widgets: catalogWidgets, reload: reloadWidgets } = useWidgets(installedApps);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
