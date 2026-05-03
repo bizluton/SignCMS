@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Globe, Code2, Youtube, CloudSun } from "lucide-react";
+import { Globe, Code2, Youtube, CloudSun, Loader2 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
 function WebpageWidgetPreview({ url, bg }: { url: string; bg: string }) {
