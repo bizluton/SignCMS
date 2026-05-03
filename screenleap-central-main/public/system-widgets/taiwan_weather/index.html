@@ -176,50 +176,26 @@ function updateUI(location, temp, desc, pop) {
   initSkycons(weatherToIcon(shortDesc));
 }
 
-// ── CWA API fetch (v1 — CamelCase response format) ────────────────────────
+// ── Weather fetch via Supabase Edge Function (avoids CORS issues) ─────────
+var EDGE_URL = 'https://narhbpojjtnalyfiwxue.supabase.co/functions/v1/weather-tw';
+
 function fetchWeather() {
-  var datasetId = COUNTY_MAP[county];
-  if (!datasetId) {
-    updateUI(county + district, '--', '縣市名稱錯誤', '--');
-    return;
-  }
-  // No elementName / locationName filter — find district in JS after fetch
-  var url = 'https://opendata.cwa.gov.tw/api/v1/rest/datastore/'
-    + datasetId
-    + '?Authorization=' + apiKey;
+  var url = EDGE_URL
+    + '?locationName=' + encodeURIComponent(county)
+    + '&regionName='   + encodeURIComponent(district);
 
   fetch(url)
     .then(function(r) { return r.json(); })
-    .then(function(data) {
-      var locationList = data.records.Locations[0].Location;
-      // Find matching district, fallback to first
-      var loc = null;
-      for (var i = 0; i < locationList.length; i++) {
-        if (locationList[i].LocationName === district) { loc = locationList[i]; break; }
-      }
-      if (!loc) loc = locationList[0];
-
-      var temp = '--', wx = '--', pop = '--';
-      var elements = loc.WeatherElement || [];
-      elements.forEach(function(we) {
-        var ev = we.Time && we.Time[0] && we.Time[0].ElementValue && we.Time[0].ElementValue[0];
-        if (!ev) return;
-        switch (we.ElementName) {
-          case '溫度':            temp = ev.Temperature || '--'; break;
-          case '天氣現象':        wx   = ev.Weather     || '--'; break;
-          case '3小時降雨機率':   pop  = ev.ProbabilityOfPrecipitation || '--'; break;
-        }
-      });
-
-      var displayLoc = loc.LocationName;
-      try { localStorage.setItem('tw_weather_cache', JSON.stringify({ loc: displayLoc, temp: temp, wx: wx, pop: pop, ts: Date.now() })); } catch(e) {}
-      updateUI(displayLoc, temp, wx, pop);
+    .then(function(d) {
+      if (d.error) throw new Error(d.error);
+      try { localStorage.setItem('tw_weather_cache', JSON.stringify({ loc: d.location, temp: d.temp, wx: d.wx, pop: d.pop, ts: Date.now() })); } catch(e) {}
+      updateUI(d.location, d.temp, d.wx, d.pop);
     })
-    .catch(function() {
+    .catch(function(err) {
       var cached = null;
       try { cached = JSON.parse(localStorage.getItem('tw_weather_cache') || 'null'); } catch(e) {}
       if (cached) updateUI(cached.loc, cached.temp, cached.wx, cached.pop);
-      else updateUI(county + district, '--', '無法連線', '--');
+      else updateUI(county + ' ' + district, '--', '無法連線', '--');
     });
 }
 

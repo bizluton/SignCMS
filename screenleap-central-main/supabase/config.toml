@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.scheduled-screen-health-report]
 verify_jwt = false
+
+[functions.weather-tw]
+verify_jwt = false
