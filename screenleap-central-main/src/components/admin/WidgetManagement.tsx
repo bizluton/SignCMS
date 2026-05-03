@@ -83,7 +83,7 @@ function WidgetCard({
     <div className="group relative rounded-xl border bg-card overflow-hidden hover:shadow-md transition-all">
       {/* Live preview area */}
       <div className="aspect-video relative overflow-hidden bg-muted">
-        <WidgetPreviewCard config={{ widgetType: row.widget_type, ...row.config } as WidgetConfig} />
+        <WidgetPreviewCard config={{ ...row.config, widgetType: row.widget_type } as WidgetConfig} />
         {/* Org badge on user-scope cards */}
         {row.scope === "user" && orgName && (
           <div className="absolute top-2 left-2">
