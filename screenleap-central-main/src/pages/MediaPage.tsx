@@ -65,6 +65,7 @@ import {
   ChevronDown,
   ChevronUp,
   Radio,
+  Megaphone,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { Switch } from "@/components/ui/switch";
@@ -167,12 +168,14 @@ interface WidgetConfig {
 const WIDGET_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   date: Calendar, clock: Clock, webpage: Globe, marquee: Type, qrcode: QrCode,
   countdown: Timer, youtube: Youtube, weather: CloudSun, weather_tw: CloudSun, stream: Radio,
+  announcement: Megaphone,
 };
 
 const WIDGET_TYPE_LABEL_KEYS: Record<string, string> = {
   date: "widgetDate", clock: "widgetClock", webpage: "widgetWebpage", marquee: "widgetMarquee",
   qrcode: "widgetQrcode", countdown: "widgetCountdown", youtube: "widgetYoutube",
   weather: "widgetWeather", weather_tw: "widgetWeatherTw", stream: "widgetStream",
+  announcement: "widgetAnnouncement",
 };
 
 const TIMEZONE_OPTIONS = [

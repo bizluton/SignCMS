@@ -14,43 +14,57 @@ export interface LabelItem {
   label: { zh: string; en: string; ja: string };
 }
 
+export interface DbCategory {
+  id: string;
+  name: string;
+  color: string;
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   departments: LabelItem[];
-  categories: LabelItem[];
   onDepartmentsChange: (items: LabelItem[]) => void;
-  onCategoriesChange: (items: LabelItem[]) => void;
+  categories: DbCategory[];
+  onAddCategory: (name: string, color: string) => Promise<void>;
+  onDeleteCategory: (id: string) => Promise<void>;
 }
 
-const AnnouncementSettings = ({ open, onOpenChange, departments, categories, onDepartmentsChange, onCategoriesChange }: Props) => {
+const AnnouncementSettings = ({
+  open, onOpenChange,
+  departments, onDepartmentsChange,
+  categories, onAddCategory, onDeleteCategory,
+}: Props) => {
   const { language } = useLanguage();
 
   const [newDeptZh, setNewDeptZh] = useState("");
   const [newDeptEn, setNewDeptEn] = useState("");
   const [newDeptJa, setNewDeptJa] = useState("");
 
-  const [newCatZh, setNewCatZh] = useState("");
-  const [newCatEn, setNewCatEn] = useState("");
-  const [newCatJa, setNewCatJa] = useState("");
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatColor, setNewCatColor] = useState("#6b7280");
+  const [catSaving, setCatSaving] = useState(false);
 
   const texts = {
-    title: { zh: "系統設定", en: "System Settings", ja: "システム設定" },
-    deptTab: { zh: "發佈單位維護", en: "Departments", ja: "部署管理" },
-    catTab: { zh: "公告類別維護", en: "Categories", ja: "カテゴリ管理" },
-    colName: { zh: "名稱", en: "Name", ja: "名前" },
-    colNameZh: { zh: "中文", en: "Chinese", ja: "中国語" },
-    colNameEn: { zh: "英文", en: "English", ja: "英語" },
-    colNameJa: { zh: "日文", en: "Japanese", ja: "日本語" },
-    colActions: { zh: "操作", en: "Actions", ja: "操作" },
-    addDept: { zh: "新增單位", en: "Add Department", ja: "部署を追加" },
-    addCat: { zh: "新增類別", en: "Add Category", ja: "カテゴリを追加" },
-    placeholderZh: { zh: "中文名稱", en: "Chinese name", ja: "中国語名" },
-    placeholderEn: { zh: "英文名稱", en: "English name", ja: "英語名" },
-    placeholderJa: { zh: "日文名稱", en: "Japanese name", ja: "日本語名" },
-    added: { zh: "已新增", en: "Added", ja: "追加しました" },
-    deleted: { zh: "已刪除", en: "Deleted", ja: "削除しました" },
-    fillRequired: { zh: "請至少填寫中文名稱", en: "Please fill in at least the Chinese name", ja: "中国語名を入力してください" },
+    title:          { zh: "系統設定",        en: "Settings",          ja: "設定" },
+    deptTab:        { zh: "發佈單位維護",     en: "Departments",       ja: "部署管理" },
+    catTab:         { zh: "公告類別維護",     en: "Categories",        ja: "カテゴリ管理" },
+    colNameZh:      { zh: "中文",            en: "Chinese",           ja: "中国語" },
+    colNameEn:      { zh: "英文",            en: "English",           ja: "英語" },
+    colNameJa:      { zh: "日文",            en: "Japanese",          ja: "日本語" },
+    colName:        { zh: "名稱",            en: "Name",              ja: "名前" },
+    colColor:       { zh: "顏色",            en: "Color",             ja: "カラー" },
+    colActions:     { zh: "操作",            en: "Actions",           ja: "操作" },
+    addDept:        { zh: "新增單位",         en: "Add Department",    ja: "部署を追加" },
+    addCat:         { zh: "新增類別",         en: "Add Category",      ja: "カテゴリを追加" },
+    placeholderZh:  { zh: "中文名稱",         en: "Chinese name",      ja: "中国語名" },
+    placeholderEn:  { zh: "英文名稱",         en: "English name",      ja: "英語名" },
+    placeholderJa:  { zh: "日文名稱",         en: "Japanese name",     ja: "日本語名" },
+    catNamePh:      { zh: "類別名稱",         en: "Category name",     ja: "カテゴリ名" },
+    added:          { zh: "已新增",           en: "Added",             ja: "追加しました" },
+    deleted:        { zh: "已刪除",           en: "Deleted",           ja: "削除しました" },
+    fillRequired:   { zh: "請至少填寫中文名稱", en: "Chinese name required", ja: "中国語名を入力してください" },
+    catFillRequired:{ zh: "請填寫類別名稱",   en: "Category name required", ja: "カテゴリ名を入力してください" },
   };
 
   const t = (key: keyof typeof texts) => texts[key][language];
@@ -58,11 +72,10 @@ const AnnouncementSettings = ({ open, onOpenChange, departments, categories, onD
   const handleAddDept = () => {
     if (!newDeptZh.trim()) { toast.error(t("fillRequired")); return; }
     const value = `dept_${Date.now()}`;
-    const newItem: LabelItem = {
+    onDepartmentsChange([...departments, {
       value,
       label: { zh: newDeptZh.trim(), en: newDeptEn.trim() || newDeptZh.trim(), ja: newDeptJa.trim() || newDeptZh.trim() },
-    };
-    onDepartmentsChange([...departments, newItem]);
+    }]);
     setNewDeptZh(""); setNewDeptEn(""); setNewDeptJa("");
     toast.success(t("added"));
   };
@@ -72,52 +85,22 @@ const AnnouncementSettings = ({ open, onOpenChange, departments, categories, onD
     toast.success(t("deleted"));
   };
 
-  const handleAddCat = () => {
-    if (!newCatZh.trim()) { toast.error(t("fillRequired")); return; }
-    const value = `cat_${Date.now()}`;
-    const newItem: LabelItem = {
-      value,
-      label: { zh: newCatZh.trim(), en: newCatEn.trim() || newCatZh.trim(), ja: newCatJa.trim() || newCatZh.trim() },
-    };
-    onCategoriesChange([...categories, newItem]);
-    setNewCatZh(""); setNewCatEn(""); setNewCatJa("");
-    toast.success(t("added"));
+  const handleAddCat = async () => {
+    if (!newCatName.trim()) { toast.error(t("catFillRequired")); return; }
+    setCatSaving(true);
+    try {
+      await onAddCategory(newCatName.trim(), newCatColor);
+      setNewCatName(""); setNewCatColor("#6b7280");
+      toast.success(t("added"));
+    } finally {
+      setCatSaving(false);
+    }
   };
 
-  const handleDeleteCat = (value: string) => {
-    onCategoriesChange(categories.filter((c) => c.value !== value));
+  const handleDeleteCat = async (id: string) => {
+    await onDeleteCategory(id);
     toast.success(t("deleted"));
   };
-
-  const renderTable = (
-    items: LabelItem[],
-    onDelete: (value: string) => void
-  ) => (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead className="text-sm">{t("colNameZh")}</TableHead>
-          <TableHead className="text-sm">{t("colNameEn")}</TableHead>
-          <TableHead className="text-sm">{t("colNameJa")}</TableHead>
-          <TableHead className="text-sm text-right w-[80px]">{t("colActions")}</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {items.map((item) => (
-          <TableRow key={item.value}>
-            <TableCell className="text-sm font-medium">{item.label.zh}</TableCell>
-            <TableCell className="text-sm">{item.label.en}</TableCell>
-            <TableCell className="text-sm">{item.label.ja}</TableCell>
-            <TableCell className="text-right">
-              <Button size="sm" variant="ghost" onClick={() => onDelete(item.value)} className="text-destructive hover:text-destructive h-8 w-8 p-0">
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -132,21 +115,42 @@ const AnnouncementSettings = ({ open, onOpenChange, departments, categories, onD
         <Tabs defaultValue="departments" className="w-full">
           <TabsList className="w-full">
             <TabsTrigger value="departments" className="flex-1 gap-2">
-              <Building2 className="h-4 w-4" />
-              {t("deptTab")}
+              <Building2 className="h-4 w-4" />{t("deptTab")}
             </TabsTrigger>
             <TabsTrigger value="categories" className="flex-1 gap-2">
-              <Tag className="h-4 w-4" />
-              {t("catTab")}
+              <Tag className="h-4 w-4" />{t("catTab")}
             </TabsTrigger>
           </TabsList>
 
-          {/* Departments */}
+          {/* ── Departments (localStorage) ── */}
           <TabsContent value="departments" className="space-y-4 mt-4">
             <div className="bg-card border border-border rounded-xl overflow-hidden">
-              {renderTable(departments, handleDeleteDept)}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-sm">{t("colNameZh")}</TableHead>
+                    <TableHead className="text-sm">{t("colNameEn")}</TableHead>
+                    <TableHead className="text-sm">{t("colNameJa")}</TableHead>
+                    <TableHead className="text-sm text-right w-[72px]">{t("colActions")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {departments.map((d) => (
+                    <TableRow key={d.value}>
+                      <TableCell className="text-sm font-medium">{d.label.zh}</TableCell>
+                      <TableCell className="text-sm">{d.label.en}</TableCell>
+                      <TableCell className="text-sm">{d.label.ja}</TableCell>
+                      <TableCell className="text-right">
+                        <Button size="sm" variant="ghost" onClick={() => handleDeleteDept(d.value)}
+                          className="text-destructive hover:text-destructive h-8 w-8 p-0">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
-
             <div className="space-y-3 p-4 border border-dashed border-border rounded-xl">
               <Label className="text-sm font-semibold">{t("addDept")}</Label>
               <div className="grid grid-cols-3 gap-2">
@@ -155,28 +159,63 @@ const AnnouncementSettings = ({ open, onOpenChange, departments, categories, onD
                 <Input value={newDeptJa} onChange={(e) => setNewDeptJa(e.target.value)} placeholder={t("placeholderJa")} className="h-10 text-sm" />
               </div>
               <Button onClick={handleAddDept} size="sm" className="gap-1">
-                <Plus className="h-4 w-4" />
-                {t("addDept")}
+                <Plus className="h-4 w-4" />{t("addDept")}
               </Button>
             </div>
           </TabsContent>
 
-          {/* Categories */}
+          {/* ── Categories (Supabase DB) ── */}
           <TabsContent value="categories" className="space-y-4 mt-4">
             <div className="bg-card border border-border rounded-xl overflow-hidden">
-              {renderTable(categories, handleDeleteCat)}
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="text-sm w-[52px]">{t("colColor")}</TableHead>
+                    <TableHead className="text-sm">{t("colName")}</TableHead>
+                    <TableHead className="text-sm text-right w-[72px]">{t("colActions")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {categories.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-center text-sm text-muted-foreground py-6">—</TableCell>
+                    </TableRow>
+                  )}
+                  {categories.map((c) => (
+                    <TableRow key={c.id}>
+                      <TableCell>
+                        <div className="w-6 h-6 rounded-full border border-border" style={{ background: c.color }} />
+                      </TableCell>
+                      <TableCell className="text-sm font-medium">{c.name}</TableCell>
+                      <TableCell className="text-right">
+                        <Button size="sm" variant="ghost" onClick={() => handleDeleteCat(c.id)}
+                          className="text-destructive hover:text-destructive h-8 w-8 p-0">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
-
             <div className="space-y-3 p-4 border border-dashed border-border rounded-xl">
               <Label className="text-sm font-semibold">{t("addCat")}</Label>
-              <div className="grid grid-cols-3 gap-2">
-                <Input value={newCatZh} onChange={(e) => setNewCatZh(e.target.value)} placeholder={t("placeholderZh")} className="h-10 text-sm" />
-                <Input value={newCatEn} onChange={(e) => setNewCatEn(e.target.value)} placeholder={t("placeholderEn")} className="h-10 text-sm" />
-                <Input value={newCatJa} onChange={(e) => setNewCatJa(e.target.value)} placeholder={t("placeholderJa")} className="h-10 text-sm" />
+              <div className="flex gap-2">
+                <Input
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  placeholder={t("catNamePh")}
+                  className="h-10 text-sm flex-1"
+                  onKeyDown={(e) => { if (e.key === "Enter") handleAddCat(); }}
+                />
+                <label className="relative h-10 w-10 shrink-0 cursor-pointer">
+                  <div className="absolute inset-0 rounded-lg border border-input" style={{ background: newCatColor }} />
+                  <input type="color" value={newCatColor} onChange={(e) => setNewCatColor(e.target.value)}
+                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer" />
+                </label>
               </div>
-              <Button onClick={handleAddCat} size="sm" className="gap-1">
-                <Plus className="h-4 w-4" />
-                {t("addCat")}
+              <Button onClick={handleAddCat} size="sm" className="gap-1" disabled={catSaving}>
+                <Plus className="h-4 w-4" />{t("addCat")}
               </Button>
             </div>
           </TabsContent>

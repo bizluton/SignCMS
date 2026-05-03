@@ -44,7 +44,7 @@ import {
   Layers, Code2, Clock, Calendar, Globe, CloudSun, QrCode, Timer, Youtube, Move, Maximize2, Lock, Unlock, Check,
   Search, ArrowUpDown, ArrowDownAZ, ArrowUpAZ, GripVertical, MoreHorizontal, PanelLeft, PanelRight, Edit3, Eye, EyeOff, List, ChevronUp, ChevronDown,
   Music, Volume2, Settings2, VolumeX,
-  Download, Loader2, Radio,
+  Download, Loader2, Radio, Megaphone,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -757,7 +757,7 @@ function MediaLibraryDock({
         const raw = w.url?.startsWith("widget://") ? w.url.slice("widget://".length) : w.url;
         if (raw?.startsWith("{")) config = JSON.parse(raw) as WidgetConfig;
       } catch {}
-      const WidgetIcon = config?.widgetType === "clock" ? Clock : config?.widgetType === "date" ? Calendar : config?.widgetType === "webpage" ? Globe : config?.widgetType === "stream" ? Radio : Code2;
+      const WidgetIcon = config?.widgetType === "clock" ? Clock : config?.widgetType === "date" ? Calendar : config?.widgetType === "webpage" ? Globe : config?.widgetType === "stream" ? Radio : config?.widgetType === "announcement" ? Megaphone : Code2;
       list.push({
         id: `widget-${w.id}`, kind: "widget", name: w.name, searchName: w.name.toLocaleLowerCase(),
         icon: <WidgetIcon className="w-3.5 h-3.5 text-accent-foreground shrink-0" />,
@@ -2461,7 +2461,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
         const raw = w.url?.startsWith("widget://") ? w.url.slice("widget://".length) : w.url;
         if (raw?.startsWith("{")) config = JSON.parse(raw) as WidgetConfig;
       } catch {}
-      const WidgetIcon = config?.widgetType === "clock" ? Clock : config?.widgetType === "date" ? Calendar : config?.widgetType === "webpage" ? Globe : config?.widgetType === "stream" ? Radio : Code2;
+      const WidgetIcon = config?.widgetType === "clock" ? Clock : config?.widgetType === "date" ? Calendar : config?.widgetType === "webpage" ? Globe : config?.widgetType === "stream" ? Radio : config?.widgetType === "announcement" ? Megaphone : Code2;
       items.push({
         id: `widget-${w.id}`, kind: "widget", name: w.name, searchName: w.name.toLocaleLowerCase(),
         icon: <WidgetIcon className="w-3.5 h-3.5 text-accent-foreground shrink-0" />,
@@ -3602,8 +3602,22 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
         </div>
       )}
 
+      {wt === "announcement" && config.paramsSchema && config.paramsSchema.length > 0 && (
+        <div className="space-y-1.5">
+          {config.paramsSchema.map((param) => (
+            <DynamicParamControl
+              key={param.key}
+              param={param}
+              value={(config.params || {})[param.key] ?? param.default}
+              onChange={(v) => set({ params: { ...(config.params || {}), [param.key]: v } })}
+              lang={language}
+            />
+          ))}
+        </div>
+      )}
+
       {/* Common appearance — hidden for youtube/stream and for widgets that manage colors via their own paramsSchema */}
-      {wt !== "youtube" && wt !== "stream" && wt !== "weather_tw" && wt !== "weather" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
+      {wt !== "youtube" && wt !== "stream" && wt !== "weather_tw" && wt !== "weather" && wt !== "announcement" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetBgColor")}</Label>
           <div className="flex items-center gap-1.5">
@@ -4099,6 +4113,10 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
 
   if (config.widgetType === "weather_tw") {
     return <WebpageZonePreview url={config.url || ""} bg={bg} fg={fg} params={config.params} allowSameOrigin />;
+  }
+
+  if (config.widgetType === "announcement") {
+    return <WebpageZonePreview url={config.url || ""} bg={bg} fg={fg} params={config.params as Record<string, unknown> | undefined} allowSameOrigin />;
   }
 
   return (
