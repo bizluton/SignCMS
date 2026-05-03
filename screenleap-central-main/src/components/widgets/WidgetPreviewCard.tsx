@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Globe, Code2, Youtube, CloudSun } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
