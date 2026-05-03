@@ -3536,11 +3536,13 @@ function YoutubeZonePreview({ url, bg }: { url: string; bg: string }) {
     </div>
   );
 
-  const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1`;
+  // rel=0: limit end-screen to same channel; iv_load_policy=3: no annotations
+  // loop=1+playlist: video loops so end-screen recommendations never appear
+  const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=1&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&iv_load_policy=3&disablekb=1`;
 
   // Cover mode: scale iframe to fill zone without black bars; pointer-events:none prevents click-to-YouTube
-  // Extra scale(1.04) hides any sub-pixel edge artifacts from the YouTube player chrome
-  const baseStyle: React.CSSProperties = { border: 0, pointerEvents: 'none', transform: 'scale(1.04)', transformOrigin: 'center center' };
+  // scale(1.22): crops ~11% from each edge, pushing YouTube's title overlay (top) and branding bar (bottom) outside the container's overflow:hidden boundary
+  const baseStyle: React.CSSProperties = { border: 0, pointerEvents: 'none', transform: 'scale(1.22)', transformOrigin: 'center center' };
   let iframeStyle: React.CSSProperties = { ...baseStyle, position: 'absolute', inset: 0, width: '100%', height: '100%' };
   if (dims.w > 0 && dims.h > 0) {
     const zoneAspect = dims.w / dims.h;
