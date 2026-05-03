@@ -26,6 +26,7 @@ export interface WidgetConfig {
   animation?: WidgetAnimation;
   paramsSchema?: unknown[];
   params?: Record<string, unknown>;
+  _catalogType?: string;
 }
 
 const ZONE_FS: Record<string, Record<string, string>> = {

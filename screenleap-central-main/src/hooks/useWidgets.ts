@@ -111,7 +111,7 @@ export function widgetsToMediaRows(widgets: CatalogWidget[], orgId: string | nul
     name: w.name,
     original_name: null as string | null,
     type: "widget" as const,
-    url: "widget://" + JSON.stringify({ ...w.config, widgetType: w.widget_type }),
+    url: "widget://" + JSON.stringify({ widgetType: w.widget_type, ...w.config, _catalogType: w.widget_type }),
     thumbnail: w.thumbnail || "",
     size: "",
     size_bytes: 0,
@@ -136,7 +136,7 @@ export function widgetsToStudioRows(widgets: CatalogWidget[]) {
   return widgets.map((w) => ({
     id: `cat-widget-${w.id}`,
     name: w.name,
-    url: JSON.stringify({ ...w.config, widgetType: w.widget_type }),
+    url: JSON.stringify({ widgetType: w.widget_type, ...w.config, _catalogType: w.widget_type }),
     created_at: w.created_at,
   }));
 }

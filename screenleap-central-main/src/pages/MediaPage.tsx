@@ -160,6 +160,7 @@ interface WidgetConfig {
   fontSize?: "small" | "medium" | "large" | "xlarge";
   qrcodeSize?: number;
   animation?: WidgetAnimation;
+  _catalogType?: string;
 }
 
 const WIDGET_ICONS: Record<WidgetSubType, React.ComponentType<{ className?: string }>> = {
@@ -1924,7 +1925,7 @@ const MediaPage = () => {
                   )}
                   <div className="absolute left-2 top-2 flex items-center gap-1">
                     <Badge variant={getTypeBadgeVariant(item.type)} className="text-[10px]">
-                      {item.type === "image" ? t("image") : item.type === "video" ? t("video") : item.type === "audio" ? t("audio") : (() => { const wt = parseWidgetConfig(item.url)?.widgetType as string | undefined; return wt && WIDGET_TYPE_LABEL_KEYS[wt] ? t(WIDGET_TYPE_LABEL_KEYS[wt]) : t("widget"); })()}
+                      {item.type === "image" ? t("image") : item.type === "video" ? t("video") : item.type === "audio" ? t("audio") : (() => { const cfg = parseWidgetConfig(item.url); const wt = (cfg?._catalogType as string | undefined) || (cfg?.widgetType as string | undefined); return wt && WIDGET_TYPE_LABEL_KEYS[wt] ? t(WIDGET_TYPE_LABEL_KEYS[wt]) : t("widget"); })()}
                     </Badge>
                     {(() => { const o = renderOwnerBadge(item); return o ? (
                       <span className="inline-flex items-center justify-center rounded bg-background/80 px-1 py-0.5 backdrop-blur-sm" title={
@@ -2057,7 +2058,7 @@ const MediaPage = () => {
                   <p className="truncate text-sm font-medium text-foreground">{displayName}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                     <Badge variant={item.type === "widget" ? "default" : "outline"} className="text-[10px] px-1.5 py-0 h-4">
-                      {item.type === "image" ? t("image") : item.type === "video" ? t("video") : item.type === "audio" ? t("audio") : (() => { const wt = parseWidgetConfig(item.url)?.widgetType as string | undefined; return wt && WIDGET_TYPE_LABEL_KEYS[wt] ? t(WIDGET_TYPE_LABEL_KEYS[wt]) : t("widget"); })()}
+                      {item.type === "image" ? t("image") : item.type === "video" ? t("video") : item.type === "audio" ? t("audio") : (() => { const cfg = parseWidgetConfig(item.url); const wt = (cfg?._catalogType as string | undefined) || (cfg?.widgetType as string | undefined); return wt && WIDGET_TYPE_LABEL_KEYS[wt] ? t(WIDGET_TYPE_LABEL_KEYS[wt]) : t("widget"); })()}
                     </Badge>
                     {(() => { const o = renderOwnerBadge(item); return o ? (
                       <span className="inline-flex items-center" title={
