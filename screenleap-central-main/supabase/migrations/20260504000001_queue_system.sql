@@ -31,8 +31,8 @@ ALTER TABLE public.queue_system_tickets ENABLE ROW LEVEL SECURITY;
 -- api_secret is never returned to the browser — only accessible via service role.
 CREATE TABLE public.queue_system_configs (
   org_id        uuid        NOT NULL PRIMARY KEY REFERENCES public.organizations(id) ON DELETE CASCADE,
-  install_token text        NOT NULL UNIQUE DEFAULT encode(gen_random_bytes(32), 'hex'),
-  api_secret    text        NOT NULL DEFAULT encode(gen_random_bytes(32), 'hex'),
+  install_token text        NOT NULL UNIQUE DEFAULT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''),
+  api_secret    text        NOT NULL DEFAULT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', ''),
   settings      jsonb       NOT NULL DEFAULT '{}',
   created_at    timestamptz NOT NULL DEFAULT now(),
   updated_at    timestamptz NOT NULL DEFAULT now()
