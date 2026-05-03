@@ -237,8 +237,9 @@ async function fetchUVandAQ(
       ),
     ]);
     const [f, aq] = await Promise.all([fRes.json(), aqRes.json()]);
+    const uvRaw = f?.current?.uv_index;
     return {
-      uv:   String(Math.round(f?.current?.uv_index     ?? 0)),
+      uv:   (uvRaw != null && uvRaw > 0) ? String(Math.round(uvRaw))                   : "--",
       pm25: String(Math.round(aq?.current?.pm2_5        ?? 0)),
       aqi:  String(Math.round(aq?.current?.european_aqi ?? 0)),
     };
