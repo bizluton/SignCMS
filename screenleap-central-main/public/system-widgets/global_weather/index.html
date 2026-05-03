@@ -115,8 +115,8 @@ function applyLayout() {
   document.getElementById('landscape').hidden = !isLandscape;
 }
 
-// ── Weather icon — Meteocons animated SVG (jsDelivr CDN) ─────────────────────
-var ICON_BASE = 'https://cdn.jsdelivr.net/npm/meteocons@latest/public/animated/';
+// ── Weather icon — Meteocons animated SVG (jsDelivr → GitHub CDN) ─────────────
+var ICON_BASE = 'https://cdn.jsdelivr.net/gh/basmilius/weather-icons@dev/production/fill/svg/';
 
 function wmoToIcon(wmo, isDay) {
   var n = parseInt(wmo) || 0;
