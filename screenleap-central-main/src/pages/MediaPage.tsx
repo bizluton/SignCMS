@@ -194,7 +194,7 @@ const defaultWidgetForm: {
   animation: WidgetAnimation; projectId: string;
 } = {
   name: "",
-  widgetType: "clock",
+  widgetType: "date",
   url: "",
   text: "",
   speed: "normal",
@@ -2466,7 +2466,7 @@ const MediaPage = () => {
               <div className="space-y-2">
                 <Label>{t("widgetType")}</Label>
                 <div className="grid grid-cols-4 gap-2">
-                  {(["clock", "date", "webpage", "marquee", "qrcode", "countdown", "youtube", "weather"] as WidgetSubType[]).map((wt) => {
+                  {(["date", "webpage", "marquee", "qrcode", "countdown", "youtube", "weather"] as WidgetSubType[]).map((wt) => {
                     const Icon = WIDGET_ICONS[wt];
                     const labels: Record<WidgetSubType, string> = { date: t("widgetDate"), clock: t("widgetClock"), webpage: t("widgetWebpage"), marquee: t("widgetMarquee"), qrcode: t("widgetQrcode"), countdown: t("widgetCountdown"), youtube: t("widgetYoutube"), weather: t("widgetWeather") };
                     return (

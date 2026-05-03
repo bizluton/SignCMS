@@ -80,6 +80,9 @@ export function WidgetPreviewCard({ config }: { config: WidgetConfig }) {
   const zfs = ZONE_FS[config.fontSize || "medium"] || ZONE_FS.medium;
 
   if (config.widgetType === "clock") {
+    // HTML clock from Supabase Storage
+    if (config.url) return <WebpageWidgetPreview url={config.url} bg={bg} params={config.params} />;
+    // Legacy React clock fallback
     const tz = config.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (config.clockStyle === "analog") {
       const hParts = now.toLocaleString("en-US", { hour: "numeric", minute: "numeric", second: "numeric", hour12: false, timeZone: tz }).split(":");

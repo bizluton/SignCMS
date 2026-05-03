@@ -3202,7 +3202,23 @@ function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChan
         </div>
       )}
 
-      {wt === "clock" && (
+      {/* HTML clock (has paramsSchema): DynamicParamControl handles all settings */}
+      {wt === "clock" && config.paramsSchema && config.paramsSchema.length > 0 && (
+        <div className="space-y-1 pt-1 border-t border-border mt-1">
+          {config.paramsSchema.map((param) => (
+            <DynamicParamControl
+              key={param.key}
+              param={param}
+              value={(config.params || {})[param.key] ?? param.default}
+              onChange={(v) => set({ params: { ...(config.params || {}), [param.key]: v } })}
+              lang={language}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Legacy React clock (no paramsSchema): manual settings */}
+      {wt === "clock" && (!config.paramsSchema || config.paramsSchema.length === 0) && (
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetClockStyle")}</Label>
           <Select value={config.clockStyle || "digital"} onValueChange={(v) => set({ clockStyle: v })}>
@@ -3269,8 +3285,8 @@ function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChan
         </div>
       )}
 
-      {/* Common appearance — hidden for youtube and for webpage widgets that have their own paramsSchema color settings */}
-      {wt !== "youtube" && !(wt === "webpage" && config.paramsSchema && config.paramsSchema.length > 0) && <div className="grid grid-cols-2 gap-2 pt-1">
+      {/* Common appearance — hidden for youtube and for widgets that manage colors via their own paramsSchema */}
+      {wt !== "youtube" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetBgColor")}</Label>
           <div className="flex items-center gap-1">
@@ -3297,7 +3313,7 @@ function WidgetItemSettings({ config, onChange }: { config: WidgetConfig; onChan
         </div>
       </div>}
 
-      {(wt === "clock" || wt === "date" || wt === "marquee" || wt === "countdown") && (
+      {((wt === "clock" && (!config.paramsSchema || config.paramsSchema.length === 0)) || wt === "date" || wt === "marquee" || wt === "countdown") && (
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetFontSize")}</Label>
           <Select value={config.fontSize || "medium"} onValueChange={(v) => set({ fontSize: v })}>
@@ -3577,6 +3593,11 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
   const zfs = ZONE_FS[fontSize] || ZONE_FS.medium;
 
   if (config.widgetType === "clock") {
+    // HTML clock widget from Supabase Storage takes precedence
+    if (config.url) {
+      return <WebpageZonePreview url={String(config.url)} bg={bg} params={config.params as Record<string, unknown> | undefined} />;
+    }
+    // Legacy React clock fallback (for old zones without a URL)
     const tz = config.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (config.clockStyle === "analog") {
       const hParts = now.toLocaleString("en-US", { hour: "numeric", minute: "numeric", second: "numeric", hour12: false, timeZone: tz }).split(":");
