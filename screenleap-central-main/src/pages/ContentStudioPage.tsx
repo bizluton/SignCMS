@@ -91,6 +91,7 @@ interface WidgetParamDef {
   options?: Array<{ value: string; label: string; label_zh?: string }>;
   min?: number;
   max?: number;
+  transparent?: boolean;
 }
 
 interface WidgetConfig {
@@ -3172,10 +3173,35 @@ function DynamicParamControl({ param, value, onChange, lang }: {
     );
   }
   if (param.type === "color") {
+    if (param.transparent) {
+      const raw = String(value ?? param.default ?? "#000000");
+      const isT = raw === "transparent";
+      return (
+        <div className="space-y-1">
+          <Label className="text-[10px] text-muted-foreground">{label}</Label>
+          <div className="flex items-center gap-1">
+            <Input
+              type="color"
+              value={isT ? "#0f172a" : raw}
+              onChange={(e) => onChange(e.target.value)}
+              className="h-7 p-0.5 flex-1 min-w-0"
+              disabled={isT}
+            />
+            <button
+              type="button"
+              onClick={() => onChange(isT ? "#0f172a" : "transparent")}
+              className={`h-7 px-1.5 rounded border text-[10px] shrink-0 transition-colors ${isT ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary hover:text-foreground"}`}
+            >
+              透明
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="space-y-1">
         <Label className="text-[10px] text-muted-foreground">{label}</Label>
-        <Input type="color" value={String(value ?? param.default ?? "#000000")} onChange={(e) => onChange(e.target.value)} className="h-7 p-0.5" />
+        <Input type="color" value={String(value ?? param.default ?? "#000000")} onChange={(e) => onChange(e.target.value)} className="h-7 p-0.5 w-full" />
       </div>
     );
   }
@@ -3324,15 +3350,55 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
       {/* HTML clock (has paramsSchema): DynamicParamControl handles all settings */}
       {wt === "clock" && config.paramsSchema && config.paramsSchema.length > 0 && (
         <div className="space-y-1 pt-1 border-t border-border mt-1">
-          {config.paramsSchema.map((param) => (
-            <DynamicParamControl
-              key={param.key}
-              param={param}
-              value={(config.params || {})[param.key] ?? param.default}
-              onChange={(v) => set({ params: { ...(config.params || {}), [param.key]: v } })}
-              lang={language}
-            />
-          ))}
+          {config.paramsSchema.filter(p => p.key !== "showSec").map((param) => {
+            const params = config.params || {};
+            const label = ((language === "zh" || language === "zh-TW") && param.label_zh) ? param.label_zh : param.label;
+            // timeFmt: render select + showSec toggle side by side
+            if (param.key === "timeFmt") {
+              const secParam = config.paramsSchema!.find(p => p.key === "showSec");
+              const secVal = secParam ? !!(params["showSec"] ?? secParam.default) : false;
+              return (
+                <div key="timeFmt-sec" className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-[10px] text-muted-foreground">{label}</Label>
+                    {secParam && (
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-muted-foreground">
+                          {((language === "zh" || language === "zh-TW") && secParam.label_zh) ? secParam.label_zh : secParam.label}
+                        </span>
+                        <Switch
+                          checked={secVal}
+                          onCheckedChange={(v) => set({ params: { ...params, showSec: v } })}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <Select
+                    value={String(params["timeFmt"] ?? param.default ?? "")}
+                    onValueChange={(v) => set({ params: { ...params, timeFmt: v } })}
+                  >
+                    <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {param.options?.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {((language === "zh" || language === "zh-TW") && opt.label_zh) ? opt.label_zh : opt.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              );
+            }
+            return (
+              <DynamicParamControl
+                key={param.key}
+                param={param}
+                value={params[param.key] ?? param.default}
+                onChange={(v) => set({ params: { ...params, [param.key]: v } })}
+                lang={language}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -3454,15 +3520,23 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
 
       {wt === "weather" && config.paramsSchema && config.paramsSchema.length > 0 && (
         <div className="space-y-1.5">
-          {config.paramsSchema.map((param) => (
-            <DynamicParamControl
-              key={param.key}
-              param={param}
-              value={(config.params || {})[param.key] ?? param.default}
-              onChange={(v) => set({ params: { ...(config.params || {}), [param.key]: v } })}
-              lang={language}
-            />
-          ))}
+          {[
+            ...config.paramsSchema.filter(p => p.key !== "weatherColor" && p.key !== "showUV" && p.key !== "showAQ"),
+            ...(config.paramsSchema.some(p => p.key === "showUV") ? [] : [{ key: "showUV", type: "toggle" as const, label: "Show UV Index", label_zh: "顯示 UV 指數", default: true }]),
+            ...(config.paramsSchema.some(p => p.key === "showAQ") ? [] : [{ key: "showAQ", type: "toggle" as const, label: "Show Air Quality", label_zh: "顯示空氣品質", default: true }]),
+            ...(config.paramsSchema.filter(p => p.key === "showUV" || p.key === "showAQ")),
+          ].map((param) => {
+            const params = config.params || {};
+            return (
+              <DynamicParamControl
+                key={param.key}
+                param={param.key === "wallColor" ? { ...param, transparent: true } : param}
+                value={params[param.key] ?? param.default}
+                onChange={(v) => set({ params: { ...params, [param.key]: v } })}
+                lang={language}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -3491,39 +3565,11 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
               );
             }
 
-            // Background colour with transparent toggle
-            if (param.key === "wallColor") {
-              const label = (language.startsWith("zh") && param.label_zh) ? param.label_zh : param.label;
-              const raw = String(params["wallColor"] ?? param.default ?? "#0f172a");
-              const isT = raw === "transparent";
-              return (
-                <div key={param.key} className="space-y-1">
-                  <Label className="text-[10px] text-muted-foreground">{label}</Label>
-                  <div className="flex items-center gap-1">
-                    <Input
-                      type="color"
-                      value={isT ? "#0f172a" : raw}
-                      onChange={(e) => set({ params: { ...params, wallColor: e.target.value } })}
-                      className="h-7 p-0.5 flex-1 min-w-0"
-                      disabled={isT}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => set({ params: { ...params, wallColor: isT ? "#0f172a" : "transparent" } })}
-                      className={`h-7 px-1.5 rounded border text-[10px] shrink-0 transition-colors ${isT ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary hover:text-foreground"}`}
-                    >
-                      {t("transparent")}
-                    </button>
-                  </div>
-                </div>
-              );
-            }
-
             // County: auto-reset district on change
             return (
               <DynamicParamControl
                 key={param.key}
-                param={param}
+                param={param.key === "wallColor" ? { ...param, transparent: true } : param}
                 value={params[param.key] ?? param.default}
                 onChange={(v) => {
                   if (param.key === "locationName") {
