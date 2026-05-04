@@ -34,7 +34,7 @@ import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
 import { logScreenEvents } from "@/lib/screenLogger";
 import { PageSkeleton } from "@/components/PageSkeleton";
-import { exportScheduleToZip } from "@/lib/exportSchedule";
+import { exportScheduleToZip, exportDesignProjectsToZip } from "@/lib/exportSchedule";
 import { exportScheduleToFolder, isFolderExportSupported } from "@/lib/exportSchedule";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
@@ -428,6 +428,52 @@ export default function PublishingCenterPage() {
   const toggleAll = () => {
     if (allSelected) setSelectedScreenIds(new Set());
     else setSelectedScreenIds(new Set(allScreenIds));
+  };
+
+  // Download selected source to ZIP (USB sync)
+  const handleDownloadSelected = async () => {
+    if (downloadingId) return;
+    const activeIds = playlistTab === "channel" ? selectedChannelIds : selectedProjectIds;
+    if (activeIds.length === 0) return;
+
+    let projectIds: string[] = [];
+    let bundleName = "";
+
+    if (playlistTab === "project") {
+      projectIds = selectedProjectIds;
+      bundleName = selectedProjectsOrdered.map((p) => p.name).join("+") || "design_projects";
+    } else {
+      const { data } = await supabase
+        .from("channel_allowed_projects")
+        .select("design_project_id")
+        .in("channel_id", selectedChannelIds);
+      projectIds = (data || []).map((r) => r.design_project_id).filter(Boolean) as string[];
+      if (projectIds.length === 0) {
+        toast.error("所選頻道尚未關聯任何設計專案");
+        return;
+      }
+      bundleName = selectedChannelsOrdered.map((c) => c.name).join("+") || "channels";
+    }
+
+    setDownloadingId("selected");
+    const tId = toast.loading(t("publishDownloading") || "下載中…");
+    try {
+      const res = await exportDesignProjectsToZip({
+        projectIds,
+        bundleName,
+        orgId: activeOrgId || null,
+        userId: user?.id,
+      });
+      toast.success(
+        (t("publishDownloadSuccess") || "下載完成 ({size} MB)").replace("{size}", (res.sizeBytes / (1024 * 1024)).toFixed(2)),
+        { id: tId },
+      );
+    } catch (err) {
+      toast.error(t("publishDownloadFailed") || "下載失敗", { id: tId });
+      console.error("Download selected failed", err);
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   // Publish action
@@ -872,6 +918,37 @@ export default function PublishingCenterPage() {
               </div>
             </TabsContent>
           </Tabs>
+
+          {/* Download button — styled like right-panel publish cards */}
+          <Separator />
+          <button
+            onClick={handleDownloadSelected}
+            disabled={!hasSelectedSource || !!downloadingId}
+            className={cn(
+              "relative w-full p-5 rounded-xl border-2 transition-all duration-300 text-center group",
+              hasSelectedSource && !downloadingId
+                ? "border-sky-500 bg-sky-500/5 ring-2 ring-sky-500/20 shadow-lg shadow-sky-500/10 cursor-pointer"
+                : "border-border opacity-50 cursor-not-allowed",
+            )}
+          >
+            <div className={cn(
+              "w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center transition-all",
+              hasSelectedSource && !downloadingId
+                ? "bg-sky-500 text-white scale-110"
+                : "bg-muted text-muted-foreground",
+            )}>
+              {downloadingId === "selected"
+                ? <Loader2 className="w-6 h-6 animate-spin" />
+                : <Download className="w-6 h-6" />
+              }
+            </div>
+            <p className={cn("font-bold text-base", hasSelectedSource && !downloadingId ? "text-sky-600" : "text-foreground")}>
+              {"下載 (USB 同步)"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {"打包媒體 ZIP，存入隨身碟供本地播放器使用"}
+            </p>
+          </button>
         </Card>
 
         {/* Middle: Target screens */}

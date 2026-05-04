@@ -658,3 +658,176 @@ export async function exportScheduleToFolder(input: ExportScheduleInput): Promis
 
   return { filename: rootName, scheduleName, itemCount, mediaCount, sizeBytes: totalBytes, fileCount };
 }
+
+// ── Design-project direct export ──────────────────────────────────────────────
+
+export interface ExportDesignProjectsInput {
+  projectIds: string[];
+  /** Human-readable bundle name used as the ZIP filename. */
+  bundleName: string;
+  orgId?: string | null;
+  userId?: string | null;
+}
+
+export interface ExportDesignProjectsResult {
+  blob: Blob;
+  url: string;
+  filename: string;
+  sizeBytes: number;
+  mediaCount: number;
+}
+
+/**
+ * Export one or more design projects directly to a ZIP (no schedule needed).
+ * Walks each project's zones to collect media, then bundles assets + a
+ * schedule.json manifest so the Local Player can render the projects offline.
+ */
+export async function exportDesignProjectsToZip(input: ExportDesignProjectsInput): Promise<ExportDesignProjectsResult> {
+  const { projectIds, bundleName, orgId, userId } = input;
+
+  const { data } = await supabase
+    .from("design_projects")
+    .select("id, name, aspect, zones, updated_at, created_at")
+    .in("id", projectIds);
+  const designRows = (data || []) as DesignRow[];
+
+  const mediaIds = new Set<string>();
+
+  const walk = (content: ZoneContent | null | undefined) => {
+    if (!content) return;
+    if (Array.isArray(content.mediaItems)) {
+      for (const m of content.mediaItems) {
+        if (!m?.id || !UUID_RE.test(String(m.id))) continue;
+        if (m.type && m.type !== "image" && m.type !== "video") continue;
+        mediaIds.add(String(m.id));
+      }
+    }
+  };
+
+  for (const d of designRows) {
+    const zones = Array.isArray(d.zones) ? d.zones : [];
+    for (const z of zones) {
+      walk(z?.content);
+      if (Array.isArray(z?.overlays)) for (const o of z.overlays) walk(o?.content);
+      const bgmItems = z?.bgm?.items;
+      if (Array.isArray(bgmItems)) {
+        for (const a of bgmItems) {
+          if (!a?.id || !UUID_RE.test(String(a.id))) continue;
+          mediaIds.add(String(a.id));
+        }
+      }
+    }
+  }
+
+  let mediaRows: MediaRow[] = [];
+  if (mediaIds.size > 0) {
+    const { data: mData } = await supabase
+      .from("media_items")
+      .select("id, name, original_name, type, mime_type, url, size_bytes, width, height, duration_seconds, transcode_status")
+      .in("id", Array.from(mediaIds));
+    mediaRows = (mData || []) as MediaRow[];
+  }
+
+  const zip = new JSZip();
+  const assetsFolder = zip.folder("assets")!;
+  const manifestMedia: WidgetMediaEntry[] = [];
+  const usedNames = new Set<string>();
+  const warnings: { mediaId: string; reason: string }[] = [];
+
+  for (const m of mediaRows) {
+    let assetPath: string | null = null;
+    let failReason: string | null = null;
+    try {
+      const url: string = m.url || "";
+      if (!url) {
+        failReason = m.transcode_status && m.transcode_status !== "complete" && m.transcode_status !== "none"
+          ? `transcode_${m.transcode_status}` : "no_url";
+      } else {
+        let blob: Blob | null = null;
+        let extFromMime = m.mime_type ? (mimeExtMap[m.mime_type] || "") : "";
+        if (url.startsWith("data:")) {
+          const match = url.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            const bin = atob(match[2]);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            blob = new Blob([bytes], { type: match[1] });
+            if (!extFromMime) extFromMime = (match[1].split("/")[1] || "bin").split("+")[0];
+          }
+        } else {
+          const resp = await fetch(url);
+          if (resp.ok) blob = await resp.blob();
+          else failReason = `fetch_${resp.status}`;
+        }
+        if (blob) {
+          const baseName = sanitizeName(m.original_name || m.name || `media_${m.id}`);
+          const hasExt = /\.[A-Za-z0-9]{2,5}$/.test(baseName);
+          const fileName = hasExt ? baseName : (extFromMime ? `${baseName}.${extFromMime}` : baseName);
+          let candidate = `${m.id}_${fileName}`;
+          let n = 1;
+          while (usedNames.has(candidate)) { candidate = `${m.id}_${n}_${fileName}`; n++; }
+          usedNames.add(candidate);
+          assetsFolder.file(candidate, blob);
+          assetPath = `assets/${candidate}`;
+        } else if (!failReason) {
+          failReason = "blob_decode_failed";
+        }
+      }
+    } catch (err) {
+      failReason = `exception_${(err as Error)?.message || "unknown"}`.slice(0, 80);
+    }
+    if (!assetPath) warnings.push({ mediaId: String(m.id), reason: failReason || "unknown" });
+    manifestMedia.push({
+      id: m.id, name: m.name, original_name: m.original_name, type: m.type,
+      mime_type: m.mime_type, size_bytes: m.size_bytes, width: m.width,
+      height: m.height, duration_seconds: m.duration_seconds, assetPath,
+    });
+  }
+
+  const manifest = {
+    format: "signcms.schedule",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    schedule: {
+      id: null, name: bundleName, screen_id: null,
+      start_time: null, end_time: null, start_date: null, end_date: null,
+      days: [], enabled: true, status: null, bgm_volume: 50,
+    },
+    items: projectIds.map((pid, idx) => ({
+      media_id: null, design_project_id: pid,
+      item_type: "design_project", duration: 30, sort_order: idx + 1,
+    })),
+    bgm: collectDesignBgm(designRows),
+    designProjects: designRows.map((d) => ({
+      id: d.id, name: d.name, aspect: d.aspect, zones: d.zones,
+      updated_at: d.updated_at, created_at: d.created_at,
+    })),
+    media: manifestMedia,
+    warnings,
+  };
+  zip.file("schedule.json", JSON.stringify(manifest, null, 2));
+
+  const blob = await zip.generateAsync({ type: "blob" });
+  const url = URL.createObjectURL(blob);
+  const filename = `${sanitizeName(bundleName)}.zip`;
+
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.rel = "noopener";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5 * 60_000);
+
+  try {
+    await supabase.from("activity_logs").insert({
+      user_id: userId,
+      action: "export_design_projects_usb",
+      action_code: "export_design_projects_usb",
+      action_params: { projectCount: projectIds.length, mediaCount: manifestMedia.length, filename },
+      category: "schedule",
+      target_type: "design_project",
+      target_name: bundleName,
+      org_id: orgId || null,
+    });
+  } catch { /* non-fatal */ }
+
+  return { blob, url, filename, sizeBytes: blob.size, mediaCount: manifestMedia.length };
+}
