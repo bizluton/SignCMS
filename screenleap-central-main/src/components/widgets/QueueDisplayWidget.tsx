@@ -3,11 +3,16 @@
  * ticket number.  Subscribes to Supabase Realtime so the number updates the
  * moment a counter operator calls next.
  *
+ * Multi-counter mode (counterNames.length > 1):
+ *   - Trigger priority: when any selected counter calls next, immediately show
+ *     that counter's number for `cycleSeconds`, then resume rotation.
+ *   - Fallback rotation: cycle through each counter's latest number.
+ *
  * TTS (Web Speech API) is activated on the first user click to satisfy
  * browser autoplay policies.  After that every new "calling" ticket is
  * announced automatically.
  */
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveOrg } from "@/contexts/ActiveOrgContext";
 import { Volume2, VolumeX, Users } from "lucide-react";
@@ -41,7 +46,7 @@ export interface QueueDisplayConfig {
   counterNames?: string[];
   /** e.g. "zh-TW", "en-US", "ja-JP" */
   ttsLang?: string;
-  /** Seconds between cycles when showing multiple queues (default 8) */
+  /** Seconds between cycles when showing multiple queues/counters (default 8) */
   cycleSeconds?: number;
 }
 
@@ -50,19 +55,32 @@ export interface QueueDisplayConfig {
 export default function QueueDisplayWidget({ config }: { config: QueueDisplayConfig }) {
   const { activeOrgId } = useActiveOrg();
   const { teamId, queueIds, counterNames, ttsLang = "zh-TW", cycleSeconds = 8 } = config;
-  // Fallback to active org when config.orgId not yet persisted (e.g. freshly inserted widget)
+  // Fallback to active org when config.orgId not yet persisted
   const orgId = config.orgId || activeOrgId || "";
-  const hasCounterFilter = !!counterNames && counterNames.length > 0;
 
-  const [queues, setQueues] = useState<Queue[]>([]);
-  const [activeIdx, setActiveIdx] = useState(0);
-  const [latestTicket, setLatestTicket] = useState<Ticket | null>(null);
+  const isMultiCounter = !!counterNames && counterNames.length > 1;
+  const hasSingleCounter = !!counterNames && counterNames.length === 1;
+  // Stable key for effect deps (avoids re-subscribe on every render)
+  const counterNamesKey = counterNames?.join(",") ?? "";
+
+  // ── Shared state ──────────────────────────────────────────────────────────
+  const [queues, setQueues]       = useState<Queue[]>([]);
+  const [loading, setLoading]     = useState(true);
   const [ttsEnabled, setTtsEnabled] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const ttsEnabledRef             = useRef(false);
+  const announcedRef              = useRef<Set<string>>(new Set());
 
-  const ttsEnabledRef = useRef(false);
-  const announcedRef = useRef<Set<string>>(new Set());
-  const cycleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // ── Single-counter / no-filter mode state ─────────────────────────────────
+  const [activeIdx, setActiveIdx]         = useState(0);
+  const [latestTicket, setLatestTicket]   = useState<Ticket | null>(null);
+  const queueCycleRef                     = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // ── Multi-counter mode state ───────────────────────────────────────────────
+  const [ticketByCounter, setTicketByCounter] = useState<Record<string, Ticket>>({});
+  const [triggeredCounter, setTriggeredCounter] = useState<string | null>(null);
+  const [counterCycleIdx, setCounterCycleIdx]   = useState(0);
+  const triggerTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const counterCycleRef  = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Load queues ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -73,7 +91,6 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
       .eq("org_id", orgId)
       .order("created_at");
 
-    // Priority: explicit queueIds > teamId > all org queues
     if (queueIds && queueIds.length > 0) {
       q = q.in("id", queueIds);
     } else if (teamId) {
@@ -86,20 +103,8 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
     });
   }, [orgId, teamId, queueIds]);
 
-  // ── Active queue ──────────────────────────────────────────────────────────
   const activeQueue = queues[activeIdx] ?? null;
-
-  // ── Cycle timer (multi-queue) ─────────────────────────────────────────────
-  useEffect(() => {
-    if (queues.length <= 1) return;
-    cycleTimerRef.current = setInterval(
-      () => setActiveIdx((i) => (i + 1) % queues.length),
-      cycleSeconds * 1000,
-    );
-    return () => {
-      if (cycleTimerRef.current) clearInterval(cycleTimerRef.current);
-    };
-  }, [queues.length, cycleSeconds]);
+  const queueIdSet  = useMemo(() => new Set(queues.map((q) => q.id)), [queues]);
 
   // ── TTS helper ────────────────────────────────────────────────────────────
   const speak = useCallback(
@@ -115,11 +120,39 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
     [ttsLang],
   );
 
-  // ── Realtime: queue current_number changes ────────────────────────────────
-  useEffect(() => {
-    if (!activeQueue) return;
+  const announcedTicket = useCallback(
+    (ticket: Ticket, prefix: string) => {
+      if (announcedRef.current.has(ticket.id)) return;
+      announcedRef.current.add(ticket.id);
+      const numStr  = String(ticket.number).padStart(3, "0");
+      const counter = ticket.counter_name;
+      const text =
+        ttsLang.startsWith("zh")
+          ? `請 ${prefix}${numStr} 號，到 ${counter || "服務台"}`
+          : ttsLang.startsWith("ja")
+            ? `${prefix}${numStr}番のお客様、${counter || "カウンター"}へどうぞ`
+            : `Now serving ${prefix}${numStr} at ${counter || "the counter"}`;
+      speak(text);
+    },
+    [speak, ttsLang],
+  );
 
-    // Initial latest calling ticket (filtered by counter if specified)
+  // ── SINGLE / NO FILTER MODE ───────────────────────────────────────────────
+
+  // Queue cycle timer
+  useEffect(() => {
+    if (isMultiCounter || queues.length <= 1) return;
+    queueCycleRef.current = setInterval(
+      () => setActiveIdx((i) => (i + 1) % queues.length),
+      cycleSeconds * 1000,
+    );
+    return () => { if (queueCycleRef.current) clearInterval(queueCycleRef.current); };
+  }, [isMultiCounter, queues.length, cycleSeconds]);
+
+  // Realtime per-active-queue subscription (single/no-filter mode)
+  useEffect(() => {
+    if (isMultiCounter || !activeQueue) return;
+
     let initQ = supabase
       .from("queue_system_tickets")
       .select("*")
@@ -127,93 +160,156 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
       .eq("status", "calling")
       .order("called_at", { ascending: false })
       .limit(1);
-    if (hasCounterFilter) initQ = (initQ as typeof initQ).in("counter_name", counterNames!);
-    initQ.then(({ data }) => {
-      if (data?.[0]) setLatestTicket(data[0] as Ticket);
-    });
+    if (hasSingleCounter) initQ = (initQ as typeof initQ).eq("counter_name", counterNames![0]);
+    initQ.then(({ data }) => { if (data?.[0]) setLatestTicket(data[0] as Ticket); });
 
     const channel = supabase
       .channel(`qs-display-${activeQueue.id}`)
-      .on(
-        "postgres_changes",
+      .on("postgres_changes",
         { event: "UPDATE", schema: "public", table: "queue_system_queues", filter: `id=eq.${activeQueue.id}` },
         (payload) => {
           setQueues((prev) =>
-            prev.map((q) =>
-              q.id === activeQueue.id
-                ? { ...q, current_number: (payload.new as Queue).current_number }
-                : q,
-            ),
+            prev.map((q) => q.id === activeQueue.id
+              ? { ...q, current_number: (payload.new as Queue).current_number }
+              : q),
           );
         },
       )
-      .on(
-        "postgres_changes",
+      .on("postgres_changes",
         { event: "INSERT", schema: "public", table: "queue_system_tickets", filter: `queue_id=eq.${activeQueue.id}` },
         (payload) => {
           const ticket = payload.new as Ticket;
           if (ticket.status !== "calling") return;
-          if (hasCounterFilter && !counterNames!.includes(ticket.counter_name)) return;
+          if (hasSingleCounter && ticket.counter_name !== counterNames![0]) return;
           setLatestTicket(ticket);
-
-          if (!announcedRef.current.has(ticket.id)) {
-            announcedRef.current.add(ticket.id);
-            const prefix = activeQueue.prefix ?? "";
-            const numStr = String(ticket.number).padStart(3, "0");
-            const counter = ticket.counter_name;
-            const ttsText =
-              ttsLang.startsWith("zh")
-                ? `請 ${prefix}${numStr} 號，到 ${counter || "服務台"}`
-                : ttsLang.startsWith("ja")
-                  ? `${prefix}${numStr}番のお客様、${counter || "カウンター"}へどうぞ`
-                  : `Now serving ${prefix}${numStr} at ${counter || "the counter"}`;
-            speak(ttsText);
-          }
+          announcedTicket(ticket, activeQueue.prefix ?? "");
         },
       )
-      .on(
-        "postgres_changes",
+      .on("postgres_changes",
         { event: "UPDATE", schema: "public", table: "queue_system_tickets", filter: `queue_id=eq.${activeQueue.id}` },
         (payload) => {
           const ticket = payload.new as Ticket;
           if (ticket.status !== "calling") return;
-          if (hasCounterFilter && !counterNames!.includes(ticket.counter_name)) return;
+          if (hasSingleCounter && ticket.counter_name !== counterNames![0]) return;
           setLatestTicket(ticket);
-
-          if (!announcedRef.current.has(ticket.id)) {
-            announcedRef.current.add(ticket.id);
-            const prefix = activeQueue.prefix ?? "";
-            const numStr = String(ticket.number).padStart(3, "0");
-            const counter = ticket.counter_name;
-            const ttsText =
-              ttsLang.startsWith("zh")
-                ? `請 ${prefix}${numStr} 號，到 ${counter || "服務台"}`
-                : ttsLang.startsWith("ja")
-                  ? `${prefix}${numStr}番のお客様、${counter || "カウンター"}へどうぞ`
-                  : `Now serving ${prefix}${numStr} at ${counter || "the counter"}`;
-            speak(ttsText);
-          }
+          announcedTicket(ticket, activeQueue.prefix ?? "");
         },
       )
       .subscribe();
 
     return () => { void supabase.removeChannel(channel); };
-    // activeQueue?.id is the meaningful change trigger; the full object reference
-    // changes on every render so we only track the id to avoid repeated re-subscriptions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeQueue?.id, speak, ttsLang]);
+  }, [activeQueue?.id, isMultiCounter, hasSingleCounter, counterNamesKey, announcedTicket]);
+
+  // ── MULTI-COUNTER MODE ────────────────────────────────────────────────────
+
+  // Counter rotation (runs only when no trigger is active)
+  useEffect(() => {
+    if (!isMultiCounter || triggeredCounter) return;
+    counterCycleRef.current = setInterval(
+      () => setCounterCycleIdx((i) => (i + 1) % counterNames!.length),
+      cycleSeconds * 1000,
+    );
+    return () => { if (counterCycleRef.current) clearInterval(counterCycleRef.current); };
+  }, [isMultiCounter, triggeredCounter, counterNames?.length, cycleSeconds]);
+
+  // Initial load + Realtime for all queues (multi-counter mode)
+  useEffect(() => {
+    if (!isMultiCounter || queues.length === 0) return;
+
+    const qIds = [...queueIdSet];
+
+    // Load latest calling ticket per counter
+    void supabase
+      .from("queue_system_tickets")
+      .select("*")
+      .in("queue_id", qIds)
+      .eq("status", "calling")
+      .in("counter_name", counterNames!)
+      .order("called_at", { ascending: false })
+      .limit(counterNames!.length * 5)
+      .then(({ data }) => {
+        const map: Record<string, Ticket> = {};
+        for (const t of data ?? []) {
+          if (!map[t.counter_name]) map[t.counter_name] = t as Ticket;
+        }
+        setTicketByCounter(map);
+      });
+
+    const onTicket = (ticket: Ticket) => {
+      if (!queueIdSet.has(ticket.queue_id)) return;
+      if (ticket.status !== "calling") return;
+      if (!counterNames!.includes(ticket.counter_name)) return;
+
+      // Update per-counter map
+      setTicketByCounter((prev) => ({ ...prev, [ticket.counter_name]: ticket }));
+
+      // Trigger priority: show this counter immediately for cycleSeconds
+      setTriggeredCounter(ticket.counter_name);
+      if (triggerTimerRef.current) clearTimeout(triggerTimerRef.current);
+      triggerTimerRef.current = setTimeout(() => {
+        setTriggeredCounter(null);
+      }, cycleSeconds * 1000);
+
+      // Find prefix for this ticket's queue
+      const qInfo = queues.find((q) => q.id === ticket.queue_id);
+      announcedTicket(ticket, qInfo?.prefix ?? "");
+    };
+
+    const channel = supabase
+      .channel("qs-display-multi-counter")
+      .on("postgres_changes",
+        { event: "INSERT", schema: "public", table: "queue_system_tickets" },
+        (payload) => onTicket(payload.new as Ticket),
+      )
+      .on("postgres_changes",
+        { event: "UPDATE", schema: "public", table: "queue_system_tickets" },
+        (payload) => onTicket(payload.new as Ticket),
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+      if (triggerTimerRef.current) clearTimeout(triggerTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMultiCounter, queues, counterNamesKey, cycleSeconds, announcedTicket]);
 
   // ── Enable TTS on first click ─────────────────────────────────────────────
   const handleEnableTts = () => {
     ttsEnabledRef.current = true;
     setTtsEnabled(true);
-    // Warm up the speech engine
     if ("speechSynthesis" in window) {
       const warmup = new SpeechSynthesisUtterance(" ");
       warmup.volume = 0;
       window.speechSynthesis.speak(warmup);
     }
   };
+
+  // ── Derive display values ─────────────────────────────────────────────────
+  const displayCounter = isMultiCounter
+    ? (triggeredCounter ?? counterNames![counterCycleIdx % counterNames!.length])
+    : null;
+
+  const displayTicket = isMultiCounter
+    ? (ticketByCounter[displayCounter!] ?? null)
+    : latestTicket;
+
+  // For prefix: in multi-counter mode, find the queue of the displayed ticket
+  const displayQueue = isMultiCounter
+    ? (queues.find((q) => q.id === displayTicket?.queue_id) ?? activeQueue)
+    : activeQueue;
+
+  const prefix        = displayQueue?.prefix ?? "";
+  const number        = displayTicket?.number ?? (isMultiCounter ? 0 : (activeQueue?.current_number ?? 0));
+  const displayNumber = number > 0 ? `${prefix}${String(number).padStart(3, "0")}` : "—";
+  const counterLabel  = isMultiCounter ? (displayCounter ?? "") : (displayTicket?.counter_name ?? "");
+
+  // Dots: multi-counter → counter dots; single mode → queue dots
+  const dots = isMultiCounter ? counterNames! : queues.map((q) => q.queue_name);
+  const dotIdx = isMultiCounter
+    ? counterNames!.indexOf(displayCounter ?? "")
+    : activeIdx;
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (loading) {
@@ -233,44 +329,45 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
     );
   }
 
-  const prefix = activeQueue?.prefix ?? "";
-  const number = latestTicket?.number ?? activeQueue?.current_number ?? 0;
-  const displayNumber = number > 0 ? `${prefix}${String(number).padStart(3, "0")}` : "—";
-  const counter = latestTicket?.counter_name ?? "";
-
   return (
     <div className="relative flex h-full w-full flex-col items-center justify-center overflow-hidden bg-gray-950 select-none">
-      {/* Background gradient */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-900/30 via-transparent to-cyan-900/20" />
+      {/* Background gradient — pulses amber when triggered */}
+      <div className={`pointer-events-none absolute inset-0 transition-all duration-700 ${
+        triggeredCounter
+          ? "bg-gradient-to-br from-amber-900/40 via-transparent to-orange-900/30"
+          : "bg-gradient-to-br from-blue-900/30 via-transparent to-cyan-900/20"
+      }`} />
 
-      {/* Queue label */}
+      {/* Queue / counter label */}
       <p className="relative z-10 mb-4 text-lg font-medium tracking-widest text-white/50 uppercase">
-        {activeQueue?.queue_name ?? ""}
+        {isMultiCounter ? (displayCounter ?? "") : (displayQueue?.queue_name ?? "")}
       </p>
 
       {/* Big number */}
       <div className="relative z-10 flex items-baseline gap-2">
-        <span className="font-black tabular-nums tracking-tight text-white"
-              style={{ fontSize: "clamp(5rem, 20vw, 14rem)", lineHeight: 1 }}>
+        <span
+          className="font-black tabular-nums tracking-tight text-white"
+          style={{ fontSize: "clamp(5rem, 20vw, 14rem)", lineHeight: 1 }}
+        >
           {displayNumber}
         </span>
       </div>
 
-      {/* Counter label */}
-      {counter && (
+      {/* Counter label (single/no-filter mode) */}
+      {!isMultiCounter && counterLabel && (
         <p className="relative z-10 mt-6 text-2xl font-semibold text-white/60">
-          {ttsLang.startsWith("zh") ? `${counter}` : counter}
+          {counterLabel}
         </p>
       )}
 
-      {/* Multi-queue dots */}
-      {queues.length > 1 && (
+      {/* Dots */}
+      {dots.length > 1 && (
         <div className="relative z-10 mt-8 flex gap-2">
-          {queues.map((q, i) => (
+          {dots.map((d, i) => (
             <button
-              key={q.id}
-              onClick={() => setActiveIdx(i)}
-              className={`h-2 rounded-full transition-all ${i === activeIdx ? "w-6 bg-white" : "w-2 bg-white/30"}`}
+              key={d}
+              onClick={() => isMultiCounter ? setCounterCycleIdx(i) : setActiveIdx(i)}
+              className={`h-2 rounded-full transition-all ${i === dotIdx ? "w-6 bg-white" : "w-2 bg-white/30"}`}
             />
           ))}
         </div>
