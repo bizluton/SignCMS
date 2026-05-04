@@ -3184,7 +3184,7 @@ function QueueScopePicker({
   const { orgs } = useUserOrgs();
   const { activeOrgId } = useActiveOrg();
   const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
-  const [queues, setQueues] = useState<{ id: string; queue_name: string; team_id: string | null }[]>([]);
+  const [queues, setQueues] = useState<{ id: string; queue_name: string }[]>([]);
 
   // Auto-fill orgId on first render
   useEffect(() => {
@@ -3204,13 +3204,11 @@ function QueueScopePicker({
   // Fetch queues when org or team changes
   useEffect(() => {
     if (!resolvedOrg) { setQueues([]); return; }
-    // queue_system_queues has team_id column added via migration; cast to bypass generated types
-    const db = supabase as unknown as { from: (t: string) => Record<string, unknown> };
     type QueueRow = { id: string; queue_name: string; team_id: string | null };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let q: any = (db.from("queue_system_queues") as any).select("id, queue_name, team_id").eq("org_id", resolvedOrg);
+    let q: any = (supabase as any).from("queue_system_queues").select("id, queue_name").eq("org_id", resolvedOrg);
     if (teamId) q = q.eq("team_id", teamId);
-    void (q.order("queue_name") as Promise<{ data: QueueRow[] | null }>)
+    void (q.order("queue_name") as Promise<{ data: QueueRow[] | null; error: unknown }>)
       .then(({ data }) => setQueues(data ?? []));
   }, [resolvedOrg, teamId]);
 
