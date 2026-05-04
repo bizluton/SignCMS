@@ -625,7 +625,9 @@ export default function SchedulesPage() {
               {projectSchedules.map((s) => (
                 <div key={s.id} className={cn("px-4 py-3 flex items-center gap-3 hover:bg-accent/30 transition-colors", !s.enabled && "opacity-60")}>
                   <div className="flex-shrink-0">
-                    {s.block_type === "calendar" ? <CalendarIcon className="h-5 w-5 text-primary" /> : <Repeat className="h-5 w-5 text-primary" />}
+                    {s.block_type === "calendar"
+                      ? <CalendarIcon className="h-5 w-5" style={{ color: s.color }} />
+                      : <Repeat className="h-5 w-5" style={{ color: s.color }} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -645,7 +647,6 @@ export default function SchedulesPage() {
                     </div>
                   </div>
                   <Button variant="ghost" size="icon" onClick={() => {
-                    autoReopenProjectRef.current = false;
                     setEditingProjectSchedule(s);
                     setProjectScheduleDialogOpen(true);
                   }}>
