@@ -911,7 +911,9 @@ Deno.serve(async (req) => {
         content: [{ type: "text", text: JSON.stringify(result) }],
       });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = err instanceof Error
+        ? err.message
+        : (err as { message?: string })?.message ?? String(err);
       writeAudit(sbService, claims, toolName, toolArgs, { error: msg }, Date.now() - t0);
       return rpcError(id, -32603, msg);
     }
