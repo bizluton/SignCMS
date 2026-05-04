@@ -929,6 +929,63 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ── POST /llm → LLM proxy (bypasses browser CORS for Anthropic/etc.) ─────
+  const reqPath = new URL(req.url).pathname;
+  if (req.method === "POST" && reqPath.endsWith("/llm")) {
+    const proxyClaims = await authenticate(req.headers.get("authorization"), sbService);
+    if (!proxyClaims) return rpcError(null, -32001, "Unauthorized");
+
+    let proxyBody: Record<string, unknown>;
+    try { proxyBody = await req.json(); } catch { return json({ error: "Parse error" }, 400); }
+
+    const { provider, api_key, model, messages, system, tools } = proxyBody as {
+      provider: string;
+      api_key:  string;
+      model:    string;
+      messages: unknown[];
+      system?:  string;
+      tools?:   unknown[];
+    };
+
+    if (!provider || !api_key || !model || !messages) {
+      return json({ error: "Missing required fields: provider, api_key, model, messages" }, 400);
+    }
+
+    if (provider === "anthropic") {
+      const upstream: Record<string, unknown> = {
+        model,
+        max_tokens: 4096,
+        stream:     true,
+        messages,
+      };
+      if (system)        upstream.system = system;
+      if (tools?.length) upstream.tools  = tools;
+
+      const upstreamRes = await fetch("https://api.anthropic.com/v1/messages", {
+        method:  "POST",
+        headers: {
+          "Content-Type":      "application/json",
+          "x-api-key":         api_key,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify(upstream),
+      });
+
+      if (!upstreamRes.ok) {
+        return new Response(await upstreamRes.text(), {
+          status:  upstreamRes.status,
+          headers: { ...CORS, "Content-Type": "text/plain" },
+        });
+      }
+
+      return new Response(upstreamRes.body, {
+        headers: { ...CORS, "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+      });
+    }
+
+    return json({ error: `Unsupported provider: ${provider}` }, 400);
+  }
+
   // ── Authenticate ──────────────────────────────────────────────────────────
   const claims = await authenticate(req.headers.get("authorization"), sbService);
   if (!claims) return rpcError(null, -32001, "Unauthorized — invalid or expired MCP token");

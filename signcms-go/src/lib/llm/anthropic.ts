@@ -15,25 +15,47 @@ export function anthropicAdapter(cfg: LLMConfig): LLMAdapter {
 
       const systemMsg = messages.find((m) => m.role === "system")?.content;
 
-      const body: Record<string, unknown> = {
-        model:      cfg.model,
-        max_tokens: 4096,
-        stream:     true,
-        messages:   history,
-      };
-      if (systemMsg) body.system = systemMsg;
-      if (tools.length > 0) body.tools = tools.map(mcpToAnthropicTool);
+      let res: Response;
 
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method:  "POST",
-        headers: {
-          "Content-Type":                      "application/json",
-          "x-api-key":                         cfg.apiKey,
-          "anthropic-version":                 "2023-06-01",
-          "anthropic-dangerous-allow-browser": "true",
-        },
-        body: JSON.stringify(body),
-      });
+      if (cfg.proxyUrl) {
+        // Route through MCP edge function to avoid Anthropic CORS block
+        res = await fetch(`${cfg.proxyUrl}/llm`, {
+          method:  "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization:  `Bearer ${cfg.proxyToken ?? ""}`,
+          },
+          body: JSON.stringify({
+            provider: "anthropic",
+            api_key:  cfg.apiKey,
+            model:    cfg.model,
+            messages: history,
+            system:   systemMsg,
+            tools:    tools.length > 0 ? tools.map(mcpToAnthropicTool) : undefined,
+          }),
+        });
+      } else {
+        // Direct call (local dev / non-CORS-blocked origins)
+        const body: Record<string, unknown> = {
+          model:      cfg.model,
+          max_tokens: 4096,
+          stream:     true,
+          messages:   history,
+        };
+        if (systemMsg) body.system = systemMsg;
+        if (tools.length > 0) body.tools = tools.map(mcpToAnthropicTool);
+
+        res = await fetch("https://api.anthropic.com/v1/messages", {
+          method:  "POST",
+          headers: {
+            "Content-Type":                      "application/json",
+            "x-api-key":                         cfg.apiKey,
+            "anthropic-version":                 "2023-06-01",
+            "anthropic-dangerous-allow-browser": "true",
+          },
+          body: JSON.stringify(body),
+        });
+      }
 
       if (!res.ok) {
         onChunk({ type: "error", error: await res.text() });
@@ -42,7 +64,7 @@ export function anthropicAdapter(cfg: LLMConfig): LLMAdapter {
 
       const reader = res.body!.getReader();
       const dec    = new TextDecoder();
-      let pendingToolName = "";
+      let pendingToolName  = "";
       let pendingToolInput = "";
 
       while (true) {
@@ -70,7 +92,7 @@ export function anthropicAdapter(cfg: LLMConfig): LLMAdapter {
             } else if (ev.type === "message_stop") {
               onChunk({ type: "done" });
             }
-          } catch { /* skip */ }
+          } catch { /* skip malformed chunks */ }
         }
       }
       onChunk({ type: "done" });

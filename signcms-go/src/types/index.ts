@@ -3,10 +3,12 @@
 export type LLMProvider = "openai" | "anthropic" | "ollama" | "azure";
 
 export interface LLMConfig {
-  provider:  LLMProvider;
-  apiKey:    string;   // stored only in localStorage, never sent to server
-  endpoint?: string;   // for ollama / azure custom endpoints
-  model:     string;
+  provider:    LLMProvider;
+  apiKey:      string;   // stored only in localStorage, never sent to server
+  endpoint?:   string;   // for ollama / azure custom endpoints
+  model:       string;
+  proxyUrl?:   string;   // MCP server URL used as CORS proxy
+  proxyToken?: string;   // MCP token for proxy auth
 }
 
 export interface MCPConfig {

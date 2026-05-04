@@ -102,7 +102,11 @@ export default function ChatPage() {
     setPendingFile(null);
 
     const mcp     = mcpClient ?? makeMCPClient(settings.mcp);
-    const adapter = getAdapter(settings.llm);
+    // Anthropic blocks browser CORS — route through the MCP edge function as proxy
+    const llmCfg  = settings.llm.provider === "anthropic"
+      ? { ...settings.llm, proxyUrl: settings.mcp.serverUrl, proxyToken: settings.mcp.token }
+      : settings.llm;
+    const adapter = getAdapter(llmCfg);
 
     // ── Upload file if attached ──────────────────────────────────────────
     let uploadNote = "";
