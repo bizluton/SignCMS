@@ -7,7 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Mail, Bell, Loader2, Save, Database, Trash2, Play, Image as ImageIcon, CheckCircle2, AlertCircle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Mail, Bell, Loader2, Save, Database, Trash2, Play, Image as ImageIcon, CheckCircle2, AlertCircle, Key, Plus, Copy, ShieldCheck, ShieldAlert, Clock } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,6 +52,37 @@ interface CleanupSettings {
   media_last_run_error: string | null;
 }
 
+interface McpToken {
+  id: string;
+  org_id: string;
+  user_id: string;
+  name: string;
+  permissions: string[];
+  token_hash: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+  org_name?: string;
+}
+
+interface OrgOption {
+  id: string;
+  name: string;
+}
+
+const MCP_PERMISSIONS = ["read", "write", "emergency"] as const;
+
+async function sha256hex(message: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(message));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+function generateRawToken(): string {
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
 const SystemSettingsPage = () => {
   const { t, language } = useLanguage();
   const [loading, setLoading] = useState(true);
@@ -63,6 +99,17 @@ const SystemSettingsPage = () => {
   const [runResult, setRunResult] = useState<
     null | { kind: "schedule" | "media"; success: boolean; deleted: number; error?: string; at: string }
   >(null);
+
+  // MCP Tokens state
+  const [mcpTokens, setMcpTokens] = useState<McpToken[]>([]);
+  const [mcpLoading, setMcpLoading] = useState(true);
+  const [orgs, setOrgs] = useState<OrgOption[]>([]);
+  const [newTokenName, setNewTokenName] = useState("");
+  const [newTokenOrgId, setNewTokenOrgId] = useState("");
+  const [newTokenPerms, setNewTokenPerms] = useState<string[]>(["read", "write"]);
+  const [creatingToken, setCreatingToken] = useState(false);
+  const [createdRawToken, setCreatedRawToken] = useState<string | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<McpToken | null>(null);
 
   const labels = {
     title: { zh: "系統設定", en: "System Settings", ja: "システム設定" },
@@ -132,6 +179,33 @@ const SystemSettingsPage = () => {
     resultKindSchedule: { zh: "排程清除", en: "Schedule cleanup", ja: "スケジュール削除" },
     resultKindMedia: { zh: "未使用媒體清除", en: "Unused media cleanup", ja: "未使用メディア削除" },
     dismiss: { zh: "關閉", en: "Dismiss", ja: "閉じる" },
+    mcpTab: { zh: "MCP 金鑰", en: "MCP Tokens", ja: "MCPトークン" },
+    mcpTitle: { zh: "MCP API 金鑰管理", en: "MCP API Token Management", ja: "MCP APIトークン管理" },
+    mcpDesc: { zh: "為 SignCMS Go Player PWA 或其他 MCP 客戶端產生授權金鑰。金鑰原文僅顯示一次，請立即複製。", en: "Generate authorization tokens for SignCMS Go Player PWA or other MCP clients. The raw token is shown only once — copy it immediately.", ja: "SignCMS Go Player PWAまたは他のMCPクライアント向けの認証トークンを生成します。生トークンは一度しか表示されません。" },
+    mcpNewTitle: { zh: "產生新金鑰", en: "Generate New Token", ja: "新しいトークンを生成" },
+    mcpTokenName: { zh: "金鑰名稱", en: "Token name", ja: "トークン名" },
+    mcpTokenNamePh: { zh: "e.g. 台北門市 iPad", en: "e.g. Taipei Store iPad", ja: "例: 東京店舗 iPad" },
+    mcpOrg: { zh: "所屬組織", en: "Organization", ja: "組織" },
+    mcpPerms: { zh: "權限", en: "Permissions", ja: "権限" },
+    mcpGenerate: { zh: "產生金鑰", en: "Generate Token", ja: "トークンを生成" },
+    mcpListTitle: { zh: "現有金鑰", en: "Existing Tokens", ja: "既存トークン" },
+    mcpColName: { zh: "名稱", en: "Name", ja: "名前" },
+    mcpColOrg: { zh: "組織", en: "Org", ja: "組織" },
+    mcpColPerms: { zh: "權限", en: "Permissions", ja: "権限" },
+    mcpColHash: { zh: "雜湊前綴", en: "Hash prefix", ja: "ハッシュ接頭辞" },
+    mcpColLastUsed: { zh: "最近使用", en: "Last used", ja: "最終使用" },
+    mcpColCreated: { zh: "建立時間", en: "Created", ja: "作成日時" },
+    mcpRevoke: { zh: "撤銷", en: "Revoke", ja: "取り消す" },
+    mcpRevokeTitle: { zh: "確認撤銷金鑰？", en: "Revoke this token?", ja: "トークンを取り消しますか？" },
+    mcpRevokeDesc: { zh: "撤銷後所有使用此金鑰的客戶端將立即失去存取。此操作無法復原。", en: "All clients using this token will immediately lose access. This cannot be undone.", ja: "このトークンを使用する全クライアントのアクセスが直ちに失われます。取り消せません。" },
+    mcpRevoked: { zh: "金鑰已撤銷", en: "Token revoked", ja: "トークンが取り消されました" },
+    mcpCreatedTitle: { zh: "金鑰已產生", en: "Token generated", ja: "トークンが生成されました" },
+    mcpCreatedDesc: { zh: "請立即複製此金鑰。關閉後將永遠無法再次查看。", en: "Copy this token now. It will never be shown again after you close this dialog.", ja: "今すぐコピーしてください。このダイアログを閉じると二度と表示されません。" },
+    mcpCopy: { zh: "複製", en: "Copy", ja: "コピー" },
+    mcpCopied: { zh: "已複製", en: "Copied!", ja: "コピーしました" },
+    mcpClose: { zh: "我已複製，關閉", en: "I've copied it, close", ja: "コピー済み、閉じる" },
+    mcpNeverUsed: { zh: "從未使用", en: "Never used", ja: "未使用" },
+    mcpNoTokens: { zh: "尚無金鑰", en: "No tokens yet", ja: "トークンなし" },
   };
   const L = (k: keyof typeof labels) => labels[k][language];
 
@@ -182,6 +256,70 @@ const SystemSettingsPage = () => {
   useEffect(() => {
     loadCleanup();
   }, []);
+
+  const loadMcpTokens = async () => {
+    setMcpLoading(true);
+    const [tokRes, orgRes] = await Promise.all([
+      supabase
+        .from("mcp_tokens")
+        .select("id, org_id, user_id, name, permissions, token_hash, last_used_at, expires_at, created_at, organizations(name)")
+        .order("created_at", { ascending: false }),
+      supabase.from("organizations").select("id, name").order("name"),
+    ]);
+    if (!tokRes.error && tokRes.data) {
+      setMcpTokens(
+        tokRes.data.map((t: any) => ({ ...t, org_name: t.organizations?.name })),
+      );
+    }
+    if (!orgRes.error && orgRes.data) {
+      setOrgs(orgRes.data as OrgOption[]);
+      if (orgRes.data.length > 0) setNewTokenOrgId((prev) => prev || orgRes.data[0].id);
+    }
+    setMcpLoading(false);
+  };
+
+  useEffect(() => {
+    loadMcpTokens();
+  }, []);
+
+  const handleCreateToken = async () => {
+    if (!newTokenName.trim() || !newTokenOrgId || newTokenPerms.length === 0) return;
+    setCreatingToken(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not authenticated");
+      const rawToken = generateRawToken();
+      const tokenHash = await sha256hex(rawToken);
+      const { error } = await supabase.from("mcp_tokens").insert({
+        org_id: newTokenOrgId,
+        user_id: user.id,
+        name: newTokenName.trim(),
+        token_hash: tokenHash,
+        permissions: newTokenPerms,
+      });
+      if (error) throw error;
+      setCreatedRawToken(rawToken);
+      setNewTokenName("");
+      setNewTokenPerms(["read", "write"]);
+      await loadMcpTokens();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setCreatingToken(false);
+    }
+  };
+
+  const handleRevokeToken = async () => {
+    if (!revokeTarget) return;
+    const { error } = await supabase.from("mcp_tokens").delete().eq("id", revokeTarget.id);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      setMcpTokens((prev) => prev.filter((t) => t.id !== revokeTarget.id));
+      toast.success(L("mcpRevoked"));
+    }
+    setRevokeTarget(null);
+  };
 
   const handleSaveCleanup = async () => {
     if (!cleanup) return;
@@ -271,6 +409,7 @@ const SystemSettingsPage = () => {
             <TabsTrigger value="notif"><Bell className="w-4 h-4 mr-1" />{L("notifTab")}</TabsTrigger>
             <TabsTrigger value="db"><Database className="w-4 h-4 mr-1" />{L("dbTab")}</TabsTrigger>
             <TabsTrigger value="cleanup"><Trash2 className="w-4 h-4 mr-1" />{L("cleanupTab")}</TabsTrigger>
+            <TabsTrigger value="mcp"><Key className="w-4 h-4 mr-1" />{L("mcpTab")}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="email" className="mt-4">
@@ -613,8 +752,197 @@ const SystemSettingsPage = () => {
               </Card>
             )}
           </TabsContent>
+
+          {/* ── MCP Tokens Tab ─────────────────────────────────── */}
+          <TabsContent value="mcp" className="mt-4 space-y-6">
+            {/* Generate new token */}
+            <Card>
+              <CardHeader>
+                <CardTitle>{L("mcpNewTitle")}</CardTitle>
+                <CardDescription>{L("mcpDesc")}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <Label>{L("mcpTokenName")}</Label>
+                    <Input
+                      placeholder={L("mcpTokenNamePh")}
+                      value={newTokenName}
+                      onChange={(e) => setNewTokenName(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>{L("mcpOrg")}</Label>
+                    <Select value={newTokenOrgId} onValueChange={setNewTokenOrgId}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {orgs.map((o) => (
+                          <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label>{L("mcpPerms")}</Label>
+                    <div className="flex flex-wrap gap-3 pt-1">
+                      {MCP_PERMISSIONS.map((p) => (
+                        <label key={p} className="flex items-center gap-1.5 cursor-pointer text-sm">
+                          <Checkbox
+                            checked={newTokenPerms.includes(p)}
+                            onCheckedChange={(checked) =>
+                              setNewTokenPerms((prev) =>
+                                checked ? [...prev, p] : prev.filter((x) => x !== p),
+                              )
+                            }
+                          />
+                          {p}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  onClick={handleCreateToken}
+                  disabled={creatingToken || !newTokenName.trim() || !newTokenOrgId || newTokenPerms.length === 0}
+                >
+                  {creatingToken ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Plus className="w-4 h-4 mr-1" />}
+                  {L("mcpGenerate")}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Token list */}
+            <Card>
+              <CardHeader>
+                <CardTitle>{L("mcpListTitle")}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {mcpLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                  </div>
+                ) : mcpTokens.length === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">{L("mcpNoTokens")}</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{L("mcpColName")}</TableHead>
+                          <TableHead>{L("mcpColOrg")}</TableHead>
+                          <TableHead>{L("mcpColPerms")}</TableHead>
+                          <TableHead>{L("mcpColHash")}</TableHead>
+                          <TableHead>{L("mcpColLastUsed")}</TableHead>
+                          <TableHead>{L("mcpColCreated")}</TableHead>
+                          <TableHead></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {mcpTokens.map((tok) => (
+                          <TableRow key={tok.id}>
+                            <TableCell className="font-medium">{tok.name}</TableCell>
+                            <TableCell className="text-muted-foreground text-xs">{tok.org_name || tok.org_id.slice(0, 8)}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1">
+                                {tok.permissions.map((p) => (
+                                  <Badge key={p} variant={p === "emergency" ? "destructive" : "secondary"} className="text-xs">
+                                    {p === "emergency" ? <ShieldAlert className="w-3 h-3 mr-0.5" /> : <ShieldCheck className="w-3 h-3 mr-0.5" />}
+                                    {p}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
+                                {tok.token_hash.slice(0, 12)}…
+                              </code>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {tok.last_used_at ? (
+                                <span className="flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  {new Date(tok.last_used_at).toLocaleString()}
+                                </span>
+                              ) : L("mcpNeverUsed")}
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {new Date(tok.created_at).toLocaleDateString()}
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => setRevokeTarget(tok)}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
+
+      {/* Raw token dialog — shown once after creation */}
+      <Dialog open={!!createdRawToken} onOpenChange={(o) => !o && setCreatedRawToken(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Key className="w-5 h-5 text-primary" />
+              {L("mcpCreatedTitle")}
+            </DialogTitle>
+            <DialogDescription>{L("mcpCreatedDesc")}</DialogDescription>
+          </DialogHeader>
+          <div className="my-2 p-3 bg-muted rounded-lg font-mono text-sm break-all select-all border border-border">
+            {createdRawToken}
+          </div>
+          <DialogFooter className="gap-2 flex-col sm:flex-row">
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (createdRawToken) {
+                  navigator.clipboard.writeText(createdRawToken);
+                  toast.success(L("mcpCopied"));
+                }
+              }}
+            >
+              <Copy className="w-4 h-4 mr-1" />
+              {L("mcpCopy")}
+            </Button>
+            <Button onClick={() => setCreatedRawToken(null)}>
+              <CheckCircle2 className="w-4 h-4 mr-1" />
+              {L("mcpClose")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revoke confirmation */}
+      <AlertDialog open={!!revokeTarget} onOpenChange={(o) => !o && setRevokeTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{L("mcpRevokeTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              <span className="font-semibold">{revokeTarget?.name}</span> — {L("mcpRevokeDesc")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{L("cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRevokeToken} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              {L("mcpRevoke")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmKind !== null} onOpenChange={(o) => !o && setConfirmKind(null)}>
         <AlertDialogContent>
