@@ -66,7 +66,6 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
   const { t, language } = useLanguage();
   const { user } = useAuth();
   const [blockType, setBlockType] = useState<"calendar" | "weekly">("calendar");
-  const [name, setName] = useState("");
   const [designProjectId, setDesignProjectId] = useState<string>("");
   const [startAt, setStartAt] = useState("");
   const [endAt, setEndAt] = useState("");
@@ -107,7 +106,6 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
   useEffect(() => {
     if (!open) return;
     setBlockType(block?.block_type ?? "calendar");
-    setName(block?.name ?? "");
     setStartAt(block?.start_at ? toLocalInputValue(block.start_at) : nowLocalInputValue(tz));
     setEndAt(toLocalInputValue(block?.end_at ?? null));
     setWeekdays((block?.weekdays as WeekdayKey[]) ?? []);
@@ -134,13 +132,15 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
   };
 
   const handleSave = async () => {
-    if (!name.trim()) { toast.error(t("blockName") + " " + t("required") || "排程名稱為必填"); return; }
+    if (!designProjectId) { toast.error("請選擇設計專案"); return; }
+    if (weekdays.length === 0) { toast.error(t("blockWeekdays")); return; }
     setSaving(true);
+    const projectName = designProjects.find((p) => p.id === designProjectId)?.name ?? "—";
     const payload: Record<string, unknown> = {
       channel_id: channelId,
       org_id: orgId,
-      design_project_id: designProjectId || null,
-      name: name.trim(),
+      design_project_id: designProjectId,
+      name: projectName,
       block_type: blockType,
       enabled: true,
     };
@@ -148,13 +148,12 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
       if (!startAt || !endAt) { toast.error(t("blockStartAt") + " / " + t("blockEndAt")); setSaving(false); return; }
       payload.start_at = new Date(startAt).toISOString();
       payload.end_at = new Date(endAt).toISOString();
-      payload.weekdays = [];
+      payload.weekdays = weekdays;
       payload.start_time = null;
       payload.end_time = null;
       payload.effective_from = null;
       payload.effective_to = null;
     } else {
-      if (weekdays.length === 0) { toast.error(t("blockWeekdays")); setSaving(false); return; }
       payload.weekdays = weekdays;
       payload.start_time = startTime;
       payload.end_time = endTime;
@@ -184,15 +183,7 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div>
-            <Label>{t("blockName")} <span className="text-destructive">*</span></Label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className={!name.trim() ? "border-destructive focus-visible:ring-destructive" : ""}
-            />
-          </div>
-          <div>
-            <Label>{t("blockDesignProject")}</Label>
+            <Label>{t("blockDesignProject")} <span className="text-destructive">*</span></Label>
             <Select value={designProjectId} onValueChange={setDesignProjectId}>
               <SelectTrigger><SelectValue placeholder={t("blockSelectProject")} /></SelectTrigger>
               <SelectContent>
@@ -212,6 +203,23 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
               <TabsTrigger value="weekly">{t("blockTypeWeekly")}</TabsTrigger>
             </TabsList>
             <TabsContent value="calendar" className="space-y-3 pt-3">
+              <div>
+                <Label>{t("blockWeekdays")} <span className="text-destructive">*</span></Label>
+                <div className="flex gap-1 mt-2 flex-wrap">
+                  {WEEKDAY_KEYS.map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => toggleWeekday(k)}
+                      className={`px-3 py-1.5 rounded-md text-sm border transition-colors ${
+                        weekdays.includes(k)
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background border-border hover:bg-accent"
+                      }`}
+                    >{weekdayLabel(k)}</button>
+                  ))}
+                </div>
+              </div>
               <div>
                 <Label>{t("blockStartAt")}</Label>
                 <DateTimePicker

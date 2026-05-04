@@ -161,18 +161,21 @@ function resolveBlockIntervals(
     if (!b.start_at || !b.end_at) return out;
     const s = new Date(b.start_at);
     const e = new Date(b.end_at);
-    // Walk each day overlapped
+    const filterDays = normalizeDays(b.weekdays);
+    const DOW_KEYS = ["sun","mon","tue","wed","thu","fri","sat"] as const;
     let cursor = startOfDay(s < from ? from : s);
     const last = e > to ? to : e;
     while (cursor < last) {
       const dayStart = startOfDay(cursor);
       const dayEnd = addDays(dayStart, 1);
-      const segStart = s > dayStart ? s : dayStart;
-      const segEnd = e < dayEnd ? e : dayEnd;
-      if (segEnd > segStart) {
-        const startMin = (segStart.getTime() - dayStart.getTime()) / 60000;
-        const endMin = (segEnd.getTime() - dayStart.getTime()) / 60000;
-        out.push({ day: dayStart, startMin, endMin });
+      if (filterDays.length === 0 || filterDays.includes(DOW_KEYS[cursor.getDay()] as never)) {
+        const segStart = s > dayStart ? s : dayStart;
+        const segEnd = e < dayEnd ? e : dayEnd;
+        if (segEnd > segStart) {
+          const startMin = (segStart.getTime() - dayStart.getTime()) / 60000;
+          const endMin = (segEnd.getTime() - dayStart.getTime()) / 60000;
+          out.push({ day: dayStart, startMin, endMin });
+        }
       }
       cursor = dayEnd;
     }
