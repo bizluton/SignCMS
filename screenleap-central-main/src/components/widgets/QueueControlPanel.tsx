@@ -46,6 +46,7 @@ interface Queue {
   queue_name: string;
   prefix: string;
   current_number: number;
+  counter_names: string[];
 }
 
 interface ApiStatus {
@@ -105,7 +106,7 @@ export default function QueueControlPanel() {
     if (!activeOrgId) return;
     const { data } = await supabase
       .from("queue_system_queues")
-      .select("id, queue_name, prefix, current_number")
+      .select("id, queue_name, prefix, current_number, counter_names")
       .eq("org_id", activeOrgId)
       .order("created_at");
     const rows = (data ?? []) as Queue[];
@@ -296,6 +297,31 @@ export default function QueueControlPanel() {
     }
   };
 
+  const handleAddCounterPreset = async () => {
+    const name = counter.trim();
+    const queue = queues.find((q) => q.id === selectedQueueId);
+    if (!name || !queue || queue.counter_names.includes(name)) return;
+    const updated = [...queue.counter_names, name];
+    const { error } = await (supabase as unknown as { from: (t: string) => { update: (v: unknown) => { eq: (c: string, v: string) => Promise<{ error: unknown }> } } })
+      .from("queue_system_queues").update({ counter_names: updated }).eq("id", selectedQueueId);
+    if (!error) {
+      setQueues((prev) => prev.map((q) => q.id === selectedQueueId ? { ...q, counter_names: updated } : q));
+      toast.success(t("已儲存預設", "Preset saved", "プリセット保存済み"));
+    }
+  };
+
+  const handleRemoveCounterPreset = async (name: string) => {
+    const queue = queues.find((q) => q.id === selectedQueueId);
+    if (!queue) return;
+    const updated = queue.counter_names.filter((n) => n !== name);
+    const { error } = await (supabase as unknown as { from: (t: string) => { update: (v: unknown) => { eq: (c: string, v: string) => Promise<{ error: unknown }> } } })
+      .from("queue_system_queues").update({ counter_names: updated }).eq("id", selectedQueueId);
+    if (!error) {
+      setQueues((prev) => prev.map((q) => q.id === selectedQueueId ? { ...q, counter_names: updated } : q));
+      if (counter === name) setCounter("");
+    }
+  };
+
   const handleReset = async () => {
     if (!selectedQueueId) return;
     setResetting(true);
@@ -329,7 +355,7 @@ export default function QueueControlPanel() {
       const { data, error } = await (supabase as unknown as { from: (t: string) => { insert: (p: unknown) => { select: (c: string) => { single: () => Promise<{ data: unknown; error: { message: string } | null }> } } } })
         .from("queue_system_queues")
         .insert(payload)
-        .select("id, queue_name, prefix, current_number")
+        .select("id, queue_name, prefix, current_number, counter_names")
         .single();
       if (error) throw error;
       const q = data as Queue;
@@ -438,15 +464,59 @@ export default function QueueControlPanel() {
         )}
       </div>
 
-      {/* Counter name */}
+      {/* Counter section — preset chips + custom input */}
       <div className="space-y-2">
-        <Label>{t("櫃台編號", "Counter", "カウンター番号")}</Label>
-        <Input
-          value={counter}
-          onChange={(e) => setCounter(e.target.value)}
-          placeholder={t("例：1號櫃台", "e.g. Counter 1", "例：1番窓口")}
-          className="h-9"
-        />
+        <Label>{t("服務櫃台", "Counter", "カウンター")}</Label>
+
+        {/* Preset chips */}
+        {(selectedQueue?.counter_names ?? []).length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {(selectedQueue?.counter_names ?? []).map((name) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => setCounter(name)}
+                className={`group relative inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium transition-colors ${
+                  counter === name
+                    ? "bg-blue-500 text-white"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+              >
+                {name}
+                <span
+                  role="button"
+                  onClick={(e) => { e.stopPropagation(); void handleRemoveCounterPreset(name); }}
+                  className="ml-0.5 opacity-0 group-hover:opacity-60 hover:!opacity-100 leading-none"
+                >×</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Input + save preset */}
+        <div className="flex gap-2">
+          <Input
+            value={counter}
+            onChange={(e) => setCounter(e.target.value)}
+            placeholder={t("輸入或選擇櫃台名稱", "Enter or select counter", "カウンター名を入力")}
+            className="h-9"
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-9 shrink-0 gap-1"
+            onClick={handleAddCounterPreset}
+            disabled={
+              !counter.trim() ||
+              (selectedQueue?.counter_names ?? []).includes(counter.trim())
+            }
+            title={t("將此名稱存為預設按鈕", "Save as preset button", "プリセットとして保存")}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            {t("存為預設", "Save preset", "プリセット保存")}
+          </Button>
+        </div>
       </div>
 
       {/* Status row */}
