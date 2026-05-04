@@ -300,6 +300,31 @@ const TOOL_DEFS: ToolDef[] = [
       properties: { screen_id: { type: "string" } },
     },
   },
+  {
+    name: "register_push_subscription",
+    description: "Register this device for Web Push notifications (call after browser Notification permission is granted).",
+    inputSchema: {
+      type: "object",
+      required: ["endpoint", "p256dh", "auth_key"],
+      properties: {
+        endpoint:    { type: "string", description: "Push subscription endpoint URL" },
+        p256dh:      { type: "string", description: "P-256 ECDH public key (base64url)" },
+        auth_key:    { type: "string", description: "Auth secret (base64url)" },
+        device_name: { type: "string", description: "Friendly device label (optional)" },
+      },
+    },
+  },
+  {
+    name: "unregister_push_subscription",
+    description: "Remove this device from Web Push notifications.",
+    inputSchema: {
+      type: "object",
+      required: ["endpoint"],
+      properties: {
+        endpoint: { type: "string" },
+      },
+    },
+  },
 ];
 
 // ── Tool Execution ─────────────────────────────────────────────────────────────
@@ -769,6 +794,30 @@ async function executeTool(
       const { data, error } = await q;
       if (error) throw error;
       return data;
+    }
+
+    // ── register_push_subscription ────────────────────────────────────────
+    case "register_push_subscription": {
+      const { error } = await sb.from("push_subscriptions").upsert({
+        user_id:     claims.userId,
+        org_id:      orgId,
+        endpoint:    args.endpoint as string,
+        p256dh:      args.p256dh  as string,
+        auth_key:    args.auth_key as string,
+        device_name: (args.device_name as string | undefined) ?? null,
+      }, { onConflict: "user_id,endpoint" });
+      if (error) throw error;
+      return { ok: true };
+    }
+
+    // ── unregister_push_subscription ──────────────────────────────────────
+    case "unregister_push_subscription": {
+      const { error } = await sb.from("push_subscriptions")
+        .delete()
+        .eq("user_id", claims.userId)
+        .eq("endpoint", args.endpoint as string);
+      if (error) throw error;
+      return { ok: true };
     }
 
     default:

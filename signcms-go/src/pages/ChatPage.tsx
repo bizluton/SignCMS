@@ -12,6 +12,7 @@ import { MessageBubble, TypingIndicator } from "@/components/MessageBubble";
 import { StatusBar } from "@/components/StatusBar";
 import { QuickActions } from "@/components/QuickActions";
 import { VoiceButton } from "@/components/VoiceButton";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 function makeId() {
   return Math.random().toString(36).slice(2);
@@ -35,6 +36,9 @@ export default function ChatPage() {
   const [connected,  setConnected]  = useState(false);
   const [tools,      setTools]      = useState<MCPTool[]>([]);
   const [orgSummary, setOrgSummary] = useState<{ total: number; online: number; offline: number } | null>(null);
+  const [mcpClient,  setMcpClient]  = useState<ReturnType<typeof makeMCPClient> | null>(null);
+
+  const { state: pushState, subscribe: subscribePush, unsubscribe: unsubscribePush } = usePushNotifications();
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef  = useRef<HTMLTextAreaElement>(null);
@@ -47,6 +51,7 @@ export default function ChatPage() {
   // ── Connect to MCP on mount ──────────────────────────────────────────────
   useEffect(() => {
     const mcp = makeMCPClient(settings.mcp);
+    setMcpClient(mcp);
     (async () => {
       const ok = await mcp.ping();
       setConnected(ok);
@@ -176,7 +181,16 @@ export default function ChatPage() {
     <div className="flex flex-col h-full bg-slate-950">
       {/* Header */}
       <div className="safe-top bg-slate-950" />
-      <StatusBar connected={connected} orgSummary={orgSummary} />
+      <StatusBar
+        connected={connected}
+        orgSummary={orgSummary}
+        pushState={pushState}
+        onPushToggle={() => {
+          if (!mcpClient) return;
+          if (pushState === "granted") unsubscribePush(mcpClient);
+          else subscribePush(mcpClient);
+        }}
+      />
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto py-4 space-y-3 scrollbar-hide">
