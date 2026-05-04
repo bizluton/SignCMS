@@ -135,6 +135,59 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
     if (!designProjectId) { toast.error("請選擇設計專案"); return; }
     if (weekdays.length === 0) { toast.error(t("blockWeekdays")); return; }
     setSaving(true);
+
+    // Conflict check: same design project, same channel
+    const { data: siblings } = await supabase
+      .from("channel_blocks")
+      .select("id, block_type, start_at, end_at, weekdays, start_time, end_time, effective_from, effective_to")
+      .eq("channel_id", channelId)
+      .eq("design_project_id", designProjectId)
+      .eq("enabled", true);
+
+    const candidates = (siblings ?? []).filter((b) => b.id !== block?.id);
+
+    if (blockType === "calendar" && startAt && endAt) {
+      const newS = new Date(startAt).getTime();
+      const newE = new Date(endAt).getTime();
+      const newDays = new Set(weekdays);
+      for (const b of candidates) {
+        if (b.block_type !== "calendar" || !b.start_at || !b.end_at) continue;
+        if (newS >= new Date(b.end_at).getTime() || newE <= new Date(b.start_at).getTime()) continue;
+        const bDays: string[] = (b.weekdays as string[]) ?? [];
+        if (bDays.length === 0 || bDays.some((d) => newDays.has(d as WeekdayKey))) {
+          toast.error("與現有排程時間衝突，請重新選擇日期或星期");
+          setSaving(false); return;
+        }
+      }
+    }
+
+    if (blockType === "weekly") {
+      const newDays = new Set(weekdays);
+      const toMins = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+      const newS = toMins(startTime);
+      const newE = toMins(endTime);
+      for (const b of candidates) {
+        if (b.block_type !== "weekly") continue;
+        const bDays: string[] = (b.weekdays as string[]) ?? [];
+        if (!bDays.some((d) => newDays.has(d as WeekdayKey))) continue;
+        const bS = toMins((b.start_time ?? "00:00").slice(0, 5));
+        const bE = toMins((b.end_time ?? "23:59").slice(0, 5));
+        if (newS >= bE || newE <= bS) continue;
+        // Check effective date ranges — no conflict only if they don't overlap
+        const newFrom = effectiveFrom ? new Date(effectiveFrom).getTime() : null;
+        const newTo = effectiveTo ? new Date(effectiveTo).getTime() : null;
+        const bFrom = b.effective_from ? new Date(b.effective_from as string).getTime() : null;
+        const bTo = b.effective_to ? new Date(b.effective_to as string).getTime() : null;
+        const datesDontOverlap =
+          (newTo !== null && bFrom !== null && newTo < bFrom) ||
+          (bTo !== null && newFrom !== null && bTo < newFrom);
+        if (!datesDontOverlap) {
+          toast.error("與現有週期排程時間衝突，請重新選擇星期、時間或有效日期");
+          setSaving(false); return;
+        }
+      }
+    }
+
     const projectName = designProjects.find((p) => p.id === designProjectId)?.name ?? "—";
     const payload: Record<string, unknown> = {
       channel_id: channelId,

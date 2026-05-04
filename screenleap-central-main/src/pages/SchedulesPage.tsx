@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Pencil, Trash2, CalendarClock, Tv, Repeat, Calendar as CalendarIcon, Users, User as UserIcon, Building2, ExternalLink, Download, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, CalendarClock, Repeat, Calendar as CalendarIcon, Users, User as UserIcon, Building2, ExternalLink } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -18,7 +18,6 @@ import { useProjectSchedules, type ProjectSchedule } from "@/hooks/useProjectSch
 import { ChannelDialog } from "@/components/channels/ChannelDialog";
 import { ChannelBlockDialog } from "@/components/channels/ChannelBlockDialog";
 import { ProjectScheduleDialog } from "@/components/schedules/ProjectScheduleDialog";
-import { exportDesignProjectsToZip } from "@/lib/exportSchedule";
 import { ScheduleTimeline } from "@/components/channels/ScheduleTimeline";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { cn } from "@/lib/utils";
@@ -76,7 +75,6 @@ export default function SchedulesPage() {
   const [blockDialogOpen, setBlockDialogOpen] = useState(false);
   const [editingBlock, setEditingBlock] = useState<ChannelBlock | null>(null);
   const [deletingBlock, setDeletingBlock] = useState<ChannelBlock | null>(null);
-  const [downloadingBlockId, setDownloadingBlockId] = useState<string | null>(null);
   const autoReopenBlockRef = useRef(false);
 
   // Project schedule state
@@ -135,27 +133,6 @@ export default function SchedulesPage() {
     () => (showExpired ? blocks : blocks.filter((b) => !isBlockExpired(b))),
     [blocks, showExpired],
   );
-
-  const handleDownloadBlock = async (b: ChannelBlock) => {
-    if (!b.design_project_id || downloadingBlockId) return;
-    setDownloadingBlockId(b.id);
-    const tid = toast.loading("下載中…");
-    try {
-      const projectName = projectNameById.get(b.design_project_id) ?? b.name ?? "project";
-      const res = await exportDesignProjectsToZip({
-        projectIds: [b.design_project_id],
-        bundleName: projectName,
-        orgId: activeOrgId,
-        userId: user?.id,
-      });
-      toast.success(`下載完成 (${(res.sizeBytes / (1024 * 1024)).toFixed(2)} MB)`, { id: tid });
-    } catch (err) {
-      toast.error("下載失敗", { id: tid });
-      console.error("Download project failed", err);
-    } finally {
-      setDownloadingBlockId(null);
-    }
-  };
 
   // Load pending channel-delete requests so we can show the badge
   useEffect(() => {
@@ -447,17 +424,6 @@ export default function SchedulesPage() {
           {/* Schedule mode toggle */}
           <div className="flex items-center rounded-lg border bg-muted/30 p-0.5 text-sm gap-0.5">
             <button
-              onClick={() => setScheduleMode("channel")}
-              className={cn(
-                "px-3 py-1.5 rounded-md font-medium transition-all text-sm",
-                scheduleMode === "channel"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              頻道排程
-            </button>
-            <button
               onClick={() => setScheduleMode("project")}
               className={cn(
                 "px-3 py-1.5 rounded-md font-medium transition-all text-sm",
@@ -467,6 +433,17 @@ export default function SchedulesPage() {
               )}
             >
               專案排程
+            </button>
+            <button
+              onClick={() => setScheduleMode("channel")}
+              className={cn(
+                "px-3 py-1.5 rounded-md font-medium transition-all text-sm",
+                scheduleMode === "channel"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              頻道排程
             </button>
           </div>
           {scheduleMode === "channel" && (
@@ -613,11 +590,6 @@ export default function SchedulesPage() {
                     </div>
                   </div>
                   <Switch checked={b.enabled} onCheckedChange={(v) => toggleBlockEnabled(b, v)} aria-label={t("blockEnabled")} />
-                  <Button variant="ghost" size="icon" disabled={!b.design_project_id || !!downloadingBlockId}
-                    onClick={() => handleDownloadBlock(b)}
-                    title={b.design_project_id ? `下載專案：${projectNameById.get(b.design_project_id) ?? b.design_project_id}` : "無關聯專案"}>
-                    {downloadingBlockId === b.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                  </Button>
                   <Button variant="ghost" size="icon" onClick={() => { autoReopenBlockRef.current = false; setEditingBlock(b); setBlockDialogOpen(true); }}>
                     <Pencil className="h-4 w-4" />
                   </Button>
