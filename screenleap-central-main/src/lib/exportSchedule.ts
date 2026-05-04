@@ -831,3 +831,204 @@ export async function exportDesignProjectsToZip(input: ExportDesignProjectsInput
 
   return { blob, url, filename, sizeBytes: blob.size, mediaCount: manifestMedia.length };
 }
+
+// ── Channel-block direct export ───────────────────────────────────────────────
+
+export interface ChannelBlockExportInput {
+  block: {
+    id: string;
+    channel_id: string;
+    name: string;
+    color: string;
+    block_type: "calendar" | "weekly";
+    start_at: string | null;
+    end_at: string | null;
+    weekdays: string[];
+    start_time: string | null;
+    end_time: string | null;
+    effective_from: string | null;
+    effective_to: string | null;
+    priority: number;
+    enabled: boolean;
+    design_project_id: string | null;
+  };
+  channelName: string;
+  orgId?: string | null;
+  userId?: string | null;
+}
+
+export interface ChannelBlockExportResult {
+  blob: Blob;
+  filename: string;
+  sizeBytes: number;
+  mediaCount: number;
+}
+
+/**
+ * Export a single channel_block as a ZIP bundle.
+ *
+ * Bundle layout:
+ *   channel_block.json   – block metadata + time conditions + design project zones
+ *   assets/              – all media files referenced by the design project
+ */
+export async function exportChannelBlockToZip(input: ChannelBlockExportInput): Promise<ChannelBlockExportResult> {
+  const { block, channelName, orgId, userId } = input;
+
+  // Fetch associated design project (if any)
+  let designRow: DesignRow | null = null;
+  const mediaIds = new Set<string>();
+
+  if (block.design_project_id) {
+    const { data } = await supabase
+      .from("design_projects")
+      .select("id, name, aspect, zones, updated_at, created_at")
+      .eq("id", block.design_project_id)
+      .single();
+    if (data) {
+      designRow = data as DesignRow;
+      const walk = (content: ZoneContent | null | undefined) => {
+        if (!content) return;
+        if (Array.isArray(content.mediaItems)) {
+          for (const m of content.mediaItems) {
+            if (!m?.id || !UUID_RE.test(String(m.id))) continue;
+            if (m.type && m.type !== "image" && m.type !== "video") continue;
+            mediaIds.add(String(m.id));
+          }
+        }
+      };
+      const zones = Array.isArray(designRow.zones) ? designRow.zones : [];
+      for (const z of zones) {
+        walk(z?.content);
+        if (Array.isArray(z?.overlays)) for (const o of z.overlays) walk(o?.content);
+        const bgmItems = z?.bgm?.items;
+        if (Array.isArray(bgmItems)) {
+          for (const a of bgmItems) {
+            if (!a?.id || !UUID_RE.test(String(a.id))) continue;
+            mediaIds.add(String(a.id));
+          }
+        }
+      }
+    }
+  }
+
+  let mediaRows: MediaRow[] = [];
+  if (mediaIds.size > 0) {
+    const { data: mData } = await supabase
+      .from("media_items")
+      .select("id, name, original_name, type, mime_type, url, size_bytes, width, height, duration_seconds, transcode_status")
+      .in("id", Array.from(mediaIds));
+    mediaRows = (mData || []) as MediaRow[];
+  }
+
+  const zip = new JSZip();
+  const assetsFolder = zip.folder("assets")!;
+  const manifestMedia: WidgetMediaEntry[] = [];
+  const usedNames = new Set<string>();
+  const warnings: { mediaId: string; reason: string }[] = [];
+
+  for (const m of mediaRows) {
+    let assetPath: string | null = null;
+    let failReason: string | null = null;
+    try {
+      const url: string = m.url || "";
+      if (!url) {
+        failReason = m.transcode_status && m.transcode_status !== "complete" && m.transcode_status !== "none"
+          ? `transcode_${m.transcode_status}` : "no_url";
+      } else {
+        let blob: Blob | null = null;
+        let extFromMime = m.mime_type ? (mimeExtMap[m.mime_type] || "") : "";
+        if (url.startsWith("data:")) {
+          const match = url.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            const bin = atob(match[2]);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            blob = new Blob([bytes], { type: match[1] });
+            if (!extFromMime) extFromMime = (match[1].split("/")[1] || "bin").split("+")[0];
+          }
+        } else {
+          const resp = await fetch(url);
+          if (resp.ok) blob = await resp.blob();
+          else failReason = `fetch_${resp.status}`;
+        }
+        if (blob) {
+          const baseName = sanitizeName(m.original_name || m.name || `media_${m.id}`);
+          const hasExt = /\.[A-Za-z0-9]{2,5}$/.test(baseName);
+          const fileName = hasExt ? baseName : (extFromMime ? `${baseName}.${extFromMime}` : baseName);
+          let candidate = `${m.id}_${fileName}`;
+          let n = 1;
+          while (usedNames.has(candidate)) { candidate = `${m.id}_${n}_${fileName}`; n++; }
+          usedNames.add(candidate);
+          assetsFolder.file(candidate, blob);
+          assetPath = `assets/${candidate}`;
+        } else if (!failReason) {
+          failReason = "blob_decode_failed";
+        }
+      }
+    } catch (err) {
+      failReason = `exception_${(err as Error)?.message || "unknown"}`.slice(0, 80);
+    }
+    if (!assetPath) warnings.push({ mediaId: String(m.id), reason: failReason || "unknown" });
+    manifestMedia.push({
+      id: m.id, name: m.name, original_name: m.original_name, type: m.type,
+      mime_type: m.mime_type, size_bytes: m.size_bytes, width: m.width,
+      height: m.height, duration_seconds: m.duration_seconds, assetPath,
+    });
+  }
+
+  const manifest = {
+    format: "signcms.channel_block",
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    channel: { id: block.channel_id, name: channelName },
+    channel_block: {
+      id: block.id,
+      name: block.name,
+      color: block.color,
+      block_type: block.block_type,
+      // Calendar-mode time conditions
+      start_at: block.start_at,
+      end_at: block.end_at,
+      // Weekly-mode time conditions
+      weekdays: block.weekdays,
+      start_time: block.start_time,
+      end_time: block.end_time,
+      effective_from: block.effective_from,
+      effective_to: block.effective_to,
+      priority: block.priority,
+      enabled: block.enabled,
+    },
+    designProject: designRow
+      ? { id: designRow.id, name: designRow.name, aspect: designRow.aspect, zones: designRow.zones }
+      : null,
+    media: manifestMedia,
+    warnings,
+  };
+
+  zip.file("channel_block.json", JSON.stringify(manifest, null, 2));
+
+  const blob = await zip.generateAsync({ type: "blob" });
+  const bundleName = sanitizeName(`${channelName}_${block.name || block.id}`);
+  const filename = `${bundleName}.zip`;
+
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = filename; a.rel = "noopener";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5 * 60_000);
+
+  try {
+    await supabase.from("activity_logs").insert({
+      user_id: userId,
+      action: "export_channel_block_usb",
+      action_code: "export_channel_block_usb",
+      action_params: { mediaCount: manifestMedia.length, filename, blockType: block.block_type },
+      category: "schedule",
+      target_type: "channel_block",
+      target_id: block.id,
+      target_name: block.name || channelName,
+      org_id: orgId || null,
+    });
+  } catch { /* non-fatal */ }
+
+  return { blob, filename, sizeBytes: blob.size, mediaCount: manifestMedia.length };
+}

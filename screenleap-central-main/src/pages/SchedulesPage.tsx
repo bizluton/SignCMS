@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Pencil, Trash2, CalendarClock, Tv, Repeat, Calendar as CalendarIcon, Users, User as UserIcon, Building2, ExternalLink } from "lucide-react";
+import { Plus, Pencil, Trash2, CalendarClock, Tv, Repeat, Calendar as CalendarIcon, Users, User as UserIcon, Building2, ExternalLink, Download, Loader2 } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { useChannels, useChannelBlocks, type Channel, type ChannelBlock } from "@/hooks/useChannels";
 import { ChannelDialog } from "@/components/channels/ChannelDialog";
 import { ChannelBlockDialog } from "@/components/channels/ChannelBlockDialog";
+import { exportChannelBlockToZip } from "@/lib/exportSchedule";
 import { ScheduleTimeline } from "@/components/channels/ScheduleTimeline";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { cn } from "@/lib/utils";
@@ -70,6 +71,7 @@ export default function SchedulesPage() {
   const [blockDialogOpen, setBlockDialogOpen] = useState(false);
   const [editingBlock, setEditingBlock] = useState<ChannelBlock | null>(null);
   const [deletingBlock, setDeletingBlock] = useState<ChannelBlock | null>(null);
+  const [downloadingBlockId, setDownloadingBlockId] = useState<string | null>(null);
 
   const [designProjects, setDesignProjects] = useState<DesignProjectLite[]>([]);
   const [allowedProjectIds, setAllowedProjectIds] = useState<string[]>([]);
@@ -121,6 +123,26 @@ export default function SchedulesPage() {
     () => (showExpired ? blocks : blocks.filter((b) => !isBlockExpired(b))),
     [blocks, showExpired],
   );
+
+  const handleDownloadBlock = async (b: ChannelBlock) => {
+    if (downloadingBlockId) return;
+    setDownloadingBlockId(b.id);
+    const tid = toast.loading("下載中…");
+    try {
+      const res = await exportChannelBlockToZip({
+        block: b,
+        channelName: selectedChannel?.name ?? "channel",
+        orgId: activeOrgId,
+        userId: user?.id,
+      });
+      toast.success(`下載完成 (${(res.sizeBytes / (1024 * 1024)).toFixed(2)} MB)`, { id: tid });
+    } catch (err) {
+      toast.error("下載失敗", { id: tid });
+      console.error("Download block failed", err);
+    } finally {
+      setDownloadingBlockId(null);
+    }
+  };
 
   // Load pending channel-delete requests so we can show the badge
   useEffect(() => {
@@ -532,6 +554,16 @@ export default function SchedulesPage() {
                     onCheckedChange={(v) => toggleBlockEnabled(b, v)}
                     aria-label={t("blockEnabled")}
                   />
+                  <Button
+                    variant="ghost" size="icon"
+                    disabled={!!downloadingBlockId}
+                    onClick={() => handleDownloadBlock(b)}
+                    title="下載 (含 JSON + 媒體檔)"
+                  >
+                    {downloadingBlockId === b.id
+                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                      : <Download className="h-4 w-4" />}
+                  </Button>
                   <Button variant="ghost" size="icon" onClick={() => { setEditingBlock(b); setBlockDialogOpen(true); }}>
                     <Pencil className="h-4 w-4" />
                   </Button>
