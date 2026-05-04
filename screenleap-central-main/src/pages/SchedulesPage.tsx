@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { useChannels, useChannelBlocks, type Channel, type ChannelBlock } from "@/hooks/useChannels";
 import { ChannelDialog } from "@/components/channels/ChannelDialog";
 import { ChannelBlockDialog } from "@/components/channels/ChannelBlockDialog";
-import { exportChannelBlockToZip } from "@/lib/exportSchedule";
+import { exportDesignProjectsToZip } from "@/lib/exportSchedule";
 import { ScheduleTimeline } from "@/components/channels/ScheduleTimeline";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { cn } from "@/lib/utils";
@@ -125,20 +125,21 @@ export default function SchedulesPage() {
   );
 
   const handleDownloadBlock = async (b: ChannelBlock) => {
-    if (downloadingBlockId) return;
+    if (!b.design_project_id || downloadingBlockId) return;
     setDownloadingBlockId(b.id);
     const tid = toast.loading("下載中…");
     try {
-      const res = await exportChannelBlockToZip({
-        block: b,
-        channelName: selectedChannel?.name ?? "channel",
+      const projectName = projectNameById.get(b.design_project_id) ?? b.name ?? "project";
+      const res = await exportDesignProjectsToZip({
+        projectIds: [b.design_project_id],
+        bundleName: projectName,
         orgId: activeOrgId,
         userId: user?.id,
       });
       toast.success(`下載完成 (${(res.sizeBytes / (1024 * 1024)).toFixed(2)} MB)`, { id: tid });
     } catch (err) {
       toast.error("下載失敗", { id: tid });
-      console.error("Download block failed", err);
+      console.error("Download project failed", err);
     } finally {
       setDownloadingBlockId(null);
     }
@@ -558,9 +559,11 @@ export default function SchedulesPage() {
                   />
                   <Button
                     variant="ghost" size="icon"
-                    disabled={!!downloadingBlockId}
+                    disabled={!b.design_project_id || !!downloadingBlockId}
                     onClick={() => handleDownloadBlock(b)}
-                    title="下載 (含 JSON + 媒體檔)"
+                    title={b.design_project_id
+                      ? `下載專案：${projectNameById.get(b.design_project_id) ?? b.design_project_id}`
+                      : "無關聯專案"}
                   >
                     {downloadingBlockId === b.id
                       ? <Loader2 className="h-4 w-4 animate-spin" />

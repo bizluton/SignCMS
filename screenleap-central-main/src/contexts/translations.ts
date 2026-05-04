@@ -36,7 +36,7 @@ const translations = {
   channelDeleted: { zh: "頻道已刪除", en: "Channel deleted", ja: "チャンネルを削除しました" },
   noChannelsYet: { zh: "尚未建立任何頻道，點擊右上方「新增頻道」開始", en: "No channels yet — click \"New Channel\" to start", ja: "まだチャンネルがありません。「新規チャンネル」から作成してください" },
   noChannelSelected: { zh: "請先選擇或新增頻道", en: "Select or create a channel first", ja: "まずチャンネルを選択または作成してください" },
-  channelBlocks: { zh: "播放排程", en: "Schedules", ja: "再生スケジュール" },
+  channelBlocks: { zh: "專案排程", en: "Project Schedules", ja: "プロジェクトスケジュール" },
   newBlock: { zh: "新增排程", en: "New Schedule", ja: "新規スケジュール" },
   editBlock: { zh: "編輯排程", en: "Edit Schedule", ja: "スケジュール編集" },
   deleteBlock: { zh: "刪除排程", en: "Delete Schedule", ja: "スケジュール削除" },
