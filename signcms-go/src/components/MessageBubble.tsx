@@ -30,9 +30,12 @@ export function MessageBubble({ message }: Props) {
           : "bg-slate-800 text-slate-100 rounded-tl-sm",
       )}>
         {message.error && (
-          <div className="flex items-center gap-1.5 mb-1 text-red-400 text-xs font-medium">
-            <AlertCircle className="w-3.5 h-3.5" />
-            Error
+          <div className="mb-1.5">
+            <div className="flex items-center gap-1.5 text-red-400 text-xs font-medium mb-0.5">
+              <AlertCircle className="w-3.5 h-3.5" />
+              Error
+            </div>
+            <p className="text-red-300 text-xs font-mono break-all whitespace-pre-wrap">{message.error}</p>
           </div>
         )}
 

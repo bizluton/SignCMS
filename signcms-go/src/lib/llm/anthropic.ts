@@ -20,9 +20,9 @@ export function anthropicAdapter(cfg: LLMConfig): LLMAdapter {
         max_tokens: 4096,
         stream:     true,
         messages:   history,
-        tools:      tools.map(mcpToAnthropicTool),
       };
       if (systemMsg) body.system = systemMsg;
+      if (tools.length > 0) body.tools = tools.map(mcpToAnthropicTool);
 
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method:  "POST",

@@ -19,13 +19,15 @@ export function openaiAdapter(cfg: LLMConfig): LLMAdapter {
   const endpoint = cfg.endpoint ?? "https://api.openai.com/v1";
   return {
     async stream(messages, tools, onChunk) {
-      const body = {
-        model:       cfg.model,
-        stream:      true,
-        messages:    historyToOpenAI(messages),
-        tools:       tools.map(mcpToOpenAI),
-        tool_choice: "auto",
+      const body: Record<string, unknown> = {
+        model:    cfg.model,
+        stream:   true,
+        messages: historyToOpenAI(messages),
       };
+      if (tools.length > 0) {
+        body.tools       = tools.map(mcpToOpenAI);
+        body.tool_choice = "auto";
+      }
 
       const res = await fetch(`${endpoint}/chat/completions`, {
         method:  "POST",
