@@ -55,6 +55,7 @@ import Hls from "hls.js";
 import { useWidgets, widgetsToStudioRows } from "@/hooks/useWidgets";
 import { useInstalledApps } from "@/contexts/InstalledAppsContext";
 import { WidgetPreviewCard } from "@/components/widgets/WidgetPreviewCard";
+import QueueDisplayWidget from "@/components/widgets/QueueDisplayWidget";
 import { StudioPreviewDialog } from "@/components/studio/StudioPreviewDialog";
 import {
   STUDIO_DATA_VERSION,
@@ -4384,6 +4385,26 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
 
   if (config.widgetType === "announcement") {
     return <WebpageZonePreview url={config.url || ""} bg={bg} fg={fg} params={config.params as Record<string, unknown> | undefined} allowSameOrigin />;
+  }
+
+  if (config.widgetType === "queue-display") {
+    const orgId = (config.params?.orgId as string) || "";
+    if (!orgId) {
+      return (
+        <div className="w-full h-full flex items-center justify-center bg-gray-950 text-white/40 text-[10px]">
+          請在設定中選擇組織
+        </div>
+      );
+    }
+    return (
+      <QueueDisplayWidget config={{
+        orgId,
+        teamId: (config.params?.teamId as string | undefined) || undefined,
+        queueIds: (config.params?.queueIds as string[] | undefined) || undefined,
+        ttsLang: (config.params?.ttsLang as string | undefined) || "zh-TW",
+        cycleSeconds: (config.params?.cycleSeconds as number | undefined) || 8,
+      }} />
+    );
   }
 
   // External third-party widget: fetch signed URL from Edge Function
