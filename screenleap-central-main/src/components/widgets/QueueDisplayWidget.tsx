@@ -330,7 +330,10 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
   }
 
   return (
-    <div className="relative flex h-full w-full flex-col items-center justify-center overflow-hidden bg-gray-950 select-none">
+    <div
+      className="relative flex h-full w-full flex-col items-center justify-center overflow-hidden bg-gray-950 select-none"
+      style={{ containerType: "inline-size" }}
+    >
       {/* Background gradient — pulses amber when triggered */}
       <div className={`pointer-events-none absolute inset-0 transition-all duration-700 ${
         triggeredCounter
@@ -339,15 +342,18 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
       }`} />
 
       {/* Queue / counter label */}
-      <p className="relative z-10 mb-4 text-lg font-medium tracking-widest text-white/50 uppercase">
+      <p
+        className="relative z-10 font-medium tracking-widest text-white/50 uppercase"
+        style={{ fontSize: "clamp(0.55rem, 2.5cqi, 1.5rem)", marginBottom: "clamp(0.2rem, 1.5cqi, 1rem)" }}
+      >
         {isMultiCounter ? (displayCounter ?? "") : (displayQueue?.queue_name ?? "")}
       </p>
 
       {/* Big number */}
-      <div className="relative z-10 flex items-baseline gap-2">
+      <div className="relative z-10 flex items-baseline">
         <span
           className="font-black tabular-nums tracking-tight text-white"
-          style={{ fontSize: "clamp(5rem, 20vw, 14rem)", lineHeight: 1 }}
+          style={{ fontSize: "clamp(2rem, 16cqi, 20rem)", lineHeight: 1 }}
         >
           {displayNumber}
         </span>
@@ -355,43 +361,58 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
 
       {/* Counter label (single/no-filter mode) */}
       {!isMultiCounter && counterLabel && (
-        <p className="relative z-10 mt-6 text-2xl font-semibold text-white/60">
+        <p
+          className="relative z-10 font-semibold text-white/60"
+          style={{ fontSize: "clamp(0.65rem, 3cqi, 2rem)", marginTop: "clamp(0.25rem, 1.5cqi, 1.5rem)" }}
+        >
           {counterLabel}
         </p>
       )}
 
       {/* Dots */}
       {dots.length > 1 && (
-        <div className="relative z-10 mt-8 flex gap-2">
+        <div
+          className="relative z-10 flex"
+          style={{ gap: "clamp(3px, 0.6cqi, 8px)", marginTop: "clamp(0.4rem, 2cqi, 2rem)" }}
+        >
           {dots.map((d, i) => (
             <button
               key={d}
               onClick={() => isMultiCounter ? setCounterCycleIdx(i) : setActiveIdx(i)}
-              className={`h-2 rounded-full transition-all ${i === dotIdx ? "w-6 bg-white" : "w-2 bg-white/30"}`}
+              className={`rounded-full transition-all ${i === dotIdx ? "bg-white" : "bg-white/30"}`}
+              style={{
+                height: "clamp(3px, 0.6cqi, 8px)",
+                width: i === dotIdx ? "clamp(10px, 2.2cqi, 24px)" : "clamp(3px, 0.6cqi, 8px)",
+              }}
             />
           ))}
         </div>
       )}
 
       {/* TTS toggle */}
-      <div className="absolute bottom-4 right-4 z-10">
+      <div
+        className="absolute z-10"
+        style={{ bottom: "clamp(3px, 1.2cqi, 16px)", right: "clamp(3px, 1.2cqi, 16px)" }}
+      >
         {ttsEnabled ? (
           <Button
             size="icon"
             variant="ghost"
             className="text-white/40 hover:text-white/80"
+            style={{ width: "clamp(20px, 2.8cqi, 40px)", height: "clamp(20px, 2.8cqi, 40px)" }}
             onClick={() => { ttsEnabledRef.current = false; setTtsEnabled(false); }}
             title="關閉語音播報"
           >
-            <Volume2 className="h-5 w-5" />
+            <Volume2 style={{ width: "clamp(10px, 1.6cqi, 20px)", height: "clamp(10px, 1.6cqi, 20px)" }} />
           </Button>
         ) : (
           <Button
             size="sm"
-            className="bg-white/10 text-white hover:bg-white/20 border border-white/20 text-xs gap-1.5"
+            className="bg-white/10 text-white hover:bg-white/20 border border-white/20 gap-1"
+            style={{ fontSize: "clamp(0.4rem, 1.3cqi, 0.75rem)", padding: "clamp(2px, 0.5cqi, 6px) clamp(4px, 1cqi, 12px)" }}
             onClick={handleEnableTts}
           >
-            <VolumeX className="h-4 w-4" />
+            <VolumeX style={{ width: "clamp(8px, 1.4cqi, 16px)", height: "clamp(8px, 1.4cqi, 16px)" }} />
             點擊啟用語音
           </Button>
         )}
