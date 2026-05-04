@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import {
   Send, CalendarClock, Monitor, CheckCircle2, Clock, Loader2,
-  Play, Zap, Calendar as CalendarIcon, ListMusic, Building2, Repeat,
+  Play, Zap, Calendar as CalendarIcon, ListMusic, Building2, Repeat, Settings2,
   CheckCheck, Search, AlertTriangle, ShieldAlert, X, Layers, RotateCcw, Download,
   FileArchive, FolderDown, Eye, Tv, LayoutTemplate, Users, User as UserIcon,
 } from "lucide-react";
@@ -20,6 +20,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
@@ -105,6 +107,12 @@ interface ProjectScheduleOption {
 type PlaylistTab = "channel" | "project";
 type SelectedSource = { type: PlaylistTab; id: string } | null;
 
+interface PlaylistTrigger {
+  gpio: boolean;
+  remote: boolean;
+  api: boolean;
+}
+
 interface PublishRecord {
   id: string;
   schedule_name: string;
@@ -133,7 +141,9 @@ export default function PublishingCenterPage() {
   const [loading, setLoading] = useState(true);
 
   // Selection state
-  const [playlistTab, setPlaylistTab] = useState<PlaylistTab>("channel");
+  const [playlistTab, setPlaylistTab] = useState<PlaylistTab>("project");
+  const [triggerDialogOpen, setTriggerDialogOpen] = useState(false);
+  const [playlistTrigger, setPlaylistTrigger] = useState<PlaylistTrigger>({ gpio: false, remote: true, api: false });
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
   const [selectedChannelIds, setSelectedChannelIds] = useState<string[]>([]);
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
@@ -807,28 +817,39 @@ export default function PublishingCenterPage() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         {/* Left: Playlist selection */}
         <Card className="lg:col-span-3 p-4 space-y-3">
-          <h2 className="font-semibold text-foreground flex items-center gap-2">
-            <ListMusic className="w-4 h-4 text-primary" />
-            {t("publishPlaylist")}
-          </h2>
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold text-foreground flex items-center gap-2">
+              <ListMusic className="w-4 h-4 text-primary" />
+              {t("publishPlaylist")}
+            </h2>
+            <button
+              type="button"
+              onClick={() => setTriggerDialogOpen(true)}
+              title={t("studioPageTransitionConfigure")}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground border rounded-md px-2 py-1 hover:bg-muted/50 transition-colors"
+            >
+              <Settings2 className="w-3.5 h-3.5" />
+              {t("studioPageTransitionTrigger")}
+            </button>
+          </div>
           <Separator />
           <Tabs value={playlistTab} onValueChange={(v) => setPlaylistTab(v as PlaylistTab)} className="w-full">
             <TabsList className="grid grid-cols-2 w-full">
-              <TabsTrigger value="channel" className="gap-1.5">
-                <Tv className="w-3.5 h-3.5" />
-                {t("publishTabChannel")}
-                {selectedChannelIds.length > 0 && (
-                  <Badge variant="default" className="ml-1 h-4 px-1.5 text-[10px]">
-                    {selectedChannelIds.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
               <TabsTrigger value="project" className="gap-1.5">
                 <LayoutTemplate className="w-3.5 h-3.5" />
                 {t("publishTabDesignProject")}
                 {selectedProjectIds.length > 0 && (
                   <Badge variant="default" className="ml-1 h-4 px-1.5 text-[10px]">
                     {selectedProjectIds.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="channel" className="gap-1.5">
+                <Tv className="w-3.5 h-3.5" />
+                {t("publishTabChannel")}
+                {selectedChannelIds.length > 0 && (
+                  <Badge variant="default" className="ml-1 h-4 px-1.5 text-[10px]">
+                    {selectedChannelIds.length}
                   </Badge>
                 )}
               </TabsTrigger>
@@ -1301,6 +1322,70 @@ export default function PublishingCenterPage() {
       </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Playlist Trigger Switching Dialog */}
+      <Dialog open={triggerDialogOpen} onOpenChange={setTriggerDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("studioPageTransitionTitle")}</DialogTitle>
+            <DialogDescription>{t("studioPageTransitionTriggerDesc")}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {/* Trigger mode indicator */}
+            <div className="p-3 rounded-md border border-primary bg-primary/5">
+              <div className="text-sm font-medium">{t("studioPageTransitionTrigger")}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">{t("studioPageTransitionTriggerDesc")}</div>
+            </div>
+
+            {/* Trigger sources */}
+            <div className="space-y-2">
+              <span className="text-xs font-medium">{t("studioPageTransitionTriggers")}</span>
+              <div className="space-y-2 rounded-md border border-border p-3">
+                {([
+                  { k: "gpio" as const, label: t("studioPageTriggerGpio") },
+                  { k: "remote" as const, label: t("studioPageTriggerRemote") },
+                  { k: "api" as const, label: t("studioPageTriggerApi") },
+                ]).map((row) => (
+                  <div key={row.k} className="flex items-center justify-between">
+                    <span className="text-sm">{row.label}</span>
+                    <Switch
+                      checked={!!playlistTrigger[row.k]}
+                      onCheckedChange={(v) => setPlaylistTrigger((cur) => ({ ...cur, [row.k]: v }))}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Channel assignment */}
+            {(playlistTrigger.gpio || playlistTrigger.remote) && selectedProjectsOrdered.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-xs font-medium">{t("studioPageTriggerChannels")}</span>
+                <div className="rounded-md border border-border divide-y divide-border text-xs">
+                  {selectedProjectsOrdered.map((s, i) => (
+                    <div key={s.id} className="flex items-center justify-between px-3 py-1.5">
+                      <span className="font-medium truncate max-w-[160px]">{s.name}</span>
+                      <span className="text-muted-foreground tabular-nums flex gap-2 shrink-0">
+                        {playlistTrigger.gpio && <span>GPIO {i}</span>}
+                        {playlistTrigger.remote && <span>{t("studioPageTriggerRemoteCode")} {String(i + 1).padStart(2, "0")}</span>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="text-[11px] text-muted-foreground border-t border-border pt-2">
+              {t("studioPageTransitionFallback")}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => { setTriggerDialogOpen(false); toast.success(t("studioPageTransitionSaved")); }}>
+              {t("studioPageTransitionDone")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Emergency Broadcast Dialog */}
       <AlertDialog open={emergencyOpen} onOpenChange={setEmergencyOpen}>
