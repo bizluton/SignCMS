@@ -27,9 +27,10 @@ export function anthropicAdapter(cfg: LLMConfig): LLMAdapter {
       const res = await fetch("https://api.anthropic.com/v1/messages", {
         method:  "POST",
         headers: {
-          "Content-Type":      "application/json",
-          "x-api-key":         cfg.apiKey,
-          "anthropic-version": "2023-06-01",
+          "Content-Type":                      "application/json",
+          "x-api-key":                         cfg.apiKey,
+          "anthropic-version":                 "2023-06-01",
+          "anthropic-dangerous-allow-browser": "true",
         },
         body: JSON.stringify(body),
       });
