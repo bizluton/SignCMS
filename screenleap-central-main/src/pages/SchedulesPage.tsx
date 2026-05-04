@@ -211,7 +211,7 @@ export default function SchedulesPage() {
   );
 
   const visibleProjects = useMemo(() => {
-    if (allowedProjectIds.length === 0) return designProjects;
+    if (allowedProjectIds.length === 0) return [] as DesignProjectLite[];
     return allowedProjectIds
       .map((id) => designProjects.find((p) => p.id === id))
       .filter((p): p is DesignProjectLite => !!p);

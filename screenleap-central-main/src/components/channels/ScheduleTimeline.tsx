@@ -550,7 +550,19 @@ export function ScheduleTimeline({ blocks, designProjects, channelColor, onBlock
       </div>
 
       {projects.length === 0 ? (
-        <div className="p-8 text-center text-sm text-muted-foreground">{t("timelineNoProjects")}</div>
+        onAddBlock ? (
+          <button
+            onClick={onAddBlock}
+            className="p-12 w-full flex flex-col items-center gap-3 text-muted-foreground/50 hover:text-primary transition-colors"
+          >
+            <div className="rounded-full border-2 border-dashed border-current p-3">
+              <CalendarPlus className="h-6 w-6" />
+            </div>
+            <span className="text-sm font-medium">{t("newBlock")}</span>
+          </button>
+        ) : (
+          <div className="p-8 text-center text-sm text-muted-foreground">{t("timelineNoProjects")}</div>
+        )
       ) : (
         <div ref={scrollRef} className="overflow-auto max-h-[640px] [scrollbar-width:thin]">
           <div style={{ width: totalWidth }} className="relative">
@@ -717,24 +729,6 @@ export function ScheduleTimeline({ blocks, designProjects, channelColor, onBlock
                   })}
                   {/* Block bars for this row — compute sub-lanes so overlapping
                       placements stack vertically instead of covering each other. */}
-                  {/* Add-block shortcut in the first row when no blocks exist */}
-                  {rowIdx === 0 && blocks.length === 0 && onAddBlock && (() => {
-                    const todayIdx = days.findIndex((d) => sameDay(d, new Date()));
-                    const colIdx = todayIdx >= 0 ? todayIdx : 0;
-                    const colLeft = LABEL_W + colIdx * dayColPx + dayColPx / 2;
-                    return (
-                      <button
-                        onClick={onAddBlock}
-                        className="absolute z-10 flex flex-col items-center gap-1.5 text-muted-foreground/50 hover:text-primary transition-colors"
-                        style={{ left: colLeft, top: "50%", transform: "translate(-50%, -50%)" }}
-                      >
-                        <div className="rounded-full border-2 border-dashed border-current p-2.5">
-                          <CalendarPlus className="h-5 w-5" />
-                        </div>
-                        <span className="text-[10px] font-medium whitespace-nowrap">{t("newBlock")}</span>
-                      </button>
-                    );
-                  })()}
                   {(() => {
                     const rowItems = placements
                       .filter((pl) => pl.rowIdx === rowIdx)
