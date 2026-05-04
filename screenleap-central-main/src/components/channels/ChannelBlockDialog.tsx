@@ -62,6 +62,22 @@ function startOfToday() {
   const x = new Date(); x.setHours(0, 0, 0, 0); return x;
 }
 
+const DOW_MAP: Record<string, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+
+/** Returns true if the given weekday key occurs at least once within [startMs, endMs). */
+function hasWeekdayInRange(startMs: number, endMs: number, dowKey: string): boolean {
+  const dow = DOW_MAP[dowKey];
+  if (dow === undefined) return false;
+  const msPerDay = 86_400_000;
+  if (endMs - startMs >= 7 * msPerDay) return true;
+  const startDow = new Date(startMs).getDay();
+  const days = Math.ceil((endMs - startMs) / msPerDay);
+  for (let i = 0; i < days; i++) {
+    if ((startDow + i) % 7 === dow) return true;
+  }
+  return false;
+}
+
 export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block, channel, designProjects, onSaved }: Props) {
   const { t, language } = useLanguage();
   const { user } = useAuth();
@@ -108,7 +124,7 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
     setBlockType(block?.block_type ?? "calendar");
     setStartAt(block?.start_at ? toLocalInputValue(block.start_at) : nowLocalInputValue(tz));
     setEndAt(toLocalInputValue(block?.end_at ?? null));
-    setWeekdays((block?.weekdays as WeekdayKey[]) ?? []);
+    setWeekdays(block ? ((block.weekdays as WeekdayKey[]) ?? []) : [...WEEKDAY_KEYS]);
     setStartTime(block?.start_time?.slice(0, 5) ?? "09:00");
     setEndTime(block?.end_time?.slice(0, 5) ?? "18:00");
     setEffectiveFrom(block?.effective_from ?? "");
@@ -150,11 +166,27 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
       const newS = new Date(startAt).getTime();
       const newE = new Date(endAt).getTime();
       const newDays = new Set(weekdays);
+
+      // Self-validate: selected weekdays must actually occur within the chosen date range
+      const activeDays = weekdays.filter((d) => hasWeekdayInRange(newS, newE, d));
+      if (activeDays.length === 0) {
+        toast.error("所選星期未出現在指定的日期範圍內，請調整日期或星期");
+        setSaving(false); return;
+      }
+
       for (const b of candidates) {
         if (b.block_type !== "calendar" || !b.start_at || !b.end_at) continue;
-        if (newS >= new Date(b.end_at).getTime() || newE <= new Date(b.start_at).getTime()) continue;
+        const bS = new Date(b.start_at).getTime();
+        const bE = new Date(b.end_at).getTime();
+        if (newS >= bE || newE <= bS) continue; // date ranges don't overlap
+        const overlapS = Math.max(newS, bS);
+        const overlapE = Math.min(newE, bE);
         const bDays: string[] = (b.weekdays as string[]) ?? [];
-        if (bDays.length === 0 || bDays.some((d) => newDays.has(d as WeekdayKey))) {
+        // Conflict only if a shared weekday actually falls within the overlap period
+        const hasConflict = bDays
+          .filter((d) => newDays.has(d as WeekdayKey))
+          .some((d) => hasWeekdayInRange(overlapS, overlapE, d));
+        if (hasConflict) {
           toast.error("與現有排程時間衝突，請重新選擇日期或星期");
           setSaving(false); return;
         }
