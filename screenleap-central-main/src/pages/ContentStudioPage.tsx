@@ -56,6 +56,7 @@ import { useWidgets, widgetsToStudioRows } from "@/hooks/useWidgets";
 import { useInstalledApps } from "@/contexts/InstalledAppsContext";
 import { WidgetPreviewCard } from "@/components/widgets/WidgetPreviewCard";
 import QueueDisplayWidget from "@/components/widgets/QueueDisplayWidget";
+import MeetingRoomWidget from "@/components/widgets/MeetingRoomWidget";
 import { StudioPreviewDialog } from "@/components/studio/StudioPreviewDialog";
 import {
   STUDIO_DATA_VERSION,
@@ -3406,6 +3407,123 @@ function QueueScopePicker({
   );
 }
 
+// ── MeetingRoomScopePicker ─────────────────────────────────────────────────────
+function MeetingRoomScopePicker({
+  apiUrl, calendarId, lang, showTimeline, refreshSeconds,
+  onApiUrlChange, onCalendarIdChange, onLangChange, onShowTimelineChange, onRefreshSecondsChange,
+  uiLang,
+}: {
+  apiUrl: string; calendarId: string; lang: string; showTimeline: boolean; refreshSeconds: number;
+  onApiUrlChange: (v: string) => void;
+  onCalendarIdChange: (v: string) => void;
+  onLangChange: (v: string) => void;
+  onShowTimelineChange: (v: boolean) => void;
+  onRefreshSecondsChange: (v: number) => void;
+  uiLang: string;
+}) {
+  const isZh = uiLang === "zh" || uiLang === "zh-TW";
+  const isJa = uiLang === "ja";
+  const [rooms, setRooms] = useState<{ calendar_id: string; display_name?: string; resource_name: string }[]>([]);
+  const [fetching, setFetching] = useState(false);
+
+  // Fetch rooms from the API when URL changes
+  useEffect(() => {
+    if (!apiUrl) { setRooms([]); return; }
+    setFetching(true);
+    fetch(`${apiUrl}/api/v1/meeting-rooms`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data: { calendar_id: string; display_name?: string; resource_name: string }[]) => setRooms(Array.isArray(data) ? data : []))
+      .catch(() => setRooms([]))
+      .finally(() => setFetching(false));
+  }, [apiUrl]);
+
+  const L = {
+    apiUrl:    isZh ? "BizBooking API 網址" : isJa ? "BizBooking API URL" : "BizBooking API URL",
+    apiUrlPh:  "http://localhost:8083",
+    room:      isZh ? "會議室" : isJa ? "会議室" : "Meeting Room",
+    noRooms:   isZh ? "（請先輸入 API 網址）" : isJa ? "（API URLを入力してください）" : "(Enter API URL first)",
+    lang:      isZh ? "語言" : isJa ? "言語" : "Language",
+    timeline:  isZh ? "顯示今日排程" : isJa ? "本日スケジュール表示" : "Show today's schedule",
+    refresh:   isZh ? "刷新間隔（秒）" : isJa ? "更新間隔（秒）" : "Refresh interval (s)",
+  };
+
+  return (
+    <div className="space-y-2">
+      {/* API URL */}
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{L.apiUrl}</Label>
+        <Input
+          value={apiUrl}
+          onChange={(e) => onApiUrlChange(e.target.value)}
+          placeholder={L.apiUrlPh}
+          className="h-7 text-xs font-mono"
+        />
+      </div>
+
+      {/* Room selector */}
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{L.room}</Label>
+        {rooms.length > 0 ? (
+          <Select value={calendarId} onValueChange={onCalendarIdChange}>
+            <SelectTrigger className="h-7 text-xs">
+              <SelectValue placeholder={isZh ? "選擇會議室" : "Select room"} />
+            </SelectTrigger>
+            <SelectContent>
+              {rooms.map((r) => (
+                <SelectItem key={r.calendar_id} value={r.calendar_id} className="text-xs">
+                  {r.display_name ?? r.resource_name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Input
+            value={calendarId}
+            onChange={(e) => onCalendarIdChange(e.target.value)}
+            placeholder={fetching ? (isZh ? "載入中…" : "Loading…") : L.noRooms}
+            className="h-7 text-xs font-mono"
+          />
+        )}
+      </div>
+
+      {/* Language */}
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{L.lang}</Label>
+        <Select value={lang} onValueChange={onLangChange}>
+          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="zh-TW" className="text-xs">中文（台灣）</SelectItem>
+            <SelectItem value="en-US" className="text-xs">English</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Show timeline toggle */}
+      <div className="flex items-center justify-between">
+        <Label className="text-[10px] text-muted-foreground">{L.timeline}</Label>
+        <Switch
+          checked={showTimeline}
+          onCheckedChange={onShowTimelineChange}
+          className="scale-75 origin-right"
+        />
+      </div>
+
+      {/* Refresh interval */}
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{L.refresh}</Label>
+        <Input
+          type="number"
+          min={10}
+          max={300}
+          value={refreshSeconds}
+          onChange={(e) => onRefreshSecondsChange(Math.max(10, Number(e.target.value) || 30))}
+          className="h-7 text-xs"
+        />
+      </div>
+    </div>
+  );
+}
+
 function AnnouncementScopePicker({
   orgId, teamId, onOrgChange, onTeamChange, lang,
 }: {
@@ -3948,6 +4066,22 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
           onLabelSizeChange={(v) => set({ params: { ...(config.params || {}), labelSize: v } })}
           onSubLabelSizeChange={(v) => set({ params: { ...(config.params || {}), subLabelSize: v } })}
           lang={language}
+        />
+      )}
+
+      {wt === "meeting-room" && (
+        <MeetingRoomScopePicker
+          apiUrl={String((config.params || {}).apiUrl ?? "")}
+          calendarId={String((config.params || {}).calendarId ?? "")}
+          lang={String((config.params || {}).lang ?? "zh-TW")}
+          showTimeline={(config.params || {}).showTimeline as boolean ?? true}
+          refreshSeconds={Number((config.params || {}).refreshSeconds ?? 30)}
+          onApiUrlChange={(v) => set({ params: { ...(config.params || {}), apiUrl: v, calendarId: "" } })}
+          onCalendarIdChange={(v) => set({ params: { ...(config.params || {}), calendarId: v } })}
+          onLangChange={(v) => set({ params: { ...(config.params || {}), lang: v } })}
+          onShowTimelineChange={(v) => set({ params: { ...(config.params || {}), showTimeline: v } })}
+          onRefreshSecondsChange={(v) => set({ params: { ...(config.params || {}), refreshSeconds: v } })}
+          uiLang={language}
         />
       )}
 
@@ -4513,6 +4647,20 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
         labelColor: (config.params?.labelColor as string | undefined) || undefined,
         labelSize: Number((config.params?.labelSize as number | undefined) ?? 2.5),
         subLabelSize: Number((config.params?.subLabelSize as number | undefined) ?? 3),
+      }} />
+    );
+  }
+
+  if (config.widgetType === "meeting-room") {
+    return (
+      <MeetingRoomWidget config={{
+        apiUrl:         (config.params?.apiUrl        as string) || "",
+        calendarId:     (config.params?.calendarId    as string) || "",
+        lang:           ((config.params?.lang         as string) || "zh-TW") as "zh-TW" | "en-US",
+        showTimeline:   (config.params?.showTimeline  as boolean) ?? true,
+        refreshSeconds: Number(config.params?.refreshSeconds ?? 30),
+        bgColor:        config.bgColor || undefined,
+        textColor:      config.textColor || undefined,
       }} />
     );
   }

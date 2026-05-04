@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import Hls from "hls.js";
 import QueueDisplayWidget from "@/components/widgets/QueueDisplayWidget";
+import MeetingRoomWidget from "@/components/widgets/MeetingRoomWidget";
 
 /**
  * DesignStage — faithful renderer for a `design_project` saved by Content Studio.
@@ -382,6 +383,20 @@ export function WidgetRender({ config }: { config: WidgetConfig | null | undefin
 
   if (config.widgetType === "stream" && config.streamUrl) {
     return <StreamWidgetRender url={config.streamUrl} muted={config.streamMuted !== false} fitMode={config.streamFit as string | undefined} />;
+  }
+
+  if (config.widgetType === "meeting-room") {
+    return (
+      <MeetingRoomWidget config={{
+        apiUrl:         (config.params?.apiUrl        as string) || "",
+        calendarId:     (config.params?.calendarId    as string) || "",
+        lang:           ((config.params?.lang         as string) || "zh-TW") as "zh-TW" | "en-US",
+        showTimeline:   (config.params?.showTimeline  as boolean) ?? true,
+        refreshSeconds: Number(config.params?.refreshSeconds ?? 30),
+        bgColor:        bg !== "transparent" ? bg : "transparent",
+        textColor:      fg,
+      }} />
+    );
   }
 
   if (config.widgetType === "queue-display") {
