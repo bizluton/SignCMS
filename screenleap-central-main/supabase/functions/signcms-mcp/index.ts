@@ -325,6 +325,21 @@ const TOOL_DEFS: ToolDef[] = [
       },
     },
   },
+  {
+    name: "upload_media",
+    description: "Upload an image or video file to the organisation's media library. Returns the new media item id and public URL.",
+    inputSchema: {
+      type: "object",
+      required: ["filename", "mime_type", "base64_data"],
+      properties: {
+        filename:    { type: "string", description: "Original file name including extension" },
+        mime_type:   { type: "string", description: "MIME type, e.g. image/jpeg, video/mp4" },
+        base64_data: { type: "string", description: "Raw base64-encoded file content (no data URI prefix)" },
+        file_size:   { type: "number", description: "File size in bytes (optional, for metadata)" },
+        dimensions:  { type: "string", description: "WxH string, e.g. '1920x1080' (optional)" },
+      },
+    },
+  },
 ];
 
 // ── Tool Execution ─────────────────────────────────────────────────────────────
@@ -818,6 +833,53 @@ async function executeTool(
         .eq("endpoint", args.endpoint as string);
       if (error) throw error;
       return { ok: true };
+    }
+
+    // ── upload_media ───────────────────────────────────────────────────────
+    case "upload_media": {
+      if (!args.filename)    throw new Error("filename is required");
+      if (!args.mime_type)   throw new Error("mime_type is required");
+      if (!args.base64_data) throw new Error("base64_data is required");
+
+      const filename  = args.filename  as string;
+      const mimeType  = args.mime_type as string;
+      const b64       = (args.base64_data as string).replace(/^data:[^;]+;base64,/, "");
+      const fileSize  = (args.file_size as number | undefined) ?? 0;
+      const dims      = (args.dimensions as string | undefined) ?? "unknown";
+
+      // Decode base64 → Uint8Array
+      const binary = atob(b64);
+      const bytes  = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+      // Unique storage key: orgId/timestamp_random.ext
+      const ext     = filename.split(".").pop()?.toLowerCase() ?? "bin";
+      const fileKey = `${orgId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+
+      const { error: uploadError } = await sb.storage
+        .from("media")
+        .upload(fileKey, bytes, { contentType: mimeType, upsert: false });
+      if (uploadError) throw new Error(uploadError.message);
+
+      const { data: urlData } = sb.storage.from("media").getPublicUrl(fileKey);
+      const publicUrl = urlData.publicUrl;
+
+      const mediaType = mimeType.startsWith("video/") ? "video" : "image";
+      const baseName  = filename.replace(/\.[^.]+$/, "");
+
+      const { data: item, error: insertError } = await sb.from("media_items").insert({
+        org_id:     orgId,
+        name:       baseName,
+        type:       mediaType,
+        url:        publicUrl,
+        thumbnail:  publicUrl,
+        size:       String(fileSize || bytes.length),
+        dimensions: dims,
+        created_by: claims.userId,
+      }).select("id, name, url").single();
+      if (insertError) throw new Error(insertError.message);
+
+      return { id: item.id, name: item.name, url: item.url };
     }
 
     default:

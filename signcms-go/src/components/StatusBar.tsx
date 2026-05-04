@@ -2,6 +2,7 @@ import { clsx } from "clsx";
 import { Wifi, WifiOff, Settings, Zap, Bell, BellOff, BellRing } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { PushState } from "@/hooks/usePushNotifications";
+import { APP_VERSION } from "@/lib/version";
 
 interface Props {
   connected:    boolean;
@@ -53,8 +54,9 @@ export function StatusBar({ connected, orgSummary, pushState, onPushToggle }: Pr
         </div>
       )}
 
-      {/* Right: push bell + settings */}
+      {/* Right: version + push bell + settings */}
       <div className="flex items-center gap-1">
+        <span className="text-xs text-slate-600 mr-0.5">v{APP_VERSION}</span>
         {pushState !== "unsupported" && onPushToggle && (
           <button
             onClick={onPushToggle}

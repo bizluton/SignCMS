@@ -12,10 +12,20 @@ import { MessageBubble, TypingIndicator } from "@/components/MessageBubble";
 import { StatusBar } from "@/components/StatusBar";
 import { QuickActions } from "@/components/QuickActions";
 import { VoiceButton } from "@/components/VoiceButton";
+import { AttachButton } from "@/components/AttachButton";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 function makeId() {
   return Math.random().toString(36).slice(2);
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve((reader.result as string).split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 const SYSTEM_PROMPT = `你是 SignCMS 智慧看板管理助理。你可以使用以下 MCP 工具查詢和控制數位看板系統。
@@ -30,13 +40,15 @@ export default function ChatPage() {
   const navigate  = useNavigate();
   const settings  = loadSettings();
 
-  const [messages,   setMessages]   = useState<ChatMessage[]>([]);
-  const [input,      setInput]      = useState("");
-  const [typing,     setTyping]     = useState(false);
-  const [connected,  setConnected]  = useState(false);
-  const [tools,      setTools]      = useState<MCPTool[]>([]);
-  const [orgSummary, setOrgSummary] = useState<{ total: number; online: number; offline: number } | null>(null);
-  const [mcpClient,  setMcpClient]  = useState<ReturnType<typeof makeMCPClient> | null>(null);
+  const [messages,    setMessages]    = useState<ChatMessage[]>([]);
+  const [input,       setInput]       = useState("");
+  const [typing,      setTyping]      = useState(false);
+  const [connected,   setConnected]   = useState(false);
+  const [tools,       setTools]       = useState<MCPTool[]>([]);
+  const [orgSummary,  setOrgSummary]  = useState<{ total: number; online: number; offline: number } | null>(null);
+  const [mcpClient,   setMcpClient]   = useState<ReturnType<typeof makeMCPClient> | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [uploading,   setUploading]   = useState(false);
 
   const { state: pushState, subscribe: subscribePush, unsubscribe: unsubscribePush } = usePushNotifications();
 
@@ -61,7 +73,6 @@ export default function ChatPage() {
         const toolList = await mcp.listTools();
         setTools(toolList);
 
-        // Pull org summary for status bar
         const result = await mcp.callTool({ name: "get_org_summary", arguments: {} });
         if (result.content[0]) {
           const data = JSON.parse(result.content[0].text) as {
@@ -83,14 +94,50 @@ export default function ChatPage() {
   }, [messages, typing]);
 
   // ── Send a message ───────────────────────────────────────────────────────
-  const sendMessage = useCallback(async (text: string) => {
-    if (!text.trim() || typing) return;
+  const sendMessage = useCallback(async (text: string, file?: File) => {
+    const attachFile = file ?? pendingFile;
+    if (!text.trim() && !attachFile || typing) return;
+
     setInput("");
+    setPendingFile(null);
+
+    const mcp     = mcpClient ?? makeMCPClient(settings.mcp);
+    const adapter = getAdapter(settings.llm);
+
+    // ── Upload file if attached ──────────────────────────────────────────
+    let uploadNote = "";
+    if (attachFile) {
+      setUploading(true);
+      try {
+        const base64 = await fileToBase64(attachFile);
+        const res    = await mcp.callTool({
+          name:      "upload_media",
+          arguments: {
+            filename:    attachFile.name,
+            mime_type:   attachFile.type,
+            base64_data: base64,
+            file_size:   attachFile.size,
+          },
+        });
+        const data = JSON.parse(res.content[0]?.text ?? "{}") as {
+          id?: string; name?: string; url?: string;
+        };
+        if (data.id && data.url) {
+          uploadNote = `\n[已上傳媒體: 名稱="${data.name}", id="${data.id}", url="${data.url}"]`;
+        }
+      } catch (e) {
+        uploadNote = `\n[媒體上傳失敗: ${e instanceof Error ? e.message : String(e)}]`;
+      } finally {
+        setUploading(false);
+      }
+    }
+
+    const userContent = (text.trim() + uploadNote).trim() || "(已上傳檔案)";
 
     const userMsg: ChatMessage = {
       id:        makeId(),
       role:      "user",
-      content:   text.trim(),
+      content:   userContent,
       timestamp: Date.now(),
     };
     const systemMsg: ChatMessage = {
@@ -105,11 +152,9 @@ export default function ChatPage() {
 
     // Working history mutated each agentic round
     const history: ChatMessage[] = [systemMsg, ...messages.filter((m) => m.role !== "system"), userMsg];
-    const mcp     = mcpClient ?? makeMCPClient(settings.mcp);
-    const adapter = getAdapter(settings.llm);
 
-    const assistantId              = makeId();
-    let   assistantText            = "";
+    const assistantId                                          = makeId();
+    let   assistantText                                        = "";
     const allToolCalls: NonNullable<ChatMessage["toolCalls"]> = [];
     let   errorMsg: string | undefined;
 
@@ -123,8 +168,9 @@ export default function ChatPage() {
       for (let round = 0; round < MAX_ROUNDS; round++) {
         const turnCalls: MCPToolCall[] = [];
         let   turnError: string | undefined;
+        const roundTextStart = assistantText.length;
 
-        // ── Stream one LLM turn (properly awaited — errors propagate here) ──
+        // Properly awaited — errors propagate to outer try/catch
         await adapter.stream(history, tools, (chunk) => {
           if (chunk.type === "text" && chunk.text) {
             assistantText += chunk.text;
@@ -146,11 +192,12 @@ export default function ChatPage() {
         if (turnCalls.length === 0) break;
 
         // ── Execute every tool called this turn ────────────────────────────
+        const toolResults: string[] = [];
         for (const tc of turnCalls) {
           const t0 = Date.now();
           let resultText = "{}";
           try {
-            const res = await mcp.callTool(tc);
+            const res  = await mcp.callTool(tc);
             resultText = res.content[0]?.text ?? "{}";
             allToolCalls.push({
               tool:   tc.name,
@@ -167,22 +214,30 @@ export default function ChatPage() {
               ms:     Date.now() - t0,
             });
           }
-
-          // Inject as "user" so it reaches every LLM provider
-          // (Anthropic filters "system"; OpenAI needs tool role — this
-          //  plain-text form is understood by all models via instruction-following)
-          history.push({
-            id:        makeId(),
-            role:      "user",
-            content:   `[工具結果 ${tc.name}]: ${resultText}`,
-            timestamp: Date.now(),
-          });
+          toolResults.push(`[工具結果 ${tc.name}]: ${resultText}`);
         }
 
         // Show tool chips in the bubble while we wait for the next round
         setMessages((prev) => prev.map((m) =>
           m.id === assistantId ? { ...m, toolCalls: [...allToolCalls] } : m,
         ));
+
+        // Add assistant turn FIRST — prevents consecutive user messages (Anthropic rejects them)
+        const roundText = assistantText.slice(roundTextStart);
+        history.push({
+          id:        makeId(),
+          role:      "assistant",
+          content:   roundText || turnCalls.map((tc) => `[calling ${tc.name}]`).join(" "),
+          timestamp: Date.now(),
+        });
+
+        // Batch ALL tool results into a single user message
+        history.push({
+          id:        makeId(),
+          role:      "user",
+          content:   toolResults.join("\n"),
+          timestamp: Date.now(),
+        });
       }
     } catch (e) {
       errorMsg = e instanceof Error ? e.message : String(e);
@@ -200,7 +255,7 @@ export default function ChatPage() {
       ));
       setTyping(false);
     }
-  }, [messages, tools, settings, typing, mcpClient]);
+  }, [messages, tools, settings, typing, mcpClient, pendingFile]);
 
   // ── Input key handling ───────────────────────────────────────────────────
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -209,6 +264,8 @@ export default function ChatPage() {
       sendMessage(input);
     }
   };
+
+  const busy = typing || uploading;
 
   return (
     <div className="flex flex-col h-full bg-slate-950">
@@ -249,13 +306,44 @@ export default function ChatPage() {
         <QuickActions onSelect={(p) => sendMessage(p)} />
       )}
 
+      {/* File preview strip */}
+      {pendingFile && (
+        <div className="border-t border-slate-800 bg-slate-900 px-3 pt-2 flex items-center gap-2">
+          <div className="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-1.5 flex-1 min-w-0">
+            {pendingFile.type.startsWith("image/") ? (
+              <img
+                src={URL.createObjectURL(pendingFile)}
+                alt="preview"
+                className="w-8 h-8 rounded object-cover shrink-0"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded bg-slate-700 flex items-center justify-center shrink-0 text-xs text-slate-400">
+                🎬
+              </div>
+            )}
+            <span className="text-xs text-slate-300 truncate">{pendingFile.name}</span>
+          </div>
+          <button
+            onClick={() => setPendingFile(null)}
+            className="text-slate-500 hover:text-slate-300 text-lg leading-none px-1"
+            aria-label="Remove file"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Input bar */}
       <div className="border-t border-slate-800 bg-slate-900 px-3 py-2 safe-bottom">
         <div className="flex items-end gap-2">
           <VoiceButton
             onTranscript={(t) => { setInput(t); setTimeout(() => sendMessage(t), 100); }}
-            disabled={typing}
+            disabled={busy}
             language={settings.language === "ja" ? "ja-JP" : settings.language === "en" ? "en-US" : "zh-TW"}
+          />
+          <AttachButton
+            onFile={(f) => setPendingFile(f)}
+            disabled={busy}
           />
           <textarea
             ref={inputRef}
@@ -263,14 +351,14 @@ export default function ChatPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKey}
-            placeholder="輸入訊息…"
-            disabled={typing}
+            placeholder={uploading ? "上傳中…" : "輸入訊息…"}
+            disabled={busy}
             className={clsx(
               "flex-1 bg-slate-800 text-slate-100 placeholder:text-slate-500",
               "rounded-2xl px-4 py-2.5 text-sm resize-none outline-none",
               "max-h-32 overflow-y-auto scrollbar-hide",
               "border border-slate-700 focus:border-brand transition-colors",
-              typing && "opacity-50",
+              busy && "opacity-50",
             )}
             style={{ height: "auto" }}
             onInput={(e) => {
@@ -282,10 +370,10 @@ export default function ChatPage() {
           <button
             type="button"
             onClick={() => sendMessage(input)}
-            disabled={!input.trim() || typing}
+            disabled={(!input.trim() && !pendingFile) || busy}
             className={clsx(
               "p-2.5 rounded-full transition-colors",
-              input.trim() && !typing
+              (input.trim() || pendingFile) && !busy
                 ? "bg-brand text-white hover:bg-brand-dark"
                 : "bg-slate-700 text-slate-500",
             )}
