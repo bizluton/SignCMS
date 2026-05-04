@@ -4,7 +4,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -104,8 +103,6 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
   const [endTime, setEndTime] = useState("18:00");
   const [effectiveFrom, setEffectiveFrom] = useState("");
   const [effectiveTo, setEffectiveTo] = useState("");
-  const [priority, setPriority] = useState(0);
-  const [enabled, setEnabled] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -120,8 +117,6 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
     setEndTime(block?.end_time?.slice(0, 5) ?? "18:00");
     setEffectiveFrom(block?.effective_from ?? "");
     setEffectiveTo(block?.effective_to ?? "");
-    setPriority(block?.priority ?? 0);
-    setEnabled(block?.enabled ?? true);
     // Load allowed projects for this channel; pre-select default
     (async () => {
       if (!channelId) { setAllowedIds([]); return; }
@@ -158,15 +153,15 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
   };
 
   const handleSave = async () => {
+    if (!name.trim()) { toast.error(t("blockName") + " " + t("required") || "排程名稱為必填"); return; }
     setSaving(true);
     const payload: Record<string, unknown> = {
       channel_id: channelId,
       org_id: orgId,
       design_project_id: designProjectId || null,
-      name,
+      name: name.trim(),
       block_type: blockType,
-      priority,
-      enabled,
+      enabled: true,
     };
     if (blockType === "calendar") {
       if (!startAt || !endAt) { toast.error(t("blockStartAt") + " / " + t("blockEndAt")); setSaving(false); return; }
@@ -208,8 +203,12 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
         </DialogHeader>
         <div className="space-y-4 py-2">
           <div>
-            <Label>{t("blockName")}</Label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} />
+            <Label>{t("blockName")} <span className="text-destructive">*</span></Label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={!name.trim() ? "border-destructive focus-visible:ring-destructive" : ""}
+            />
           </div>
           <div>
             <Label>{t("blockDesignProject")}</Label>
@@ -389,16 +388,6 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
               </div>
             </TabsContent>
           </Tabs>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>{t("blockPriority")}</Label>
-              <Input type="number" value={priority} onChange={(e) => setPriority(Number(e.target.value) || 0)} />
-            </div>
-            <div className="flex flex-col">
-              <Label>{t("blockEnabled")}</Label>
-              <div className="pt-2"><Switch checked={enabled} onCheckedChange={setEnabled} /></div>
-            </div>
-          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t("cancel")}</Button>
