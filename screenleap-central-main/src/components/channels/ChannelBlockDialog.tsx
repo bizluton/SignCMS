@@ -68,7 +68,6 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
   const [blockType, setBlockType] = useState<"calendar" | "weekly">("calendar");
   const [name, setName] = useState("");
   const [designProjectId, setDesignProjectId] = useState<string>("");
-  const [allowedIds, setAllowedIds] = useState<string[]>([]);
   const [startAt, setStartAt] = useState("");
   const [endAt, setEndAt] = useState("");
   const [weekdays, setWeekdays] = useState<WeekdayKey[]>([]);
@@ -109,7 +108,6 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
     if (!open) return;
     setBlockType(block?.block_type ?? "calendar");
     setName(block?.name ?? "");
-    // Default start to "now" when creating a new block; keep the existing value when editing.
     setStartAt(block?.start_at ? toLocalInputValue(block.start_at) : nowLocalInputValue(tz));
     setEndAt(toLocalInputValue(block?.end_at ?? null));
     setWeekdays((block?.weekdays as WeekdayKey[]) ?? []);
@@ -117,26 +115,9 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
     setEndTime(block?.end_time?.slice(0, 5) ?? "18:00");
     setEffectiveFrom(block?.effective_from ?? "");
     setEffectiveTo(block?.effective_to ?? "");
-    // Load allowed projects for this channel; pre-select default
-    (async () => {
-      if (!channelId) { setAllowedIds([]); return; }
-      const { data } = await supabase
-        .from("channel_allowed_projects")
-        .select("design_project_id")
-        .eq("channel_id", channelId)
-        .order("sort_order", { ascending: true });
-      const ids = (data ?? []).map((r) => r.design_project_id) as string[];
-      setAllowedIds(ids);
-      const initial =
-        block?.design_project_id
-        ?? channel?.default_design_project_id
-        ?? ids[0]
-        ?? "";
-      setDesignProjectId(initial);
-    })();
-  }, [open, block, channelId, channel]);
-
-  const allowedProjects = designProjects.filter((p) => allowedIds.includes(p.id));
+    const initial = block?.design_project_id ?? designProjects[0]?.id ?? "";
+    setDesignProjectId(initial);
+  }, [open, block]);
 
   const toggleWeekday = (k: WeekdayKey) => {
     setWeekdays((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
@@ -215,13 +196,11 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
             <Select value={designProjectId} onValueChange={setDesignProjectId}>
               <SelectTrigger><SelectValue placeholder={t("blockSelectProject")} /></SelectTrigger>
               <SelectContent>
-                {allowedProjects.length === 0 ? (
+                {designProjects.length === 0 ? (
                   <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("noAllowedProjects")}</div>
                 ) : (
-                  allowedProjects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}{channel?.default_design_project_id === p.id ? ` · ${t("default")}` : ""}
-                    </SelectItem>
+                  designProjects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                   ))
                 )}
               </SelectContent>

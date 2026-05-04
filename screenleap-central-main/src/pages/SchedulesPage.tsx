@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveOrg } from "@/contexts/ActiveOrgContext";
@@ -68,10 +68,13 @@ export default function SchedulesPage() {
   const [unassigningKey, setUnassigningKey] = useState<string | null>(null);
   const [pendingChannelIds, setPendingChannelIds] = useState<Set<string>>(new Set());
 
+  const [scheduleMode, setScheduleMode] = useState<"channel" | "project">("channel");
+
   const [blockDialogOpen, setBlockDialogOpen] = useState(false);
   const [editingBlock, setEditingBlock] = useState<ChannelBlock | null>(null);
   const [deletingBlock, setDeletingBlock] = useState<ChannelBlock | null>(null);
   const [downloadingBlockId, setDownloadingBlockId] = useState<string | null>(null);
+  const autoReopenBlockRef = useRef(false);
 
   const [designProjects, setDesignProjects] = useState<DesignProjectLite[]>([]);
   const [allowedProjectIds, setAllowedProjectIds] = useState<string[]>([]);
@@ -208,9 +211,7 @@ export default function SchedulesPage() {
   );
 
   const visibleProjects = useMemo(() => {
-    if (allowedProjectIds.length === 0) return [] as DesignProjectLite[];
-    const set = new Set(allowedProjectIds);
-    // Preserve allowed list order
+    if (allowedProjectIds.length === 0) return designProjects;
     return allowedProjectIds
       .map((id) => designProjects.find((p) => p.id === id))
       .filter((p): p is DesignProjectLite => !!p);
@@ -402,9 +403,36 @@ export default function SchedulesPage() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">{t("channelsSubtitle")}</p>
         </div>
-        <Button onClick={() => { setEditingChannel(null); setChannelDialogOpen(true); }}>
-          <Plus className="h-4 w-4 mr-1" /> {t("newChannel")}
-        </Button>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Schedule mode toggle */}
+          <div className="flex items-center rounded-lg border bg-muted/30 p-0.5 text-sm gap-0.5">
+            <button
+              onClick={() => setScheduleMode("channel")}
+              className={cn(
+                "px-3 py-1.5 rounded-md font-medium transition-all text-sm",
+                scheduleMode === "channel"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              頻道排程
+            </button>
+            <button
+              onClick={() => setScheduleMode("project")}
+              className={cn(
+                "px-3 py-1.5 rounded-md font-medium transition-all text-sm",
+                scheduleMode === "project"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              專案排程
+            </button>
+          </div>
+          <Button onClick={() => { setEditingChannel(null); setChannelDialogOpen(true); }}>
+            <Plus className="h-4 w-4 mr-1" /> {t("newChannel")}
+          </Button>
+        </div>
       </div>
 
       {/* Channel bar */}
@@ -487,15 +515,16 @@ export default function SchedulesPage() {
         </div>
       )}
 
-      {/* Calendar timeline */}
-      {selectedChannel && (
+      {/* Calendar timeline — channel mode only */}
+      {selectedChannel && scheduleMode === "channel" && (
         <ScheduleTimeline
           channelId={selectedChannel.id}
           blocks={blocks}
           designProjects={visibleProjects}
           channelColor={selectedChannel.color}
-          onBlockClick={(b) => { setEditingBlock(b); setBlockDialogOpen(true); }}
+          onBlockClick={(b) => { autoReopenBlockRef.current = false; setEditingBlock(b); setBlockDialogOpen(true); }}
           onReorderProjects={reorderAllowedProjects}
+          onAddBlock={() => { autoReopenBlockRef.current = true; setEditingBlock(null); setBlockDialogOpen(true); }}
         />
       )}
 
@@ -513,8 +542,13 @@ export default function SchedulesPage() {
                 />
                 <span>{t("blockShowExpired")}</span>
               </label>
-              <Button size="sm" onClick={() => { setEditingBlock(null); setBlockDialogOpen(true); }}>
-                <Plus className="h-4 w-4 mr-1" /> {t("newBlock")}
+              <Button size="sm" onClick={() => {
+                autoReopenBlockRef.current = scheduleMode === "project";
+                setEditingBlock(null);
+                setBlockDialogOpen(true);
+              }}>
+                <Plus className="h-4 w-4 mr-1" />
+                {scheduleMode === "project" ? "新增專案" : t("newBlock")}
               </Button>
             </div>
           </div>
@@ -569,7 +603,7 @@ export default function SchedulesPage() {
                       ? <Loader2 className="h-4 w-4 animate-spin" />
                       : <Download className="h-4 w-4" />}
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => { setEditingBlock(b); setBlockDialogOpen(true); }}>
+                  <Button variant="ghost" size="icon" onClick={() => { autoReopenBlockRef.current = false; setEditingBlock(b); setBlockDialogOpen(true); }}>
                     <Pencil className="h-4 w-4" />
                   </Button>
                   <Button variant="ghost" size="icon" onClick={() => setDeletingBlock(b)}>
@@ -589,31 +623,31 @@ export default function SchedulesPage() {
           onOpenChange={setChannelDialogOpen}
           orgId={activeOrgId}
           channel={editingChannel}
-          designProjects={designProjects}
-          onSaved={async () => {
-            await reloadChannels();
-            // Refresh allowed projects for the currently selected channel
-            if (selectedChannelId) {
-              const { data } = await supabase
-                .from("channel_allowed_projects")
-                .select("design_project_id")
-                .eq("channel_id", selectedChannelId)
-                .order("sort_order", { ascending: true });
-              setAllowedProjectIds((data ?? []).map((r) => r.design_project_id));
-            }
-          }}
+          onSaved={reloadChannels}
         />
       )}
       {selectedChannel && activeOrgId && (
         <ChannelBlockDialog
           open={blockDialogOpen}
-          onOpenChange={setBlockDialogOpen}
+          onOpenChange={(o) => {
+            if (!o) autoReopenBlockRef.current = false;
+            setBlockDialogOpen(o);
+          }}
           channelId={selectedChannel.id}
           orgId={activeOrgId}
           block={editingBlock}
           channel={selectedChannel}
           designProjects={designProjects}
-          onSaved={reloadBlocks}
+          onSaved={() => {
+            const shouldReopen = autoReopenBlockRef.current;
+            reloadBlocks();
+            if (shouldReopen) {
+              setTimeout(() => {
+                setEditingBlock(null);
+                setBlockDialogOpen(true);
+              }, 80);
+            }
+          }}
         />
       )}
 

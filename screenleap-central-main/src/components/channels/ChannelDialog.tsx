@@ -8,8 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { X, Plus, Star, GripVertical, ArrowUp, ArrowDown, Users, User as UserIcon, Building2 } from "lucide-react";
+import { Users, User as UserIcon, Building2 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 import type { Channel } from "@/hooks/useChannels";
@@ -31,7 +30,6 @@ const truncateByWidth = (s: string, max: number) => {
   return out;
 };
 
-interface DesignProjectLite { id: string; name: string }
 interface TeamLite { id: string; name: string }
 
 interface Props {
@@ -39,11 +37,10 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   orgId: string;
   channel: Channel | null;
-  designProjects: DesignProjectLite[];
   onSaved: () => void;
 }
 
-export function ChannelDialog({ open, onOpenChange, orgId, channel, designProjects, onSaved }: Props) {
+export function ChannelDialog({ open, onOpenChange, orgId, channel, onSaved }: Props) {
   const { t } = useLanguage();
   const { user } = useAuth();
   const [name, setName] = useState("");
@@ -51,15 +48,10 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, designProjec
   const [color, setColor] = useState(PRESET_COLORS[0]);
   const [bgmVolume, setBgmVolume] = useState(50);
   const [enabled, setEnabled] = useState(true);
-  const [defaultProjectId, setDefaultProjectId] = useState<string>("");
-  const [allowedProjectIds, setAllowedProjectIds] = useState<string[]>([]);
   const [teamId, setTeamId] = useState<string>("none");
   const [collabScope, setCollabScope] = useState<"creator" | "team" | "org">("team");
   const [teams, setTeams] = useState<TeamLite[]>([]);
-  const [pickerKey, setPickerKey] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -68,7 +60,6 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, designProjec
       setColor(channel?.color ?? PRESET_COLORS[0]);
       setBgmVolume(channel?.bgm_volume ?? 50);
       setEnabled(channel?.enabled ?? true);
-      setDefaultProjectId(channel?.default_design_project_id ?? "");
       setTeamId(channel?.team_id ? String(channel.team_id) : "none");
       const cs = channel?.collab_scope;
       const hasTeam = !!channel?.team_id;
@@ -79,20 +70,6 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, designProjec
             ? "team"
             : "org"
       );
-      setPickerKey((k) => k + 1);
-      // load allowed projects
-      if (channel?.id) {
-        (async () => {
-          const { data } = await supabase
-            .from("channel_allowed_projects")
-            .select("design_project_id")
-            .eq("channel_id", channel.id)
-            .order("sort_order", { ascending: true });
-          setAllowedProjectIds((data ?? []).map((r) => r.design_project_id));
-        })();
-      } else {
-        setAllowedProjectIds([]);
-      }
       // Load teams for current org
       (async () => {
         const { data } = await supabase
@@ -104,34 +81,6 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, designProjec
       })();
     }
   }, [open, channel, orgId]);
-
-  const addAllowed = (id: string) => {
-    if (!id || allowedProjectIds.includes(id)) return;
-    setAllowedProjectIds((p) => [...p, id]);
-    if (!defaultProjectId) setDefaultProjectId(id);
-    setPickerKey((k) => k + 1);
-  };
-
-  const removeAllowed = (id: string) => {
-    setAllowedProjectIds((p) => p.filter((x) => x !== id));
-    if (defaultProjectId === id) setDefaultProjectId("");
-  };
-
-  const moveAllowed = (from: number, to: number) => {
-    if (from === to || from < 0 || to < 0) return;
-    setAllowedProjectIds((prev) => {
-      if (from >= prev.length || to >= prev.length) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      return next;
-    });
-  };
-
-  const projectName = (id: string) =>
-    designProjects.find((p) => p.id === id)?.name ?? "—";
-
-  const availableToAdd = designProjects.filter((p) => !allowedProjectIds.includes(p.id));
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -148,50 +97,22 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, designProjec
       color,
       bgm_volume: bgmVolume,
       enabled,
-      default_design_project_id: defaultProjectId || null,
       team_id: teamIdToSave,
       collab_scope: collabToSave,
     };
     let error: { message: string } | null;
-    let channelId = channel?.id;
     if (channel) {
       ({ error } = await supabase.from("channels").update(payload).eq("id", channel.id));
     } else {
-      const { data, error: insErr } = await supabase
+      const { error: insErr } = await supabase
         .from("channels")
-        .insert({ ...payload, created_by: user?.id })
-        .select("id")
-        .single();
+        .insert({ ...payload, created_by: user?.id });
       error = insErr;
-      channelId = data?.id;
     }
     if (error) {
       setSaving(false);
       toast.error(error.message);
       return;
-    }
-    // sync allowed projects (delete + reinsert)
-    if (channelId) {
-      const { error: delErr } = await supabase
-        .from("channel_allowed_projects")
-        .delete()
-        .eq("channel_id", channelId);
-      if (delErr) {
-        toast.error(`Allowed projects: ${delErr.message}`);
-      }
-      if (allowedProjectIds.length > 0) {
-        const rows = allowedProjectIds.map((pid, idx) => ({
-          channel_id: channelId,
-          design_project_id: pid,
-          sort_order: idx,
-        }));
-        const { error: insErr } = await supabase
-          .from("channel_allowed_projects")
-          .insert(rows);
-        if (insErr) {
-          toast.error(`Allowed projects: ${insErr.message}`);
-        }
-      }
     }
     setSaving(false);
     toast.success(channel ? t("channelUpdated") : t("channelCreated"));
@@ -252,121 +173,6 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, designProjec
                 </SelectContent>
               </Select>
             </div>
-          </div>
-          <div className="space-y-2 rounded-md border p-3 bg-muted/20">
-            <div>
-              <Label>{t("channelAllowedProjects")}</Label>
-              <p className="text-xs text-muted-foreground mt-1">{t("channelAllowedProjectsHint")}</p>
-            </div>
-            <div className="flex gap-2">
-              <Select key={pickerKey} onValueChange={addAllowed}>
-                <SelectTrigger className="flex-1">
-                  <SelectValue placeholder={t("addProject")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableToAdd.length === 0 ? (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">—</div>
-                  ) : (
-                    availableToAdd.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-            {allowedProjectIds.length === 0 ? (
-              <div className="text-xs text-muted-foreground py-2">{t("noAllowedProjects")}</div>
-            ) : (
-              <div className="space-y-1.5">
-                <p className="text-[11px] text-muted-foreground">
-                  拖曳調整順序，越上方優先播放
-                </p>
-                {allowedProjectIds.map((pid, idx) => {
-                  const isDefault = defaultProjectId === pid;
-                  const isDragging = dragIndex === idx;
-                  const isDragOver = dragOverIndex === idx && dragIndex !== null && dragIndex !== idx;
-                  return (
-                    <div
-                      key={pid}
-                      draggable
-                      onDragStart={(e) => {
-                        setDragIndex(idx);
-                        e.dataTransfer.effectAllowed = "move";
-                      }}
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        e.dataTransfer.dropEffect = "move";
-                        if (dragOverIndex !== idx) setDragOverIndex(idx);
-                      }}
-                      onDragLeave={() => {
-                        if (dragOverIndex === idx) setDragOverIndex(null);
-                      }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        if (dragIndex !== null) moveAllowed(dragIndex, idx);
-                        setDragIndex(null);
-                        setDragOverIndex(null);
-                      }}
-                      onDragEnd={() => {
-                        setDragIndex(null);
-                        setDragOverIndex(null);
-                      }}
-                      className={`flex items-center gap-2 p-2 rounded-md bg-background border transition-all ${
-                        isDragging ? "opacity-50" : ""
-                      } ${isDragOver ? "border-primary ring-1 ring-primary" : ""}`}
-                    >
-                      <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab active:cursor-grabbing flex-shrink-0" />
-                      <span className="text-xs text-muted-foreground w-5 text-center flex-shrink-0">{idx + 1}</span>
-                      <span className="text-sm flex-1 truncate">{projectName(pid)}</span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        disabled={idx === 0}
-                        onClick={() => moveAllowed(idx, idx - 1)}
-                      >
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        disabled={idx === allowedProjectIds.length - 1}
-                        onClick={() => moveAllowed(idx, idx + 1)}
-                      >
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </Button>
-                      {isDefault ? (
-                        <Badge variant="secondary" className="text-[10px] gap-1">
-                          <Star className="h-3 w-3 fill-current" />{t("default")}
-                        </Badge>
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 px-2 text-xs"
-                          onClick={() => setDefaultProjectId(pid)}
-                        >
-                          <Star className="h-3 w-3 mr-1" />{t("setAsDefault")}
-                        </Button>
-                      )}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={() => removeAllowed(pid)}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
           <div>
             <Label>{t("channelColor")}</Label>

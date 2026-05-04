@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
+import { CalendarPlus, ChevronLeft, ChevronRight, GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
 import type { ChannelBlock } from "@/hooks/useChannels";
@@ -26,6 +26,7 @@ interface Props {
   channelColor: string;
   onBlockClick?: (block: ChannelBlock) => void;
   onReorderProjects?: (orderedIds: string[]) => void;
+  onAddBlock?: () => void;
   /**
    * When provided, per-day intervals are computed server-side via the
    * `get_channel_schedule_intervals` RPC using the user-selected timezone.
@@ -203,7 +204,7 @@ function resolveBlockIntervals(
   return out;
 }
 
-export function ScheduleTimeline({ blocks, designProjects, channelColor, onBlockClick, onReorderProjects, channelId }: Props) {
+export function ScheduleTimeline({ blocks, designProjects, channelColor, onBlockClick, onReorderProjects, onAddBlock, channelId }: Props) {
   const { t, language } = useLanguage();
   const [view, setView] = useState<TimelineView>("week");
   const [anchor, setAnchor] = useState<Date>(() => todayInTz(readStoredTz()));
@@ -716,6 +717,24 @@ export function ScheduleTimeline({ blocks, designProjects, channelColor, onBlock
                   })}
                   {/* Block bars for this row — compute sub-lanes so overlapping
                       placements stack vertically instead of covering each other. */}
+                  {/* Add-block shortcut in the first row when no blocks exist */}
+                  {rowIdx === 0 && blocks.length === 0 && onAddBlock && (() => {
+                    const todayIdx = days.findIndex((d) => sameDay(d, new Date()));
+                    const colIdx = todayIdx >= 0 ? todayIdx : 0;
+                    const colLeft = LABEL_W + colIdx * dayColPx + dayColPx / 2;
+                    return (
+                      <button
+                        onClick={onAddBlock}
+                        className="absolute z-10 flex flex-col items-center gap-1.5 text-muted-foreground/50 hover:text-primary transition-colors"
+                        style={{ left: colLeft, top: "50%", transform: "translate(-50%, -50%)" }}
+                      >
+                        <div className="rounded-full border-2 border-dashed border-current p-2.5">
+                          <CalendarPlus className="h-5 w-5" />
+                        </div>
+                        <span className="text-[10px] font-medium whitespace-nowrap">{t("newBlock")}</span>
+                      </button>
+                    );
+                  })()}
                   {(() => {
                     const rowItems = placements
                       .filter((pl) => pl.rowIdx === rowIdx)
