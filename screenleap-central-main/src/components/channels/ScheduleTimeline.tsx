@@ -777,13 +777,10 @@ export function ScheduleTimeline({ blocks, designProjects, channelColor, onBlock
                           className="absolute left-0 top-0 bottom-0 w-1 rounded-l-[4px]"
                           style={{ backgroundColor: color }}
                         />
-                        <div className="pl-2.5 pr-2 py-1 h-full flex flex-col justify-center">
-                          <span className="font-semibold truncate leading-tight">{pl.block.name || "—"}</span>
-                          {!isMonth && laneH > 28 && (
-                            <span className="block opacity-75 text-[10px] tabular-nums truncate leading-tight mt-0.5">
-                              {sh} – {eh}
-                            </span>
-                          )}
+                        <div className="pl-2.5 pr-2 py-1 h-full flex items-center">
+                          <span className="tabular-nums truncate leading-tight">
+                            {isMonth ? sh : `${sh} – ${eh}`}
+                          </span>
                         </div>
                       </button>
                     );

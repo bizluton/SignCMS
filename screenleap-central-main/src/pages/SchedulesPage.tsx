@@ -558,6 +558,9 @@ export default function SchedulesPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            <Button size="sm" onClick={() => { autoReopenBlockRef.current = false; setEditingBlock(null); setBlockDialogOpen(true); }}>
+              <Plus className="h-4 w-4 mr-1" /> {t("newBlock")}
+            </Button>
             <Button variant="outline" size="sm" onClick={() => { setEditingChannel(selectedChannel); setChannelDialogOpen(true); }}>
               <Pencil className="h-4 w-4 mr-1" /> {t("edit")}
             </Button>
@@ -585,16 +588,11 @@ export default function SchedulesPage() {
       {selectedChannel && (
         <Card className="overflow-hidden">
           <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between gap-3">
-            <h3 className="font-semibold text-sm">{t("channelBlocks")}</h3>
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
-                <Switch checked={showExpired} onCheckedChange={setShowExpired} aria-label={t("blockShowExpired")} />
-                <span>{t("blockShowExpired")}</span>
-              </label>
-              <Button size="sm" onClick={() => { autoReopenBlockRef.current = false; setEditingBlock(null); setBlockDialogOpen(true); }}>
-                <Plus className="h-4 w-4 mr-1" /> {t("newBlock")}
-              </Button>
-            </div>
+            <h3 className="font-semibold text-sm">頻道排程列表</h3>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+              <Switch checked={showExpired} onCheckedChange={setShowExpired} aria-label={t("blockShowExpired")} />
+              <span>{t("blockShowExpired")}</span>
+            </label>
           </div>
           {blocksLoading ? (
             <div className="p-8 text-center text-muted-foreground text-sm">…</div>
