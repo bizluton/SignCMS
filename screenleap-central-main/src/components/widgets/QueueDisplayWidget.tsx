@@ -37,6 +37,8 @@ export interface QueueDisplayConfig {
   teamId?: string;
   /** If set, override teamId and only show these specific queues */
   queueIds?: string[];
+  /** If set, only show tickets whose counter_name is in this list */
+  counterNames?: string[];
   /** e.g. "zh-TW", "en-US", "ja-JP" */
   ttsLang?: string;
   /** Seconds between cycles when showing multiple queues (default 8) */
@@ -47,9 +49,10 @@ export interface QueueDisplayConfig {
 
 export default function QueueDisplayWidget({ config }: { config: QueueDisplayConfig }) {
   const { activeOrgId } = useActiveOrg();
-  const { teamId, queueIds, ttsLang = "zh-TW", cycleSeconds = 8 } = config;
+  const { teamId, queueIds, counterNames, ttsLang = "zh-TW", cycleSeconds = 8 } = config;
   // Fallback to active org when config.orgId not yet persisted (e.g. freshly inserted widget)
   const orgId = config.orgId || activeOrgId || "";
+  const hasCounterFilter = !!counterNames && counterNames.length > 0;
 
   const [queues, setQueues] = useState<Queue[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
@@ -116,17 +119,18 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
   useEffect(() => {
     if (!activeQueue) return;
 
-    // Initial latest calling ticket
-    supabase
+    // Initial latest calling ticket (filtered by counter if specified)
+    let initQ = supabase
       .from("queue_system_tickets")
       .select("*")
       .eq("queue_id", activeQueue.id)
       .eq("status", "calling")
       .order("called_at", { ascending: false })
-      .limit(1)
-      .then(({ data }) => {
-        if (data?.[0]) setLatestTicket(data[0] as Ticket);
-      });
+      .limit(1);
+    if (hasCounterFilter) initQ = (initQ as typeof initQ).in("counter_name", counterNames!);
+    initQ.then(({ data }) => {
+      if (data?.[0]) setLatestTicket(data[0] as Ticket);
+    });
 
     const channel = supabase
       .channel(`qs-display-${activeQueue.id}`)
@@ -149,6 +153,7 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
         (payload) => {
           const ticket = payload.new as Ticket;
           if (ticket.status !== "calling") return;
+          if (hasCounterFilter && !counterNames!.includes(ticket.counter_name)) return;
           setLatestTicket(ticket);
 
           if (!announcedRef.current.has(ticket.id)) {
@@ -172,6 +177,7 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
         (payload) => {
           const ticket = payload.new as Ticket;
           if (ticket.status !== "calling") return;
+          if (hasCounterFilter && !counterNames!.includes(ticket.counter_name)) return;
           setLatestTicket(ticket);
 
           if (!announcedRef.current.has(ticket.id)) {
