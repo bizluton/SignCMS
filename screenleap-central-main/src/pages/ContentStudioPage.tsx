@@ -3169,18 +3169,19 @@ function ColorSwatchInput({ value, onChange, fallback = "#000000", disabled = fa
 // ── QueueScopePicker ──────────────────────────────────────────────────────────
 // Auto-fills org UUID from context; lets user pick team + individual queues.
 function QueueScopePicker({
-  orgId, teamId, queueIds, counterNames, ttsLang, cycleSeconds,
-  onOrgChange, onTeamChange, onQueueIdsChange, onCounterNamesChange, onTtsLangChange, onCycleSecondsChange,
+  orgId, teamId, queueIds, counterNames, ttsLang, cycleSeconds, numSize,
+  onOrgChange, onTeamChange, onQueueIdsChange, onCounterNamesChange, onTtsLangChange, onCycleSecondsChange, onNumSizeChange,
   lang,
 }: {
   orgId: string; teamId: string; queueIds: string[]; counterNames: string[];
-  ttsLang: string; cycleSeconds: number;
+  ttsLang: string; cycleSeconds: number; numSize: number;
   onOrgChange: (v: string) => void;
   onTeamChange: (v: string) => void;
   onQueueIdsChange: (v: string[]) => void;
   onCounterNamesChange: (v: string[]) => void;
   onTtsLangChange: (v: string) => void;
   onCycleSecondsChange: (v: number) => void;
+  onNumSizeChange: (v: number) => void;
   lang: string;
 }) {
   const { activeOrgId } = useActiveOrg();
@@ -3348,6 +3349,22 @@ function QueueScopePicker({
           max={60}
           value={cycleSeconds || 8}
           onChange={(e) => onCycleSecondsChange(Math.max(3, Number(e.target.value) || 8))}
+          className="h-7 text-xs"
+        />
+      </div>
+
+      {/* Number font size */}
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">
+          {isZh ? "號碼字體大小（cqi %）" : isJa ? "番号フォントサイズ（cqi %）" : "Number font size (cqi %)"}
+        </Label>
+        <Input
+          type="number"
+          min={6}
+          max={30}
+          step={0.5}
+          value={numSize ?? 16}
+          onChange={(e) => onNumSizeChange(Math.max(6, Math.min(30, Number(e.target.value) || 16)))}
           className="h-7 text-xs"
         />
       </div>
@@ -3884,18 +3901,20 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
           counterNames={((config.params || {}).counterNames as string[] | undefined) ?? []}
           ttsLang={String((config.params || {}).ttsLang ?? "zh-TW")}
           cycleSeconds={Number((config.params || {}).cycleSeconds ?? 8)}
+          numSize={Number((config.params || {}).numSize ?? 16)}
           onOrgChange={(v) => set({ params: { ...(config.params || {}), orgId: v, teamId: "", queueIds: [], counterNames: [] } })}
           onTeamChange={(v) => set({ params: { ...(config.params || {}), teamId: v, queueIds: [], counterNames: [] } })}
           onQueueIdsChange={(v) => set({ params: { ...(config.params || {}), queueIds: v, counterNames: [] } })}
           onCounterNamesChange={(v) => set({ params: { ...(config.params || {}), counterNames: v } })}
           onTtsLangChange={(v) => set({ params: { ...(config.params || {}), ttsLang: v } })}
           onCycleSecondsChange={(v) => set({ params: { ...(config.params || {}), cycleSeconds: v } })}
+          onNumSizeChange={(v) => set({ params: { ...(config.params || {}), numSize: v } })}
           lang={language}
         />
       )}
 
       {/* Common appearance — hidden for youtube/stream and for widgets that manage colors via their own paramsSchema */}
-      {wt !== "youtube" && wt !== "stream" && wt !== "weather_tw" && wt !== "weather" && wt !== "announcement" && wt !== "queue-display" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
+      {wt !== "youtube" && wt !== "stream" && wt !== "weather_tw" && wt !== "weather" && wt !== "announcement" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetBgColor")}</Label>
           <div className="flex items-center gap-1.5">
@@ -4441,6 +4460,9 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
         counterNames: (config.params?.counterNames as string[] | undefined) || undefined,
         ttsLang: (config.params?.ttsLang as string | undefined) || "zh-TW",
         cycleSeconds: (config.params?.cycleSeconds as number | undefined) || 8,
+        bgColor: config.bgColor || undefined,
+        textColor: config.textColor || undefined,
+        numSize: Number((config.params?.numSize as number | undefined) ?? 16),
       }} />
     );
   }

@@ -48,13 +48,20 @@ export interface QueueDisplayConfig {
   ttsLang?: string;
   /** Seconds between cycles when showing multiple queues/counters (default 8) */
   cycleSeconds?: number;
+  /** Background color, or "transparent" for no background (default dark) */
+  bgColor?: string;
+  /** Number and label text color (default #ffffff) */
+  textColor?: string;
+  /** Font size of the main number as a cqi percentage (default 16) */
+  numSize?: number;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function QueueDisplayWidget({ config }: { config: QueueDisplayConfig }) {
   const { activeOrgId } = useActiveOrg();
-  const { teamId, queueIds, counterNames, ttsLang = "zh-TW", cycleSeconds = 8 } = config;
+  const { teamId, queueIds, counterNames, ttsLang = "zh-TW", cycleSeconds = 8,
+          bgColor, textColor, numSize = 16 } = config;
   // Fallback to active org when config.orgId not yet persisted
   const orgId = config.orgId || activeOrgId || "";
 
@@ -331,8 +338,11 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
 
   return (
     <div
-      className="relative flex h-full w-full flex-col items-center justify-center overflow-hidden bg-gray-950 select-none"
-      style={{ containerType: "inline-size" }}
+      className="relative flex h-full w-full flex-col items-center justify-center overflow-hidden select-none"
+      style={{
+        containerType: "inline-size",
+        background: bgColor === "transparent" ? "transparent" : (bgColor ?? "rgb(3,7,18)"),
+      }}
     >
       {/* Background gradient — pulses amber when triggered */}
       <div className={`pointer-events-none absolute inset-0 transition-all duration-700 ${
@@ -352,8 +362,8 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
       {/* Big number */}
       <div className="relative z-10 flex items-baseline">
         <span
-          className="font-black tabular-nums tracking-tight text-white"
-          style={{ fontSize: "clamp(2rem, 16cqi, 20rem)", lineHeight: 1 }}
+          className="font-black tabular-nums tracking-tight"
+          style={{ fontSize: `clamp(2rem, ${numSize}cqi, 20rem)`, lineHeight: 1, color: textColor || "#ffffff" }}
         >
           {displayNumber}
         </span>

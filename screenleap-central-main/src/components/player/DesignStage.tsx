@@ -409,8 +409,12 @@ export function WidgetRender({ config }: { config: WidgetConfig | null | undefin
         orgId,
         teamId:       teamId || undefined,
         queueIds:     queueIds?.length ? queueIds : undefined,
+        counterNames: (config.params?.counterNames as string[] | undefined) || undefined,
         ttsLang:      (config.params?.ttsLang      as string | undefined) ?? (config.ttsLang      as string | undefined) ?? "zh-TW",
         cycleSeconds: Number((config.params?.cycleSeconds ?? config.cycleSeconds) ?? 8),
+        bgColor:      bg !== "transparent" ? bg : "transparent",
+        textColor:    fg,
+        numSize:      Number((config.params?.numSize as number | undefined) ?? 16),
       }} />
     );
   }
