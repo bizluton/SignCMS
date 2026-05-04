@@ -14,8 +14,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import { useChannels, useChannelBlocks, type Channel, type ChannelBlock } from "@/hooks/useChannels";
+import { useProjectSchedules, type ProjectSchedule } from "@/hooks/useProjectSchedules";
 import { ChannelDialog } from "@/components/channels/ChannelDialog";
 import { ChannelBlockDialog } from "@/components/channels/ChannelBlockDialog";
+import { ProjectScheduleDialog } from "@/components/schedules/ProjectScheduleDialog";
 import { exportDesignProjectsToZip } from "@/lib/exportSchedule";
 import { ScheduleTimeline } from "@/components/channels/ScheduleTimeline";
 import { PageSkeleton } from "@/components/PageSkeleton";
@@ -70,11 +72,19 @@ export default function SchedulesPage() {
 
   const [scheduleMode, setScheduleMode] = useState<"channel" | "project">("channel");
 
+  // Channel schedule state
   const [blockDialogOpen, setBlockDialogOpen] = useState(false);
   const [editingBlock, setEditingBlock] = useState<ChannelBlock | null>(null);
   const [deletingBlock, setDeletingBlock] = useState<ChannelBlock | null>(null);
   const [downloadingBlockId, setDownloadingBlockId] = useState<string | null>(null);
   const autoReopenBlockRef = useRef(false);
+
+  // Project schedule state
+  const { schedules: projectSchedules, loading: projectSchedulesLoading, reload: reloadProjectSchedules } = useProjectSchedules(activeOrgId);
+  const [projectScheduleDialogOpen, setProjectScheduleDialogOpen] = useState(false);
+  const [editingProjectSchedule, setEditingProjectSchedule] = useState<ProjectSchedule | null>(null);
+  const [deletingProjectSchedule, setDeletingProjectSchedule] = useState<ProjectSchedule | null>(null);
+  const autoReopenProjectRef = useRef(false);
 
   const [designProjects, setDesignProjects] = useState<DesignProjectLite[]>([]);
   const [allowedProjectIds, setAllowedProjectIds] = useState<string[]>([]);
@@ -223,6 +233,18 @@ export default function SchedulesPage() {
     return map;
   }, [designProjects]);
 
+  const isProjectScheduleExpired = (s: ProjectSchedule): boolean => {
+    const now = new Date();
+    if (s.block_type === "calendar") return !!s.end_at && new Date(s.end_at).getTime() < now.getTime();
+    if (s.block_type === "weekly") {
+      if (!s.effective_to) return false;
+      const end = new Date(s.effective_to);
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return end.getTime() < today.getTime();
+    }
+    return false;
+  };
+
   const requestDeleteChannel = async (channel: Channel) => {
     setDeletingChannel(channel);
     setChannelImpact(null);
@@ -327,6 +349,15 @@ export default function SchedulesPage() {
     reloadBlocks();
   };
 
+  const handleDeleteProjectSchedule = async () => {
+    if (!deletingProjectSchedule) return;
+    const { error } = await supabase.from("project_schedules").delete().eq("id", deletingProjectSchedule.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success(t("blockDeleted"));
+    setDeletingProjectSchedule(null);
+    reloadProjectSchedules();
+  };
+
   const toggleChannelEnabled = async (c: Channel, next: boolean) => {
     const { error } = await supabase.from("channels").update({ enabled: next }).eq("id", c.id);
     if (error) { toast.error(error.message); return; }
@@ -429,12 +460,24 @@ export default function SchedulesPage() {
               專案排程
             </button>
           </div>
-          <Button onClick={() => { setEditingChannel(null); setChannelDialogOpen(true); }}>
-            <Plus className="h-4 w-4 mr-1" /> {t("newChannel")}
-          </Button>
+          {scheduleMode === "channel" && (
+            <Button onClick={() => { setEditingChannel(null); setChannelDialogOpen(true); }}>
+              <Plus className="h-4 w-4 mr-1" /> {t("newChannel")}
+            </Button>
+          )}
+          {scheduleMode === "project" && (
+            <Button onClick={() => {
+              autoReopenProjectRef.current = true;
+              setEditingProjectSchedule(null);
+              setProjectScheduleDialogOpen(true);
+            }}>
+              <Plus className="h-4 w-4 mr-1" /> 新增專案排程
+            </Button>
+          )}
         </div>
       </div>
 
+      {scheduleMode === "channel" && <>
       {/* Channel bar */}
       <div className="flex gap-2 overflow-x-auto pb-2">
         {channels.length === 0 && (
@@ -515,8 +558,8 @@ export default function SchedulesPage() {
         </div>
       )}
 
-      {/* Calendar timeline — channel mode only */}
-      {selectedChannel && scheduleMode === "channel" && (
+      {/* Calendar timeline */}
+      {selectedChannel && (
         <ScheduleTimeline
           channelId={selectedChannel.id}
           blocks={blocks}
@@ -528,27 +571,18 @@ export default function SchedulesPage() {
         />
       )}
 
-      {/* Block list */}
+      {/* Channel block list */}
       {selectedChannel && (
         <Card className="overflow-hidden">
           <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between gap-3">
             <h3 className="font-semibold text-sm">{t("channelBlocks")}</h3>
             <div className="flex items-center gap-2">
               <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
-                <Switch
-                  checked={showExpired}
-                  onCheckedChange={setShowExpired}
-                  aria-label={t("blockShowExpired")}
-                />
+                <Switch checked={showExpired} onCheckedChange={setShowExpired} aria-label={t("blockShowExpired")} />
                 <span>{t("blockShowExpired")}</span>
               </label>
-              <Button size="sm" onClick={() => {
-                autoReopenBlockRef.current = scheduleMode === "project";
-                setEditingBlock(null);
-                setBlockDialogOpen(true);
-              }}>
-                <Plus className="h-4 w-4 mr-1" />
-                {scheduleMode === "project" ? "新增專案" : t("newBlock")}
+              <Button size="sm" onClick={() => { autoReopenBlockRef.current = false; setEditingBlock(null); setBlockDialogOpen(true); }}>
+                <Plus className="h-4 w-4 mr-1" /> {t("newBlock")}
               </Button>
             </div>
           </div>
@@ -561,9 +595,7 @@ export default function SchedulesPage() {
               {visibleBlocks.map((b) => (
                 <div key={b.id} className={cn("px-4 py-3 flex items-center gap-3 hover:bg-accent/30 transition-colors", !b.enabled && "opacity-60")}>
                   <div className="flex-shrink-0">
-                    {b.block_type === "calendar"
-                      ? <CalendarIcon className="h-5 w-5 text-primary" />
-                      : <Repeat className="h-5 w-5 text-primary" />}
+                    {b.block_type === "calendar" ? <CalendarIcon className="h-5 w-5 text-primary" /> : <Repeat className="h-5 w-5 text-primary" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -572,13 +604,9 @@ export default function SchedulesPage() {
                         {b.block_type === "calendar" ? t("blockTypeCalendar") : t("blockTypeWeekly")}
                       </Badge>
                       {b.design_project_id && (
-                        <Badge variant="outline" className="text-[10px]">
-                          {projectNameById.get(b.design_project_id) ?? "—"}
-                        </Badge>
+                        <Badge variant="outline" className="text-[10px]">{projectNameById.get(b.design_project_id) ?? "—"}</Badge>
                       )}
-                      {isBlockExpired(b) && (
-                        <Badge variant="destructive" className="text-[10px]">{t("blockExpiredBadge")}</Badge>
-                      )}
+                      {isBlockExpired(b) && <Badge variant="destructive" className="text-[10px]">{t("blockExpiredBadge")}</Badge>}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
                       {b.block_type === "calendar"
@@ -586,27 +614,75 @@ export default function SchedulesPage() {
                         : `${weekdaysLabel(b.weekdays, language)}  ${b.start_time?.slice(0, 5)} – ${b.end_time?.slice(0, 5)}`}
                     </div>
                   </div>
-                  <Switch
-                    checked={b.enabled}
-                    onCheckedChange={(v) => toggleBlockEnabled(b, v)}
-                    aria-label={t("blockEnabled")}
-                  />
-                  <Button
-                    variant="ghost" size="icon"
-                    disabled={!b.design_project_id || !!downloadingBlockId}
+                  <Switch checked={b.enabled} onCheckedChange={(v) => toggleBlockEnabled(b, v)} aria-label={t("blockEnabled")} />
+                  <Button variant="ghost" size="icon" disabled={!b.design_project_id || !!downloadingBlockId}
                     onClick={() => handleDownloadBlock(b)}
-                    title={b.design_project_id
-                      ? `下載專案：${projectNameById.get(b.design_project_id) ?? b.design_project_id}`
-                      : "無關聯專案"}
-                  >
-                    {downloadingBlockId === b.id
-                      ? <Loader2 className="h-4 w-4 animate-spin" />
-                      : <Download className="h-4 w-4" />}
+                    title={b.design_project_id ? `下載專案：${projectNameById.get(b.design_project_id) ?? b.design_project_id}` : "無關聯專案"}>
+                    {downloadingBlockId === b.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                   </Button>
                   <Button variant="ghost" size="icon" onClick={() => { autoReopenBlockRef.current = false; setEditingBlock(b); setBlockDialogOpen(true); }}>
                     <Pencil className="h-4 w-4" />
                   </Button>
                   <Button variant="ghost" size="icon" onClick={() => setDeletingBlock(b)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+      </> /* end scheduleMode === "channel" */}
+
+      {/* Project schedule list — project mode only */}
+      {scheduleMode === "project" && (
+        <Card className="overflow-hidden">
+          <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between gap-3">
+            <h3 className="font-semibold text-sm">專案排程清單</h3>
+            <Button size="sm" onClick={() => {
+              autoReopenProjectRef.current = true;
+              setEditingProjectSchedule(null);
+              setProjectScheduleDialogOpen(true);
+            }}>
+              <Plus className="h-4 w-4 mr-1" /> 新增專案排程
+            </Button>
+          </div>
+          {projectSchedulesLoading ? (
+            <div className="p-8 text-center text-muted-foreground text-sm">…</div>
+          ) : projectSchedules.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground text-sm">尚無專案排程</div>
+          ) : (
+            <div className="divide-y">
+              {projectSchedules.map((s) => (
+                <div key={s.id} className={cn("px-4 py-3 flex items-center gap-3 hover:bg-accent/30 transition-colors", !s.enabled && "opacity-60")}>
+                  <div className="flex-shrink-0">
+                    {s.block_type === "calendar" ? <CalendarIcon className="h-5 w-5 text-primary" /> : <Repeat className="h-5 w-5 text-primary" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-sm">{projectNameById.get(s.design_project_id) ?? s.name}</span>
+                      <Badge variant="secondary" className="text-[10px]">
+                        {s.block_type === "calendar" ? t("blockTypeCalendar") : t("blockTypeWeekly")}
+                      </Badge>
+                      {weekdaysLabel(s.weekdays, language) !== "—" && (
+                        <Badge variant="outline" className="text-[10px]">{weekdaysLabel(s.weekdays, language)}</Badge>
+                      )}
+                      {isProjectScheduleExpired(s) && <Badge variant="destructive" className="text-[10px]">{t("blockExpiredBadge")}</Badge>}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {s.block_type === "calendar"
+                        ? `${formatDateTime(s.start_at)} → ${formatDateTime(s.end_at)}`
+                        : `${weekdaysLabel(s.weekdays, language)}  ${s.start_time?.slice(0, 5)} – ${s.end_time?.slice(0, 5)}`}
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={() => {
+                    autoReopenProjectRef.current = false;
+                    setEditingProjectSchedule(s);
+                    setProjectScheduleDialogOpen(true);
+                  }}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" onClick={() => setDeletingProjectSchedule(s)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
@@ -771,6 +847,43 @@ export default function SchedulesPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteBlock}>{t("delete")}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Project schedule dialog */}
+      {activeOrgId && (
+        <ProjectScheduleDialog
+          open={projectScheduleDialogOpen}
+          onOpenChange={(o) => {
+            if (!o) autoReopenProjectRef.current = false;
+            setProjectScheduleDialogOpen(o);
+          }}
+          orgId={activeOrgId}
+          schedule={editingProjectSchedule}
+          designProjects={designProjects}
+          onSaved={() => {
+            const shouldReopen = autoReopenProjectRef.current;
+            reloadProjectSchedules();
+            if (shouldReopen) {
+              setTimeout(() => {
+                setEditingProjectSchedule(null);
+                setProjectScheduleDialogOpen(true);
+              }, 80);
+            }
+          }}
+        />
+      )}
+
+      <AlertDialog open={!!deletingProjectSchedule} onOpenChange={(o) => !o && setDeletingProjectSchedule(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("deleteBlock")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("blockDeleteConfirm")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteProjectSchedule}>{t("delete")}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
