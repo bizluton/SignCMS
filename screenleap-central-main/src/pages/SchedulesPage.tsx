@@ -221,11 +221,21 @@ export default function SchedulesPage() {
   );
 
   const visibleProjects = useMemo(() => {
-    if (allowedProjectIds.length === 0) return [] as DesignProjectLite[];
-    return allowedProjectIds
+    // Start with the allowed list (preserves manual ordering)
+    const allowed = allowedProjectIds
       .map((id) => designProjects.find((p) => p.id === id))
       .filter((p): p is DesignProjectLite => !!p);
-  }, [allowedProjectIds, designProjects]);
+
+    // Also include any project referenced by an existing block but not yet in the allowed list,
+    // so newly-added blocks appear in the timeline immediately
+    const seen = new Set(allowedProjectIds);
+    for (const b of blocks) {
+      if (!b.design_project_id || seen.has(b.design_project_id)) continue;
+      const p = designProjects.find((dp) => dp.id === b.design_project_id);
+      if (p) { allowed.push(p); seen.add(p.id); }
+    }
+    return allowed;
+  }, [allowedProjectIds, designProjects, blocks]);
 
   const projectNameById = useMemo(() => {
     const map = new Map<string, string>();
