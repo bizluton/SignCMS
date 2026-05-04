@@ -868,14 +868,19 @@ async function executeTool(
       const baseName  = filename.replace(/\.[^.]+$/, "");
 
       const { data: item, error: insertError } = await sb.from("media_items").insert({
-        org_id:     orgId,
-        name:       baseName,
-        type:       mediaType,
-        url:        publicUrl,
-        thumbnail:  publicUrl,
-        size:       String(fileSize || bytes.length),
-        dimensions: dims,
-        created_by: claims.userId,
+        org_id:        orgId,
+        name:          baseName,
+        type:          mediaType,
+        url:           publicUrl,
+        thumbnail:     publicUrl,
+        size:          String(fileSize || bytes.length),
+        dimensions:    dims,
+        is_system:     false,
+        uploaded_by:   claims.userId,
+        original_name: filename,
+        mime_type:     mimeType,
+        size_bytes:    fileSize || bytes.length,
+        storage_path:  fileKey,
       }).select("id, name, url").single();
       if (insertError) throw new Error(insertError.message);
 
