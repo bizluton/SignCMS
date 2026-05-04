@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import {
   Send, CalendarClock, Monitor, CheckCircle2, Clock, Loader2,
-  Play, Zap, Calendar as CalendarIcon, ListMusic, Building2,
+  Play, Zap, Calendar as CalendarIcon, ListMusic, Building2, Repeat,
   CheckCheck, Search, AlertTriangle, ShieldAlert, X, Layers, RotateCcw, Download,
   FileArchive, FolderDown, Eye, Tv, LayoutTemplate, Users, User as UserIcon,
 } from "lucide-react";
@@ -87,6 +87,21 @@ interface DesignProjectOption {
   collab_scope: "creator" | "team" | "org";
 }
 
+interface ProjectScheduleOption {
+  id: string;
+  name: string;
+  design_project_id: string;
+  design_project_name: string;
+  block_type: "calendar" | "weekly";
+  color: string;
+  start_at: string | null;
+  end_at: string | null;
+  weekdays: string[];
+  start_time: string | null;
+  end_time: string | null;
+  org_id: string | null;
+}
+
 type PlaylistTab = "channel" | "project";
 type SelectedSource = { type: PlaylistTab; id: string } | null;
 
@@ -112,6 +127,7 @@ export default function PublishingCenterPage() {
   const [schedules, setSchedules] = useState<ScheduleOption[]>([]);
   const [channels, setChannels] = useState<ChannelOption[]>([]);
   const [designProjects, setDesignProjects] = useState<DesignProjectOption[]>([]);
+  const [projectScheduleOptions, setProjectScheduleOptions] = useState<ProjectScheduleOption[]>([]);
   const [screens, setScreens] = useState<ScreenOption[]>([]);
   const [records, setRecords] = useState<PublishRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -216,23 +232,27 @@ export default function PublishingCenterPage() {
     type RawScreen = { id: string; name: string; branch: string; online: boolean; org_id: string | null; timezone?: string | null };
     type RawChannel = { id: string; name: string; org_id: string | null; color: string; enabled: boolean; sort_order: number; team_id: string | null; collab_scope: string };
     type RawProject = { id: string; name: string; org_id: string | null; aspect: string; created_by: string | null; team_id: string | null; collab_scope: string };
+    type RawPS = { id: string; name: string; design_project_id: string; block_type: string; color: string; start_at: string | null; end_at: string | null; weekdays: unknown; start_time: string | null; end_time: string | null; org_id: string | null };
     setLoading(true);
     let schedQ = supabase.from("schedules").select("id, name, org_id, screen_id, screens:screen_id(name)").order("name");
     let screenQ = supabase.from("screens").select("id, name, branch, online, org_id").order("branch").order("name");
     let channelQ = supabase.from("channels").select("id, name, org_id, color, enabled, sort_order, team_id, collab_scope").order("sort_order", { ascending: true }).order("created_at", { ascending: true });
     let projectQ = supabase.from("design_projects").select("id, name, org_id, aspect, created_by, team_id, collab_scope").order("name");
+    let psQ = supabase.from("project_schedules").select("id, name, design_project_id, block_type, color, start_at, end_at, weekdays, start_time, end_time, org_id").eq("enabled", true).order("created_at", { ascending: true });
     if (activeOrgId) {
       schedQ = schedQ.eq("org_id", activeOrgId);
       screenQ = screenQ.eq("org_id", activeOrgId);
       channelQ = channelQ.eq("org_id", activeOrgId);
       projectQ = projectQ.eq("org_id", activeOrgId);
+      psQ = psQ.eq("org_id", activeOrgId);
     }
-    const [schedRes, screenRes, recordRes, channelRes, projectRes] = await Promise.all([
+    const [schedRes, screenRes, recordRes, channelRes, projectRes, psRes] = await Promise.all([
       schedQ,
       screenQ,
       supabase.from("publish_records").select("*").order("created_at", { ascending: false }).limit(50),
       channelQ,
       projectQ,
+      psQ,
     ]);
 
     const { data: itemCounts } = await supabase.from("schedule_items").select("schedule_id");
@@ -322,6 +342,21 @@ export default function PublishingCenterPage() {
       team_name: (p.team_id && projectTeamNames.get(p.team_id)) || teamMap.get(p.id) || "",
       collab_scope: (p.collab_scope === "creator" || p.collab_scope === "team" || p.collab_scope === "org") ? p.collab_scope : "creator",
     })) as DesignProjectOption[]);
+    const projectNameById = new Map(rawProjects.map((p) => [p.id, p.name]));
+    setProjectScheduleOptions(((psRes.data || []) as RawPS[]).map((s) => ({
+      id: s.id,
+      name: s.name,
+      design_project_id: s.design_project_id,
+      design_project_name: projectNameById.get(s.design_project_id) ?? "",
+      block_type: (s.block_type === "weekly" ? "weekly" : "calendar") as "calendar" | "weekly",
+      color: s.color || "#3b82f6",
+      start_at: s.start_at,
+      end_at: s.end_at,
+      weekdays: (s.weekdays as string[]) ?? [],
+      start_time: s.start_time,
+      end_time: s.end_time,
+      org_id: s.org_id,
+    })));
     setLoading(false);
   }, [activeOrgId]);
 
@@ -341,19 +376,16 @@ export default function PublishingCenterPage() {
   }, [channels, filterOrgId]);
 
   const filteredDesignProjects = useMemo(() => {
-    let list = designProjects;
+    let list = projectScheduleOptions;
     if (filterOrgId === "none") list = list.filter((p) => !p.org_id);
     else if (filterOrgId !== "all") list = list.filter((p) => p.org_id === filterOrgId);
     const q = searchProject.trim().toLowerCase();
-    if (q) {
-      list = list.filter((p) =>
-        p.name.toLowerCase().includes(q) ||
-        (p.team_name ?? "").toLowerCase().includes(q) ||
-        (p.creator_name ?? "").toLowerCase().includes(q)
-      );
-    }
+    if (q) list = list.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      p.design_project_name.toLowerCase().includes(q),
+    );
     return list;
-  }, [designProjects, filterOrgId, searchProject]);
+  }, [projectScheduleOptions, filterOrgId, searchProject]);
 
   const selectedChannelsOrdered = useMemo(
     () => selectedChannelIds.map((id) => channels.find((c) => c.id === id)).filter(Boolean) as ChannelOption[],
@@ -368,8 +400,8 @@ export default function PublishingCenterPage() {
     [designProjects, selectedScheduleId],
   );
   const selectedProjectsOrdered = useMemo(
-    () => selectedProjectIds.map((id) => designProjects.find((p) => p.id === id)).filter(Boolean) as DesignProjectOption[],
-    [designProjects, selectedProjectIds],
+    () => selectedProjectIds.map((id) => projectScheduleOptions.find((p) => p.id === id)).filter(Boolean) as ProjectScheduleOption[],
+    [projectScheduleOptions, selectedProjectIds],
   );
   const selectedSourceName = playlistTab === "channel"
     ? (selectedChannelsOrdered.length > 0
@@ -440,8 +472,8 @@ export default function PublishingCenterPage() {
     let bundleName = "";
 
     if (playlistTab === "project") {
-      projectIds = selectedProjectIds;
-      bundleName = selectedProjectsOrdered.map((p) => p.name).join("+") || "design_projects";
+      projectIds = [...new Set(selectedProjectsOrdered.map((s) => s.design_project_id).filter(Boolean))];
+      bundleName = selectedProjectsOrdered.map((p) => p.name).join("+") || "project_schedules";
     } else {
       const { data } = await supabase
         .from("channel_allowed_projects")
@@ -865,15 +897,22 @@ export default function PublishingCenterPage() {
               <div className="space-y-1.5 max-h-[360px] overflow-y-auto">
               {filteredDesignProjects.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">{t("publishNoPlaylists")}</p>
-              ) : filteredDesignProjects.map((p) => {
-                const orderIdx = selectedProjectIds.indexOf(p.id);
+              ) : filteredDesignProjects.map((s) => {
+                const orderIdx = selectedProjectIds.indexOf(s.id);
                 const isSelected = orderIdx >= 0;
+                const timeInfo = s.block_type === "calendar"
+                  ? s.start_at && s.end_at
+                    ? `${new Date(s.start_at).toLocaleDateString()} – ${new Date(s.end_at).toLocaleDateString()}`
+                    : null
+                  : s.start_time && s.end_time
+                    ? `${s.start_time.slice(0, 5)} – ${s.end_time.slice(0, 5)}`
+                    : null;
                 return (
                 <div
-                  key={p.id}
+                  key={s.id}
                   onClick={() =>
                     setSelectedProjectIds((prev) =>
-                      prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id],
+                      prev.includes(s.id) ? prev.filter((x) => x !== s.id) : [...prev, s.id],
                     )
                   }
                   className={cn(
@@ -889,25 +928,24 @@ export default function PublishingCenterPage() {
                     </span>
                   )}
                   <div className="flex items-start gap-2">
+                    <div className="mt-0.5 flex-shrink-0">
+                      {s.block_type === "calendar"
+                        ? <CalendarIcon className="h-4 w-4" style={{ color: s.color }} />
+                        : <Repeat className="h-4 w-4" style={{ color: s.color }} />}
+                    </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{p.name}</p>
-                      <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground flex-wrap">
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                          {p.aspect === "9:16" ? t("aspectPortrait") : t("aspectLandscape")}
-                        </Badge>
-                        {p.team_name && (
-                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                            <Users className="h-2.5 w-2.5 mr-0.5 inline" />{t("publishProjectTeam")}：{p.team_name === "Default" ? t("teamNoTeamLabel") : p.team_name}
-                          </Badge>
+                      <p className="text-sm font-medium text-foreground truncate">{s.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5 text-[11px] text-muted-foreground flex-wrap">
+                        {s.design_project_name && (
+                          <span className="truncate">{s.design_project_name}</span>
                         )}
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-0.5">
-                          {p.collab_scope === "team" ? <Users className="h-2.5 w-2.5" /> : p.collab_scope === "org" ? <Building2 className="h-2.5 w-2.5" /> : <UserIcon className="h-2.5 w-2.5" />}
-                          {p.collab_scope === "team" ? t("channelCollabTeam") : p.collab_scope === "org" ? t("channelCollabOrg") : t("channelCollabCreator")}
-                        </Badge>
-                        {p.creator_name && (
-                          <span className="flex items-center gap-1">
-                            {t("publishProjectCreator")}：{p.creator_name}
-                          </span>
+                        {timeInfo && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0">{timeInfo}</Badge>
+                        )}
+                        {s.block_type === "weekly" && s.weekdays.length > 0 && (
+                          <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                            {s.weekdays.join("、")}
+                          </Badge>
                         )}
                       </div>
                     </div>
