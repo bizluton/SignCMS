@@ -69,7 +69,7 @@ export default function SchedulesPage() {
   const [unassigningKey, setUnassigningKey] = useState<string | null>(null);
   const [pendingChannelIds, setPendingChannelIds] = useState<Set<string>>(new Set());
 
-  const [scheduleMode, setScheduleMode] = useState<"channel" | "project">("channel");
+  const [scheduleMode, setScheduleMode] = useState<"channel" | "project">("project");
 
   // Channel schedule state
   const [blockDialogOpen, setBlockDialogOpen] = useState(false);
@@ -631,7 +631,10 @@ export default function SchedulesPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-medium text-sm">{projectNameById.get(s.design_project_id) ?? s.name}</span>
+                      <span className="font-medium text-sm">{s.name}</span>
+                      {s.design_project_id && projectNameById.get(s.design_project_id) && (
+                        <span className="text-xs text-muted-foreground">{projectNameById.get(s.design_project_id)}</span>
+                      )}
                       <Badge variant="secondary" className="text-[10px]">
                         {s.block_type === "calendar" ? t("blockTypeCalendar") : t("blockTypeWeekly")}
                       </Badge>
