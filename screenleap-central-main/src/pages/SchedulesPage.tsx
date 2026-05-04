@@ -482,9 +482,6 @@ export default function SchedulesPage() {
             <Button variant="outline" size="sm" onClick={() => requestDeleteChannel(selectedChannel)}>
               <Trash2 className="h-4 w-4 mr-1" /> {t("delete")}
             </Button>
-            <Button size="sm" onClick={() => { setEditingBlock(null); setBlockDialogOpen(true); }}>
-              <Plus className="h-4 w-4 mr-1" /> {t("newBlock")}
-            </Button>
           </div>
         </div>
       )}
@@ -506,14 +503,19 @@ export default function SchedulesPage() {
         <Card className="overflow-hidden">
           <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between gap-3">
             <h3 className="font-semibold text-sm">{t("channelBlocks")}</h3>
-            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
-              <Switch
-                checked={showExpired}
-                onCheckedChange={setShowExpired}
-                aria-label={t("blockShowExpired")}
-              />
-              <span>{t("blockShowExpired")}</span>
-            </label>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                <Switch
+                  checked={showExpired}
+                  onCheckedChange={setShowExpired}
+                  aria-label={t("blockShowExpired")}
+                />
+                <span>{t("blockShowExpired")}</span>
+              </label>
+              <Button size="sm" onClick={() => { setEditingBlock(null); setBlockDialogOpen(true); }}>
+                <Plus className="h-4 w-4 mr-1" /> {t("newBlock")}
+              </Button>
+            </div>
           </div>
           {blocksLoading ? (
             <div className="p-8 text-center text-muted-foreground text-sm">…</div>
