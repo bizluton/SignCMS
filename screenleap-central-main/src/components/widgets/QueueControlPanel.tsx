@@ -36,7 +36,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { ChevronRight, ChevronDown, RotateCcw, Users, Plus, Loader2, Copy, Wifi, WifiOff } from "lucide-react";
+import { ChevronRight, ChevronDown, RotateCcw, Users, Plus, Loader2, Copy, Wifi, WifiOff, Pencil, Trash2, Check, X } from "lucide-react";
 import { toast } from "sonner";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -79,6 +79,17 @@ export default function QueueControlPanel() {
   const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
 
   // API integration state
+  // Queue inline edit/delete
+  const [queueEditMode, setQueueEditMode] = useState(false);
+  const [queueEditName, setQueueEditName] = useState("");
+  const [deletingQueue, setDeletingQueue] = useState(false);
+
+  // Counter inline add/edit
+  const [counterAddMode, setCounterAddMode] = useState(false);
+  const [counterAddValue, setCounterAddValue] = useState("");
+  const [counterEditOld, setCounterEditOld] = useState<string | null>(null);
+  const [counterEditNew, setCounterEditNew] = useState("");
+
   const [showApiSection, setShowApiSection] = useState(false);
   const [installToken, setInstallToken] = useState<string | null>(null);
   const [loadingToken, setLoadingToken] = useState(false);
@@ -322,6 +333,68 @@ export default function QueueControlPanel() {
     }
   };
 
+  const handleRenameQueue = async () => {
+    const name = queueEditName.trim();
+    if (!name || !selectedQueueId) return;
+    const { error } = await (supabase as unknown as { from: (t: string) => { update: (v: unknown) => { eq: (c: string, v: string) => Promise<{ error: unknown }> } } })
+      .from("queue_system_queues").update({ queue_name: name }).eq("id", selectedQueueId);
+    if (!error) {
+      setQueues((prev) => prev.map((q) => q.id === selectedQueueId ? { ...q, queue_name: name } : q));
+      setQueueEditMode(false);
+      toast.success(t("隊列已重新命名", "Queue renamed", "キュー名を変更しました"));
+    }
+  };
+
+  const handleDeleteQueue = async () => {
+    if (!selectedQueueId) return;
+    setDeletingQueue(true);
+    try {
+      const { error } = await (supabase as unknown as { from: (t: string) => { delete: () => { eq: (c: string, v: string) => Promise<{ error: unknown }> } } })
+        .from("queue_system_queues").delete().eq("id", selectedQueueId);
+      if (error) throw error;
+      const remaining = queues.filter((q) => q.id !== selectedQueueId);
+      setQueues(remaining);
+      setSelectedQueueId(remaining[0]?.id ?? "");
+      setLastCalled(null);
+      toast.success(t("隊列已刪除", "Queue deleted", "キューを削除しました"));
+    } catch {
+      toast.error(t("刪除失敗", "Delete failed", "削除に失敗しました"));
+    } finally {
+      setDeletingQueue(false);
+    }
+  };
+
+  const handleAddNewCounter = async () => {
+    const name = counterAddValue.trim();
+    const queue = queues.find((q) => q.id === selectedQueueId);
+    if (!name || !queue || queue.counter_names.includes(name)) return;
+    const updated = [...queue.counter_names, name];
+    const { error } = await (supabase as unknown as { from: (t: string) => { update: (v: unknown) => { eq: (c: string, v: string) => Promise<{ error: unknown }> } } })
+      .from("queue_system_queues").update({ counter_names: updated }).eq("id", selectedQueueId);
+    if (!error) {
+      setQueues((prev) => prev.map((q) => q.id === selectedQueueId ? { ...q, counter_names: updated } : q));
+      setCounter(name);
+      setCounterAddValue("");
+      setCounterAddMode(false);
+      toast.success(t("已新增櫃台", "Counter added", "カウンターを追加しました"));
+    }
+  };
+
+  const handleEditCounter = async (oldName: string, newName: string) => {
+    const name = newName.trim();
+    const queue = queues.find((q) => q.id === selectedQueueId);
+    if (!name || !queue) return;
+    const updated = queue.counter_names.map((n) => n === oldName ? name : n);
+    const { error } = await (supabase as unknown as { from: (t: string) => { update: (v: unknown) => { eq: (c: string, v: string) => Promise<{ error: unknown }> } } })
+      .from("queue_system_queues").update({ counter_names: updated }).eq("id", selectedQueueId);
+    if (!error) {
+      setQueues((prev) => prev.map((q) => q.id === selectedQueueId ? { ...q, counter_names: updated } : q));
+      if (counter === oldName) setCounter(name);
+      setCounterEditOld(null);
+      toast.success(t("已更新", "Updated", "更新しました"));
+    }
+  };
+
   const handleReset = async () => {
     if (!selectedQueueId) return;
     setResetting(true);
@@ -393,36 +466,38 @@ export default function QueueControlPanel() {
 
   return (
     <div className="space-y-5">
-      {/* Queue selector + create */}
+      {/* ── Queue selector ──────────────────────────────────────────────────── */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <Label>{t("選擇隊列", "Queue", "キュー選択")}</Label>
-          <button
-            onClick={() => setShowNewQueue((v) => !v)}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <Plus className="h-3 w-3" />
-            {t("新增隊列", "New queue", "新規キュー")}
-          </button>
+          <Label>{t("隊列", "Queue", "キュー")}</Label>
+          {!showNewQueue && !queueEditMode && (
+            <button
+              onClick={() => { setShowNewQueue(true); setQueueEditMode(false); }}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Plus className="h-3 w-3" />
+              {t("新增", "New", "新規")}
+            </button>
+          )}
         </div>
 
+        {/* New queue form */}
         {showNewQueue && (
           <div className="space-y-2">
             <div className="flex gap-2">
               <Input
+                autoFocus
                 placeholder={t("隊列名稱", "Queue name", "キュー名")}
                 value={newQueueName}
                 onChange={(e) => setNewQueueName(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && void handleCreateQueue()}
                 className="h-9 text-sm"
               />
-              <Button
-                size="sm"
-                onClick={handleCreateQueue}
-                disabled={creatingQueue || !newQueueName.trim()}
-                className="h-9 px-3"
-              >
-                {creatingQueue ? <Loader2 className="h-3 w-3 animate-spin" /> : t("建立", "Create", "作成")}
+              <Button size="icon" className="h-9 w-9 shrink-0" onClick={handleCreateQueue} disabled={creatingQueue || !newQueueName.trim()}>
+                {creatingQueue ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+              </Button>
+              <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" onClick={() => { setShowNewQueue(false); setNewQueueName(""); }}>
+                <X className="h-3.5 w-3.5" />
               </Button>
             </div>
             {teams.length > 0 && (
@@ -431,9 +506,7 @@ export default function QueueControlPanel() {
                   <SelectValue placeholder={t("歸屬團隊（可選）", "Team (optional)", "チーム（任意）")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__" className="text-xs">
-                    {t("全組織（無特定團隊）", "Org-wide (no team)", "組織全体（チームなし）")}
-                  </SelectItem>
+                  <SelectItem value="__none__" className="text-xs">{t("全組織（無特定團隊）", "Org-wide (no team)", "組織全体（チームなし）")}</SelectItem>
                   {teams.map((tm) => (
                     <SelectItem key={tm.id} value={tm.id} className="text-xs">{tm.name}</SelectItem>
                   ))}
@@ -443,80 +516,157 @@ export default function QueueControlPanel() {
           </div>
         )}
 
-        {queues.length > 0 ? (
-          <Select value={selectedQueueId} onValueChange={setSelectedQueueId}>
-            <SelectTrigger className="h-9">
-              <SelectValue placeholder={t("選擇隊列", "Select queue", "キューを選択")} />
-            </SelectTrigger>
-            <SelectContent>
-              {queues.map((q) => (
-                <SelectItem key={q.id} value={q.id}>
-                  {q.queue_name}
-                  {q.prefix && <span className="ml-1 text-muted-foreground text-xs">({q.prefix})</span>}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <p className="text-sm text-muted-foreground py-1">
-            {t("尚無隊列，請先新增", "No queues yet — add one above", "キューがありません")}
-          </p>
+        {/* Queue select row (hidden while new-queue form is open) */}
+        {!showNewQueue && (
+          <div className="flex gap-1.5 items-center">
+            {queueEditMode ? (
+              <>
+                <Input
+                  autoFocus
+                  value={queueEditName}
+                  onChange={(e) => setQueueEditName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && void handleRenameQueue()}
+                  className="flex-1 h-9"
+                />
+                <Button size="icon" className="h-9 w-9 shrink-0" onClick={handleRenameQueue}><Check className="h-3.5 w-3.5" /></Button>
+                <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" onClick={() => setQueueEditMode(false)}><X className="h-3.5 w-3.5" /></Button>
+              </>
+            ) : queues.length > 0 ? (
+              <>
+                <Select value={selectedQueueId} onValueChange={setSelectedQueueId}>
+                  <SelectTrigger className="flex-1 h-9">
+                    <SelectValue placeholder={t("選擇隊列", "Select queue", "キューを選択")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {queues.map((q) => (
+                      <SelectItem key={q.id} value={q.id}>
+                        {q.queue_name}
+                        {q.prefix && <span className="ml-1 text-muted-foreground text-xs">({q.prefix})</span>}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedQueue && (
+                  <>
+                    <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
+                      onClick={() => { setQueueEditMode(true); setQueueEditName(selectedQueue.queue_name); }}
+                      title={t("改名", "Rename", "改名")}
+                    ><Pencil className="h-3.5 w-3.5" /></Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                          title={t("刪除隊列", "Delete queue", "キューを削除")}
+                        >{deletingQueue ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}</Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>{t("確認刪除隊列？", "Delete this queue?", "キューを削除しますか？")}</AlertDialogTitle>
+                          <AlertDialogDescription>{t("此隊列的所有票券紀錄也將一併刪除，且無法復原。", "All tickets in this queue will also be deleted and cannot be recovered.", "このキューのすべてのチケットも削除され、元に戻せません。")}</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>{t("取消", "Cancel", "キャンセル")}</AlertDialogCancel>
+                          <AlertDialogAction onClick={handleDeleteQueue} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                            {t("確認刪除", "Delete", "削除")}
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground py-1">{t("尚無隊列，請先新增", "No queues yet — add one above", "キューがありません")}</p>
+            )}
+          </div>
         )}
       </div>
 
-      {/* Counter section — preset chips + custom input */}
+      {/* ── Counter section ──────────────────────────────────────────────────── */}
       <div className="space-y-2">
-        <Label>{t("服務櫃台", "Counter", "カウンター")}</Label>
+        <div className="flex items-center justify-between">
+          <Label>{t("服務櫃台", "Counter", "カウンター")}</Label>
+          {!counterAddMode && !counterEditOld && (
+            <button
+              onClick={() => { setCounterAddMode(true); setCounterAddValue(""); }}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              disabled={!selectedQueueId}
+            >
+              <Plus className="h-3 w-3" />
+              {t("新增", "New", "新規")}
+            </button>
+          )}
+        </div>
 
-        {/* Preset chips */}
-        {(selectedQueue?.counter_names ?? []).length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {(selectedQueue?.counter_names ?? []).map((name) => (
-              <button
-                key={name}
-                type="button"
-                onClick={() => setCounter(name)}
-                className={`group relative inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium transition-colors ${
-                  counter === name
-                    ? "bg-blue-500 text-white"
-                    : "bg-muted text-muted-foreground hover:bg-muted/80"
-                }`}
-              >
-                {name}
-                <span
-                  role="button"
-                  onClick={(e) => { e.stopPropagation(); void handleRemoveCounterPreset(name); }}
-                  className="ml-0.5 opacity-0 group-hover:opacity-60 hover:!opacity-100 leading-none"
-                >×</span>
-              </button>
-            ))}
+        {/* Add new counter */}
+        {counterAddMode && (
+          <div className="flex gap-1.5">
+            <Input
+              autoFocus
+              value={counterAddValue}
+              onChange={(e) => setCounterAddValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void handleAddNewCounter()}
+              placeholder={t("新增櫃台名稱", "Counter name", "カウンター名")}
+              className="flex-1 h-9"
+            />
+            <Button size="icon" className="h-9 w-9 shrink-0" onClick={handleAddNewCounter} disabled={!counterAddValue.trim()}><Check className="h-3.5 w-3.5" /></Button>
+            <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" onClick={() => setCounterAddMode(false)}><X className="h-3.5 w-3.5" /></Button>
           </div>
         )}
 
-        {/* Input + save preset */}
-        <div className="flex gap-2">
-          <Input
-            value={counter}
-            onChange={(e) => setCounter(e.target.value)}
-            placeholder={t("輸入或選擇櫃台名稱", "Enter or select counter", "カウンター名を入力")}
-            className="h-9"
-          />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="h-9 shrink-0 gap-1"
-            onClick={handleAddCounterPreset}
-            disabled={
-              !counter.trim() ||
-              (selectedQueue?.counter_names ?? []).includes(counter.trim())
-            }
-            title={t("將此名稱存為預設按鈕", "Save as preset button", "プリセットとして保存")}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            {t("存為預設", "Save preset", "プリセット保存")}
-          </Button>
-        </div>
+        {/* Edit existing counter */}
+        {counterEditOld && (
+          <div className="flex gap-1.5">
+            <Input
+              autoFocus
+              value={counterEditNew}
+              onChange={(e) => setCounterEditNew(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && void handleEditCounter(counterEditOld, counterEditNew)}
+              className="flex-1 h-9"
+            />
+            <Button size="icon" className="h-9 w-9 shrink-0" onClick={() => void handleEditCounter(counterEditOld, counterEditNew)} disabled={!counterEditNew.trim()}><Check className="h-3.5 w-3.5" /></Button>
+            <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0" onClick={() => setCounterEditOld(null)}><X className="h-3.5 w-3.5" /></Button>
+          </div>
+        )}
+
+        {/* Counter select + edit/delete */}
+        {!counterAddMode && !counterEditOld && (
+          <div className="flex gap-1.5 items-center">
+            {(selectedQueue?.counter_names ?? []).length > 0 ? (
+              <Select
+                value={(selectedQueue?.counter_names ?? []).includes(counter) ? counter : ""}
+                onValueChange={setCounter}
+              >
+                <SelectTrigger className="flex-1 h-9">
+                  <SelectValue placeholder={t("選擇櫃台", "Select counter", "カウンターを選択")} />
+                </SelectTrigger>
+                <SelectContent>
+                  {(selectedQueue?.counter_names ?? []).map((name) => (
+                    <SelectItem key={name} value={name}>{name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={counter}
+                onChange={(e) => setCounter(e.target.value)}
+                placeholder={t("輸入櫃台名稱，或先新增預設", "Enter counter or add presets above", "カウンター名を入力")}
+                className="flex-1 h-9"
+              />
+            )}
+            {(selectedQueue?.counter_names ?? []).includes(counter) && (
+              <>
+                <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => { setCounterEditOld(counter); setCounterEditNew(counter); }}
+                  title={t("改名", "Rename", "改名")}
+                ><Pencil className="h-3.5 w-3.5" /></Button>
+                <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => void handleRemoveCounterPreset(counter)}
+                  title={t("刪除", "Delete", "削除")}
+                ><Trash2 className="h-3.5 w-3.5" /></Button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Status row */}
