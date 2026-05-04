@@ -4698,6 +4698,7 @@ export default function ContentStudioPage() {
   type OutputMode = "mirror" | "independent" | "extend-h" | "extend-v";
   const [outputMode, setOutputMode] = useState<OutputMode>("mirror");
   const [outputCount, setOutputCount] = useState<number>(1);
+  const [activeOutput, setActiveOutput] = useState<number>(1);
   const [outputModeOpen, setOutputModeOpen] = useState(false);
   const [showCustomResDialog, setShowCustomResDialog] = useState(false);
   const [customResW, setCustomResW] = useState(() => loadStoredCustomRes()?.w ?? "1920");
@@ -5764,6 +5765,7 @@ export default function ContentStudioPage() {
       activePageId,
       outputMode,
       outputCount,
+      activeOutput,
       pageTransition: {
         ...projectTransition,
         pageChannels: pagesSnapshot.map((p, i) => ({
@@ -5878,6 +5880,8 @@ export default function ContentStudioPage() {
     }
     const savedOutputCount = typeof metaEntry?.outputCount === "number" ? metaEntry.outputCount : 1;
     setOutputCount(Math.max(1, Math.min(4, savedOutputCount)));
+    const savedActiveOutput = typeof metaEntry?.activeOutput === "number" ? metaEntry.activeOutput : 1;
+    setActiveOutput(Math.max(1, Math.min(savedOutputCount, savedActiveOutput)));
 
     setSelectedZone(null);
     setSelectedOverlay(null);
@@ -6391,6 +6395,7 @@ export default function ContentStudioPage() {
     setProjectTransition({ ...DEFAULT_PAGE_TRANSITION, triggers: { ...DEFAULT_PAGE_TRANSITION.triggers } });
     setOutputMode("mirror");
     setOutputCount(1);
+    setActiveOutput(1);
     // Mark clean after state settles
     setTimeout(() => markClean(), 0);
   }, [markClean]);
@@ -7400,26 +7405,47 @@ export default function ContentStudioPage() {
           <div className="flex-1 flex flex-col gap-3 min-h-0 min-w-0">
             {/* Output mode controls */}
             {pages.length > 0 && (
-              <div className="shrink-0 flex items-center gap-1 mb-1">
+              <div className="shrink-0 flex items-center gap-1.5 mb-1">
+                {/* OUTPUT label + per-output number buttons */}
+                <div className="flex items-center h-8 rounded-md overflow-hidden border border-border">
+                  <span className="flex items-center gap-1.5 px-2.5 h-full bg-foreground text-background text-[11px] font-bold uppercase tracking-wide select-none">
+                    <Monitor className="w-3.5 h-3.5 shrink-0" />
+                    OUTPUT
+                  </span>
+                  {outputMode === "mirror" ? (
+                    /* Mirror: single non-clickable badge */
+                    <span className="flex items-center justify-center px-2.5 h-full bg-primary/80 text-primary-foreground text-xs font-bold min-w-[28px] select-none">
+                      {outputCount}
+                    </span>
+                  ) : (
+                    /* Other modes: individual clickable output buttons */
+                    Array.from({ length: outputCount }, (_, i) => {
+                      const n = i + 1;
+                      const isActive = activeOutput === n;
+                      return (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setActiveOutput(n)}
+                          className={`flex items-center justify-center h-full px-2.5 text-xs font-bold transition-colors min-w-[28px] border-l border-border/40 ${
+                            isActive
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-primary/30 text-primary-foreground/80 hover:bg-primary/60"
+                          }`}
+                        >
+                          {n}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Sliders icon — opens mode/count settings */}
                 <Popover open={outputModeOpen} onOpenChange={setOutputModeOpen}>
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className="flex items-center gap-0 h-8 rounded-md overflow-hidden border border-border hover:border-primary/60 transition-colors"
-                    >
-                      <span className="flex items-center gap-1.5 px-2.5 h-full bg-foreground text-background text-[11px] font-bold uppercase tracking-wide">
-                        <Monitor className="w-3.5 h-3.5" />
-                        OUTPUT
-                      </span>
-                      <span className="flex items-center justify-center px-2 h-full bg-primary text-primary-foreground text-xs font-bold min-w-[22px]">
-                        {outputCount}
-                      </span>
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="ml-1 w-7 h-7 inline-flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/60 hover:bg-primary/5 transition-colors"
+                      className="w-7 h-7 inline-flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/60 hover:bg-primary/5 transition-colors"
                       title="輸出設定"
                     >
                       <SlidersHorizontal className="w-3.5 h-3.5" />
@@ -7429,8 +7455,8 @@ export default function ContentStudioPage() {
                     <div className="px-3 pt-3 pb-1">
                       <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">OUTPUT MODE</p>
                       {([
-                        { id: "independent", label: "Independent", desc: "Each Output plays its own content" },
-                        { id: "mirror",      label: "Mirror",      desc: "All Outputs display the same picture" },
+                        { id: "independent", label: "Independent",       desc: "Each Output plays its own content" },
+                        { id: "mirror",      label: "Mirror",            desc: "All Outputs display the same picture" },
                         { id: "extend-h",    label: "Extend Horizontal", desc: "Outputs extend horizontally into one canvas" },
                         { id: "extend-v",    label: "Extend Vertical",   desc: "Outputs extend vertically into one canvas" },
                       ] as const).map((opt) => (
@@ -7459,7 +7485,7 @@ export default function ContentStudioPage() {
                           <button
                             key={n}
                             type="button"
-                            onClick={() => setOutputCount(n)}
+                            onClick={() => { setOutputCount(n); setActiveOutput((prev) => Math.min(prev, n)); }}
                             className={`flex-1 h-8 rounded-md border text-xs font-bold transition-colors ${outputCount === n ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/60 hover:bg-muted/60"}`}
                           >
                             {n}
@@ -7754,21 +7780,35 @@ export default function ContentStudioPage() {
 
           <div ref={canvasRef} className={`relative bg-card rounded-lg shadow-lg border border-border overflow-hidden ${resizing ? "" : "transition-all duration-300"}`} style={{ width: W, height: H, maxWidth: "100%", maxHeight: "100%" }}
             onClick={() => { if (selectedOverlay) setSelectedOverlay(null); }}>
-            {/* Extend-mode output divider lines */}
-            {outputCount > 1 && (outputMode === "extend-h" || outputMode === "extend-v") && (
-              Array.from({ length: outputCount - 1 }, (_, i) => {
-                const pct = ((i + 1) / outputCount) * 100;
-                return outputMode === "extend-h" ? (
-                  <div key={i} className="pointer-events-none absolute top-0 bottom-0 z-50" style={{ left: `${pct}%`, width: 1, background: "rgba(99,102,241,0.7)", boxShadow: "0 0 4px rgba(99,102,241,0.5)" }}>
-                    <span className="absolute top-1 left-1 text-[9px] font-bold text-indigo-400 bg-black/50 px-1 rounded whitespace-nowrap">OUT {i + 2}</span>
-                  </div>
-                ) : (
-                  <div key={i} className="pointer-events-none absolute left-0 right-0 z-50" style={{ top: `${pct}%`, height: 1, background: "rgba(99,102,241,0.7)", boxShadow: "0 0 4px rgba(99,102,241,0.5)" }}>
-                    <span className="absolute left-1 top-1 text-[9px] font-bold text-indigo-400 bg-black/50 px-1 rounded whitespace-nowrap">OUT {i + 2}</span>
-                  </div>
-                );
-              })
-            )}
+            {/* Extend-mode: active output highlight + divider lines */}
+            {outputCount > 1 && (outputMode === "extend-h" || outputMode === "extend-v") && (() => {
+              const segPct = 100 / outputCount;
+              const activeStart = (activeOutput - 1) * segPct;
+              return (
+                <>
+                  {/* Active output region highlight */}
+                  <div
+                    className="pointer-events-none absolute z-40 ring-2 ring-primary/60 rounded-sm"
+                    style={outputMode === "extend-h"
+                      ? { top: 0, bottom: 0, left: `${activeStart}%`, width: `${segPct}%` }
+                      : { left: 0, right: 0, top: `${activeStart}%`, height: `${segPct}%` }}
+                  />
+                  {/* Divider lines */}
+                  {Array.from({ length: outputCount - 1 }, (_, i) => {
+                    const pct = ((i + 1) / outputCount) * 100;
+                    return outputMode === "extend-h" ? (
+                      <div key={i} className="pointer-events-none absolute top-0 bottom-0 z-50" style={{ left: `${pct}%`, width: 1, background: "rgba(99,102,241,0.7)", boxShadow: "0 0 4px rgba(99,102,241,0.5)" }}>
+                        <span className="absolute top-1 left-1 text-[9px] font-bold text-indigo-400 bg-black/50 px-1 rounded whitespace-nowrap">OUT {i + 2}</span>
+                      </div>
+                    ) : (
+                      <div key={i} className="pointer-events-none absolute left-0 right-0 z-50" style={{ top: `${pct}%`, height: 1, background: "rgba(99,102,241,0.7)", boxShadow: "0 0 4px rgba(99,102,241,0.5)" }}>
+                        <span className="absolute left-1 top-1 text-[9px] font-bold text-indigo-400 bg-black/50 px-1 rounded whitespace-nowrap">OUT {i + 2}</span>
+                      </div>
+                    );
+                  })}
+                </>
+              );
+            })()}
             {isMobile && !currentProject && (
               <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/85 backdrop-blur-sm p-4">
                 <div className="w-full max-w-xs rounded-xl border border-border bg-card shadow-lg p-5 flex flex-col items-center text-center gap-3">
