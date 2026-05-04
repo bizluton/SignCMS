@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Monitor, Image, CalendarClock, ShieldCheck, Brush, Send, FileText, Store, Megaphone, Users, CloudSun, Instagram, DoorOpen, Languages, Clock, HeadphonesIcon, BookOpen, Radio, BarChart3, AlertTriangle, UserCog, Key, Settings, Wrench, Building2, TrendingUp, Code2, LayoutGrid, MonitorPlay, Zap, Rocket, History, Type, Puzzle, ClipboardCheck } from "lucide-react";
+import { Monitor, Image, CalendarClock, ShieldCheck, Brush, Send, FileText, Store, Megaphone, Users, CloudSun, Instagram, DoorOpen, Languages, Clock, HeadphonesIcon, BookOpen, Radio, BarChart3, AlertTriangle, UserCog, Key, Settings, Wrench, Building2, TrendingUp, Code2, LayoutGrid, MonitorPlay, Rocket, History, Type, Puzzle, ClipboardCheck } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import logoLightImg from "@/assets/logo-light.png";
 import { useTheme } from "next-themes";
@@ -67,7 +67,6 @@ export function AppSidebar() {
     { titleKey: "navScreens" as const, url: "/screens", icon: Monitor, adminOnly: false },
     { titleKey: "navDeviceLogs" as const, url: "/device-logs", icon: FileText, adminOnly: false },
     { titleKey: "navIoTDashboard" as const, url: "/iot-dashboard", icon: Radio, adminOnly: false },
-    { titleKey: "navSmartTriggerTest" as const, url: "/smart-trigger-test", icon: Zap, adminOnly: false },
     { titleKey: "navAdmin" as const, url: "/admin", icon: ShieldCheck, adminOnly: false },
   ];
 
