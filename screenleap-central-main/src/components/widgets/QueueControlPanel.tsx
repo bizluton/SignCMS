@@ -67,6 +67,8 @@ export default function QueueControlPanel() {
   const [waitingCount, setWaitingCount] = useState(0);
   const [lastCalled, setLastCalled] = useState<{ number: number; prefix: string } | null>(null);
   const [calling, setCalling] = useState(false);
+  const [specificNumber, setSpecificNumber] = useState("");
+  const [callingSpecific, setCallingSpecific] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [loadingQueues, setLoadingQueues] = useState(true);
   const [newQueueName, setNewQueueName] = useState("");
@@ -262,6 +264,35 @@ export default function QueueControlPanel() {
         : t("操作失敗", "Operation failed", "操作に失敗しました"));
     } finally {
       setCalling(false);
+    }
+  };
+
+  const handleCallSpecific = async () => {
+    const num = parseInt(specificNumber, 10);
+    if (!selectedQueueId || isNaN(num) || num < 1) return;
+    setCallingSpecific(true);
+    try {
+      const { data, error } = await (supabase.rpc as unknown as (
+        fn: string, args: Record<string, unknown>
+      ) => Promise<{ data: unknown; error: { message: string } | null }>)(
+        "queue_call_specific",
+        { p_queue_id: selectedQueueId, p_number: num, p_counter: counter || t("服務台", "Counter", "カウンター") },
+      );
+      if (error) throw error;
+      const ticket = data as { id: string; number: number; queue_id: string };
+      const queue = queues.find((q) => q.id === selectedQueueId);
+      setLastCalled({ number: ticket.number, prefix: queue?.prefix ?? "" });
+      setQueues((prev) =>
+        prev.map((q) =>
+          q.id === selectedQueueId ? { ...q, current_number: Math.max(q.current_number, ticket.number) } : q,
+        ),
+      );
+      setSpecificNumber("");
+      void supabase.functions.invoke("queue-system/notify-calling", { body: { ticket_id: ticket.id } });
+    } catch {
+      toast.error(t("操作失敗", "Operation failed", "操作に失敗しました"));
+    } finally {
+      setCallingSpecific(false);
     }
   };
 
@@ -504,6 +535,30 @@ export default function QueueControlPanel() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+      </div>
+
+      {/* Specific-number call */}
+      <div className="flex gap-2">
+        <Input
+          type="number"
+          min={1}
+          value={specificNumber}
+          onChange={(e) => setSpecificNumber(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && void handleCallSpecific()}
+          placeholder={t("指定號碼…", "Jump to #…", "番号を指定…")}
+          className="h-10 text-center tabular-nums"
+          disabled={!selectedQueueId}
+        />
+        <Button
+          onClick={handleCallSpecific}
+          disabled={callingSpecific || !selectedQueueId || !specificNumber}
+          variant="outline"
+          className="h-10 shrink-0"
+        >
+          {callingSpecific
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : t("指定叫號", "Call #", "指定呼出し")}
+        </Button>
       </div>
 
       {/* ── External kiosk integration ─────────────────────────────────────── */}
