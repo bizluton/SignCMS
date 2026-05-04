@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DateTimePicker } from "@/components/ui/datetime-picker";
+import { FlowDateTimePicker, type FlowDateTimePickerRef } from "@/components/ui/flow-datetime-picker";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CalendarIcon, X } from "lucide-react";
@@ -60,6 +60,7 @@ function startOfToday() { const x = new Date(); x.setHours(0, 0, 0, 0); return x
 export function ProjectScheduleDialog({ open, onOpenChange, orgId, schedule, designProjects, onSaved }: Props) {
   const { t, language } = useLanguage();
   const { user } = useAuth();
+  const endPickerRef = useRef<FlowDateTimePickerRef>(null);
   const [blockType, setBlockType] = useState<"calendar" | "weekly">("calendar");
   const [designProjectId, setDesignProjectId] = useState<string>("");
   const [weekdays, setWeekdays] = useState<WeekdayKey[]>([]);
@@ -192,11 +193,11 @@ export function ProjectScheduleDialog({ open, onOpenChange, orgId, schedule, des
               </div>
               <div>
                 <Label>{t("blockStartAt")}</Label>
-                <DateTimePicker value={startAt} onChange={setStartAt} disablePast placeholder={t("blockStartAt")} tz={tz} />
+                <FlowDateTimePicker value={startAt} onChange={setStartAt} disablePast placeholder={t("blockStartAt")} onDone={() => endPickerRef.current?.open()} />
               </div>
               <div>
                 <Label>{t("blockEndAt")}</Label>
-                <DateTimePicker value={endAt} onChange={setEndAt} disablePast placeholder={t("blockEndAt")} tz={tz} />
+                <FlowDateTimePicker ref={endPickerRef} value={endAt} onChange={setEndAt} disablePast placeholder={t("blockEndAt")} />
               </div>
             </TabsContent>
             <TabsContent value="weekly" className="space-y-3 pt-3">

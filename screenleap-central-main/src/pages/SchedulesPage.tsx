@@ -84,7 +84,6 @@ export default function SchedulesPage() {
   const [projectScheduleDialogOpen, setProjectScheduleDialogOpen] = useState(false);
   const [editingProjectSchedule, setEditingProjectSchedule] = useState<ProjectSchedule | null>(null);
   const [deletingProjectSchedule, setDeletingProjectSchedule] = useState<ProjectSchedule | null>(null);
-  const autoReopenProjectRef = useRef(false);
 
   const [designProjects, setDesignProjects] = useState<DesignProjectLite[]>([]);
   const [allowedProjectIds, setAllowedProjectIds] = useState<string[]>([]);
@@ -475,15 +474,6 @@ export default function SchedulesPage() {
               <Plus className="h-4 w-4 mr-1" /> {t("newChannel")}
             </Button>
           )}
-          {scheduleMode === "project" && (
-            <Button onClick={() => {
-              autoReopenProjectRef.current = true;
-              setEditingProjectSchedule(null);
-              setProjectScheduleDialogOpen(true);
-            }}>
-              <Plus className="h-4 w-4 mr-1" /> 新增專案排程
-            </Button>
-          )}
         </div>
       </div>
 
@@ -648,7 +638,6 @@ export default function SchedulesPage() {
           <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between gap-3">
             <h3 className="font-semibold text-sm">專案排程清單</h3>
             <Button size="sm" onClick={() => {
-              autoReopenProjectRef.current = true;
               setEditingProjectSchedule(null);
               setProjectScheduleDialogOpen(true);
             }}>
@@ -863,23 +852,11 @@ export default function SchedulesPage() {
       {activeOrgId && (
         <ProjectScheduleDialog
           open={projectScheduleDialogOpen}
-          onOpenChange={(o) => {
-            if (!o) autoReopenProjectRef.current = false;
-            setProjectScheduleDialogOpen(o);
-          }}
+          onOpenChange={setProjectScheduleDialogOpen}
           orgId={activeOrgId}
           schedule={editingProjectSchedule}
           designProjects={designProjects}
-          onSaved={() => {
-            const shouldReopen = autoReopenProjectRef.current;
-            reloadProjectSchedules();
-            if (shouldReopen) {
-              setTimeout(() => {
-                setEditingProjectSchedule(null);
-                setProjectScheduleDialogOpen(true);
-              }, 80);
-            }
-          }}
+          onSaved={reloadProjectSchedules}
         />
       )}
 
