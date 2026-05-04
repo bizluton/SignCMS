@@ -18,7 +18,7 @@ import { toast } from "sonner";
 import type { ChannelBlock, Channel } from "@/hooks/useChannels";
 import { WEEKDAY_KEYS, type WeekdayKey } from "@/lib/weekdays";
 
-interface DesignProjectLite { id: string; name: string }
+interface DesignProjectLite { id: string; name: string; aspect: string }
 
 interface Props {
   open: boolean;
@@ -78,7 +78,13 @@ function hasWeekdayInRange(startMs: number, endMs: number, dowKey: string): bool
   return false;
 }
 
+function aspectLabel(aspect: string) {
+  return aspect === "9:16" ? "直式 9:16" : "橫式 16:9";
+}
+
 export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block, channel, designProjects, onSaved }: Props) {
+  const channelAspect = channel?.aspect ?? "16:9";
+  const filteredProjects = designProjects.filter((p) => (p.aspect || "16:9") === channelAspect);
   const { t, language } = useLanguage();
   const { user } = useAuth();
   const [blockType, setBlockType] = useState<"calendar" | "weekly">("calendar");
@@ -129,7 +135,7 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
     setEndTime(block?.end_time?.slice(0, 5) ?? "18:00");
     setEffectiveFrom(block?.effective_from ?? "");
     setEffectiveTo(block?.effective_to ?? "");
-    const initial = block?.design_project_id ?? designProjects[0]?.id ?? "";
+    const initial = block?.design_project_id ?? filteredProjects[0]?.id ?? "";
     setDesignProjectId(initial);
   }, [open, block]);
 
@@ -220,7 +226,7 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
       }
     }
 
-    const projectName = designProjects.find((p) => p.id === designProjectId)?.name ?? "—";
+    const projectName = filteredProjects.find((p) => p.id === designProjectId)?.name ?? "—";
     const payload: Record<string, unknown> = {
       channel_id: channelId,
       org_id: orgId,
@@ -272,15 +278,26 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
             <Select value={designProjectId} onValueChange={setDesignProjectId}>
               <SelectTrigger><SelectValue placeholder={t("blockSelectProject")} /></SelectTrigger>
               <SelectContent>
-                {designProjects.length === 0 ? (
+                {filteredProjects.length === 0 ? (
                   <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("noAllowedProjects")}</div>
                 ) : (
-                  designProjects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                  filteredProjects.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      <span className="flex items-center gap-2">
+                        {p.name}
+                        <span className="text-[10px] text-muted-foreground bg-muted rounded px-1 py-0">{aspectLabel(p.aspect || "16:9")}</span>
+                      </span>
+                    </SelectItem>
                   ))
                 )}
               </SelectContent>
             </Select>
+            {designProjectId && (() => {
+              const sel = filteredProjects.find((p) => p.id === designProjectId);
+              return sel ? (
+                <p className="text-[11px] text-muted-foreground mt-1">{sel.name} · {aspectLabel(sel.aspect || "16:9")}</p>
+              ) : null;
+            })()}
           </div>
           <Tabs value={blockType} onValueChange={(v) => setBlockType(v as "calendar" | "weekly")}>
             <TabsList className="grid grid-cols-2 w-full">

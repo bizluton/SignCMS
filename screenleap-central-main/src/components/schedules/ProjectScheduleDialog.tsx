@@ -40,7 +40,11 @@ function todayDateStr(): string {
 
 function startOfToday() { const x = new Date(); x.setHours(0, 0, 0, 0); return x; }
 
-interface DesignProjectLite { id: string; name: string }
+interface DesignProjectLite { id: string; name: string; aspect: string }
+
+function aspectLabel(aspect: string) {
+  return aspect === "9:16" ? "直式 9:16" : "橫式 16:9";
+}
 
 interface Props {
   open: boolean;
@@ -183,12 +187,24 @@ export function ProjectScheduleDialog({ open, onOpenChange, orgId, schedule, des
                   <div className="px-2 py-1.5 text-xs text-muted-foreground">{t("noAllowedProjects")}</div>
                 ) : (
                   designProjects.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                    <SelectItem key={p.id} value={p.id}>
+                      <span className="flex items-center gap-2">
+                        {p.name}
+                        <span className="text-[10px] text-muted-foreground bg-muted rounded px-1 py-0">{aspectLabel(p.aspect || "16:9")}</span>
+                      </span>
+                    </SelectItem>
                   ))
                 )}
               </SelectContent>
             </Select>
           </div>
+
+          {designProjectId && (() => {
+            const sel = designProjects.find((p) => p.id === designProjectId);
+            return sel ? (
+              <p className="text-[11px] text-muted-foreground -mt-2">{sel.name} · {aspectLabel(sel.aspect || "16:9")}</p>
+            ) : null;
+          })()}
 
           {/* Color */}
           <div>

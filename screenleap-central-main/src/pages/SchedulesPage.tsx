@@ -33,7 +33,7 @@ import {
 } from "@/lib/referenceCheck";
 import { useAuth } from "@/contexts/AuthContext";
 
-interface DesignProjectLite { id: string; name: string }
+interface DesignProjectLite { id: string; name: string; aspect: string }
 interface TeamLite { id: string; name: string }
 
 function formatDateTime(iso: string | null): string {
@@ -158,7 +158,7 @@ export default function SchedulesPage() {
     (async () => {
       const { data } = await supabase
         .from("design_projects")
-        .select("id, name")
+        .select("id, name, aspect")
         .eq("org_id", activeOrgId)
         .order("name", { ascending: true });
       setDesignProjects((data as DesignProjectLite[]) ?? []);
@@ -216,6 +216,12 @@ export default function SchedulesPage() {
   const projectNameById = useMemo(() => {
     const map = new Map<string, string>();
     designProjects.forEach((p) => map.set(p.id, p.name));
+    return map;
+  }, [designProjects]);
+
+  const projectAspectById = useMemo(() => {
+    const map = new Map<string, string>();
+    designProjects.forEach((p) => map.set(p.id, p.aspect || "16:9"));
     return map;
   }, [designProjects]);
 
@@ -581,6 +587,11 @@ export default function SchedulesPage() {
                       {b.design_project_id && (
                         <Badge variant="outline" className="text-[10px]">{projectNameById.get(b.design_project_id) ?? "—"}</Badge>
                       )}
+                      {b.design_project_id && projectAspectById.get(b.design_project_id) && (
+                        <Badge variant="secondary" className="text-[10px]">
+                          {projectAspectById.get(b.design_project_id) === "9:16" ? "直式 9:16" : "橫式 16:9"}
+                        </Badge>
+                      )}
                       {isBlockExpired(b) && <Badge variant="destructive" className="text-[10px]">{t("blockExpiredBadge")}</Badge>}
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
@@ -634,6 +645,11 @@ export default function SchedulesPage() {
                       <span className="font-medium text-sm">{s.name}</span>
                       {s.design_project_id && projectNameById.get(s.design_project_id) && (
                         <span className="text-xs text-muted-foreground">{projectNameById.get(s.design_project_id)}</span>
+                      )}
+                      {s.design_project_id && projectAspectById.get(s.design_project_id) && (
+                        <Badge variant="secondary" className="text-[10px]">
+                          {projectAspectById.get(s.design_project_id) === "9:16" ? "直式 9:16" : "橫式 16:9"}
+                        </Badge>
                       )}
                       <Badge variant="secondary" className="text-[10px]">
                         {s.block_type === "calendar" ? t("blockTypeCalendar") : t("blockTypeWeekly")}

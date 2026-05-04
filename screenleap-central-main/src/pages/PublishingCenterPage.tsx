@@ -73,6 +73,7 @@ interface ChannelOption {
   org_id: string | null;
   color: string;
   enabled: boolean;
+  aspect: string;
   team_id: string | null;
   team_name: string;
   collab_scope: "creator" | "team" | "org";
@@ -240,13 +241,13 @@ export default function PublishingCenterPage() {
   const fetchData = useCallback(async () => {
     type RawSched = { id: string; name: string; org_id: string | null; screens: { name: string } | null };
     type RawScreen = { id: string; name: string; branch: string; online: boolean; org_id: string | null; timezone?: string | null };
-    type RawChannel = { id: string; name: string; org_id: string | null; color: string; enabled: boolean; sort_order: number; team_id: string | null; collab_scope: string };
+    type RawChannel = { id: string; name: string; org_id: string | null; color: string; enabled: boolean; sort_order: number; aspect: string; team_id: string | null; collab_scope: string };
     type RawProject = { id: string; name: string; org_id: string | null; aspect: string; created_by: string | null; team_id: string | null; collab_scope: string };
     type RawPS = { id: string; name: string; design_project_id: string; block_type: string; color: string; start_at: string | null; end_at: string | null; weekdays: unknown; start_time: string | null; end_time: string | null; org_id: string | null };
     setLoading(true);
     let schedQ = supabase.from("schedules").select("id, name, org_id, screen_id, screens:screen_id(name)").order("name");
     let screenQ = supabase.from("screens").select("id, name, branch, online, org_id").order("branch").order("name");
-    let channelQ = supabase.from("channels").select("id, name, org_id, color, enabled, sort_order, team_id, collab_scope").order("sort_order", { ascending: true }).order("created_at", { ascending: true });
+    let channelQ = supabase.from("channels").select("id, name, org_id, color, enabled, sort_order, aspect, team_id, collab_scope").order("sort_order", { ascending: true }).order("created_at", { ascending: true });
     let projectQ = supabase.from("design_projects").select("id, name, org_id, aspect, created_by, team_id, collab_scope").order("name");
     let psQ = supabase.from("project_schedules").select("id, name, design_project_id, block_type, color, start_at, end_at, weekdays, start_time, end_time, org_id").eq("enabled", true).order("created_at", { ascending: true });
     if (activeOrgId) {
@@ -302,6 +303,7 @@ export default function PublishingCenterPage() {
       org_id: c.org_id || null,
       color: c.color || "#3b82f6",
       enabled: c.enabled !== false,
+      aspect: c.aspect || "16:9",
       team_id: c.team_id || null,
       team_name: (c.team_id && projectTeamNames.get(c.team_id)) || "",
       collab_scope: (c.collab_scope === "creator" || c.collab_scope === "team" || c.collab_scope === "org") ? c.collab_scope : "team",
@@ -883,9 +885,12 @@ export default function PublishingCenterPage() {
                         CH{orderIdx + 1}
                       </span>
                     )}
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="h-3 w-3 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
                       <p className="text-sm font-medium text-foreground truncate">{c.name}</p>
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                        {c.aspect === "9:16" ? "直式 9:16" : "橫式 16:9"}
+                      </Badge>
                       {c.team_name && (
                         <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-0.5 shrink-0">
                           <Users className="h-2.5 w-2.5" />
@@ -928,6 +933,7 @@ export default function PublishingCenterPage() {
                   : s.start_time && s.end_time
                     ? `${s.start_time.slice(0, 5)} – ${s.end_time.slice(0, 5)}`
                     : null;
+                const projectAspect = designProjects.find((p) => p.id === s.design_project_id)?.aspect || "16:9";
                 return (
                 <div
                   key={s.id}
@@ -960,6 +966,9 @@ export default function PublishingCenterPage() {
                         {s.design_project_name && (
                           <span className="truncate">{s.design_project_name}</span>
                         )}
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
+                          {projectAspect === "9:16" ? "直式 9:16" : "橫式 16:9"}
+                        </Badge>
                         {timeInfo && (
                           <Badge variant="outline" className="text-[10px] px-1.5 py-0">{timeInfo}</Badge>
                         )}

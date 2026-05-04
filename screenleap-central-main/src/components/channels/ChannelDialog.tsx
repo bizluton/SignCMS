@@ -50,6 +50,7 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, onSaved }: P
   const [enabled, setEnabled] = useState(true);
   const [teamId, setTeamId] = useState<string>("none");
   const [collabScope, setCollabScope] = useState<"creator" | "team" | "org">("team");
+  const [aspect, setAspect] = useState<"16:9" | "9:16">("16:9");
   const [teams, setTeams] = useState<TeamLite[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -61,6 +62,7 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, onSaved }: P
       setBgmVolume(channel?.bgm_volume ?? 50);
       setEnabled(channel?.enabled ?? true);
       setTeamId(channel?.team_id ? String(channel.team_id) : "none");
+      setAspect((channel?.aspect === "9:16" ? "9:16" : "16:9") as "16:9" | "9:16");
       const cs = channel?.collab_scope;
       const hasTeam = !!channel?.team_id;
       setCollabScope(
@@ -97,6 +99,7 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, onSaved }: P
       color,
       bgm_volume: bgmVolume,
       enabled,
+      aspect,
       team_id: teamIdToSave,
       collab_scope: collabToSave,
     };
@@ -140,6 +143,25 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, onSaved }: P
           <div>
             <Label>{t("channelDescription")}</Label>
             <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
+          </div>
+          <div>
+            <Label>螢幕方向</Label>
+            <div className="flex gap-2 mt-2">
+              {(["16:9", "9:16"] as const).map((a) => (
+                <button
+                  key={a}
+                  type="button"
+                  onClick={() => setAspect(a)}
+                  className={`flex-1 flex flex-col items-center gap-1 p-2 rounded-lg border-2 text-xs transition-all ${
+                    aspect === a ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                  }`}
+                >
+                  <span className={`rounded border ${a === "16:9" ? "w-10 h-6" : "w-6 h-10"} ${aspect === a ? "border-primary bg-primary/20" : "border-muted-foreground/40"}`} />
+                  <span className="font-medium">{a === "16:9" ? "橫式" : "直式"}</span>
+                  <span className="text-muted-foreground">{a}</span>
+                </button>
+              ))}
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">

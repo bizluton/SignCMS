@@ -13,6 +13,7 @@ export interface Channel {
   sort_order: number;
   team_id: string | null;
   collab_scope: "creator" | "team" | "org";
+  aspect: string;
   created_at: string;
   updated_at: string;
 }
