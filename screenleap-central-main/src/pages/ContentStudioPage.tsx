@@ -3169,15 +3169,16 @@ function ColorSwatchInput({ value, onChange, fallback = "#000000", disabled = fa
 // ── QueueScopePicker ──────────────────────────────────────────────────────────
 // Auto-fills org UUID from context; lets user pick team + individual queues.
 function QueueScopePicker({
-  orgId, teamId, queueIds, ttsLang, cycleSeconds,
-  onOrgChange, onTeamChange, onQueueIdsChange, onTtsLangChange, onCycleSecondsChange,
+  orgId, teamId, queueIds, counterNames, ttsLang, cycleSeconds,
+  onOrgChange, onTeamChange, onQueueIdsChange, onCounterNamesChange, onTtsLangChange, onCycleSecondsChange,
   lang,
 }: {
-  orgId: string; teamId: string; queueIds: string[];
+  orgId: string; teamId: string; queueIds: string[]; counterNames: string[];
   ttsLang: string; cycleSeconds: number;
   onOrgChange: (v: string) => void;
   onTeamChange: (v: string) => void;
   onQueueIdsChange: (v: string[]) => void;
+  onCounterNamesChange: (v: string[]) => void;
   onTtsLangChange: (v: string) => void;
   onCycleSecondsChange: (v: number) => void;
   lang: string;
@@ -3185,6 +3186,7 @@ function QueueScopePicker({
   const { activeOrgId } = useActiveOrg();
   const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
   const [queues, setQueues] = useState<{ id: string; queue_name: string }[]>([]);
+  const [availableCounters, setAvailableCounters] = useState<string[]>([]);
 
   // Always use the active org — auto-fill on first render
   useEffect(() => {
@@ -3212,12 +3214,34 @@ function QueueScopePicker({
       .then(({ data }) => setQueues(data ?? []));
   }, [resolvedOrg, teamId]);
 
+  // Fetch distinct counter names from recent tickets for the resolved queues
+  useEffect(() => {
+    if (!resolvedOrg) { setAvailableCounters([]); return; }
+    // Build queue id filter: either from queueIds selection or all queues in org
+    const qIds = queueIds.length > 0 ? queueIds : queues.map((q) => q.id);
+    if (qIds.length === 0) { setAvailableCounters([]); return; }
+    void supabase
+      .from("queue_system_tickets")
+      .select("counter_name")
+      .in("queue_id", qIds)
+      .neq("counter_name", "")
+      .order("called_at", { ascending: false })
+      .limit(200)
+      .then(({ data }) => {
+        const distinct = [...new Set((data ?? []).map((r) => r.counter_name))].sort();
+        setAvailableCounters(distinct);
+      });
+  }, [resolvedOrg, queueIds, queues]);
+
   const isZh = lang === "zh" || lang === "zh-TW";
   const isJa = lang === "ja";
 
   const L = {
     team:      isZh ? "團隊（全組織則留空）" : isJa ? "チーム（組織全体は空白）" : "Team (leave blank for org-wide)",
     queues:    isZh ? "顯示的隊列（留空=全部）" : isJa ? "表示するキュー（空=全て）" : "Queues to display (empty = all)",
+    counters:  isZh ? "服務櫃檯（留空=全部）" : isJa ? "カウンター（空=全て）" : "Counters (empty = all)",
+    allCounters: isZh ? "（顯示全部櫃檯）" : isJa ? "（全カウンター）" : "(Show all counters)",
+    noCounters:  isZh ? "尚無叫號紀錄" : isJa ? "まだ記録なし" : "No call records yet",
     teamAll:   isZh ? "全組織" : isJa ? "組織全体" : "Org-wide",
     teamPh:    isZh ? "選擇團隊" : isJa ? "チームを選択" : "Select team",
     allQueues: isZh ? "（顯示全部隊列）" : isJa ? "（全キュー表示）" : "(Show all queues)",
@@ -3228,6 +3252,12 @@ function QueueScopePicker({
   const toggleQueue = (id: string) => {
     onQueueIdsChange(
       queueIds.includes(id) ? queueIds.filter((q) => q !== id) : [...queueIds, id],
+    );
+  };
+
+  const toggleCounter = (name: string) => {
+    onCounterNamesChange(
+      counterNames.includes(name) ? counterNames.filter((c) => c !== name) : [...counterNames, name],
     );
   };
 
@@ -3267,6 +3297,33 @@ function QueueScopePicker({
           </div>
         </div>
       )}
+
+      {/* Counter picker */}
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{L.counters}</Label>
+        <div className="rounded-md border border-border bg-muted/30 p-2 space-y-1 max-h-32 overflow-y-auto">
+          {availableCounters.length === 0 ? (
+            <p className="text-[9px] text-muted-foreground italic">{L.noCounters}</p>
+          ) : (
+            <>
+              {counterNames.length === 0 && (
+                <p className="text-[9px] text-muted-foreground italic">{L.allCounters}</p>
+              )}
+              {availableCounters.map((name) => (
+                <label key={name} className="flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={counterNames.includes(name)}
+                    onChange={() => toggleCounter(name)}
+                    className="h-3 w-3 accent-primary"
+                  />
+                  <span className="text-[10px]">{name}</span>
+                </label>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
 
       {/* TTS Language */}
       <div className="space-y-1">
@@ -3824,11 +3881,13 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
           orgId={String((config.params || {}).orgId ?? "")}
           teamId={String((config.params || {}).teamId ?? "")}
           queueIds={((config.params || {}).queueIds as string[] | undefined) ?? []}
+          counterNames={((config.params || {}).counterNames as string[] | undefined) ?? []}
           ttsLang={String((config.params || {}).ttsLang ?? "zh-TW")}
           cycleSeconds={Number((config.params || {}).cycleSeconds ?? 8)}
-          onOrgChange={(v) => set({ params: { ...(config.params || {}), orgId: v, teamId: "", queueIds: [] } })}
-          onTeamChange={(v) => set({ params: { ...(config.params || {}), teamId: v, queueIds: [] } })}
-          onQueueIdsChange={(v) => set({ params: { ...(config.params || {}), queueIds: v } })}
+          onOrgChange={(v) => set({ params: { ...(config.params || {}), orgId: v, teamId: "", queueIds: [], counterNames: [] } })}
+          onTeamChange={(v) => set({ params: { ...(config.params || {}), teamId: v, queueIds: [], counterNames: [] } })}
+          onQueueIdsChange={(v) => set({ params: { ...(config.params || {}), queueIds: v, counterNames: [] } })}
+          onCounterNamesChange={(v) => set({ params: { ...(config.params || {}), counterNames: v } })}
           onTtsLangChange={(v) => set({ params: { ...(config.params || {}), ttsLang: v } })}
           onCycleSecondsChange={(v) => set({ params: { ...(config.params || {}), cycleSeconds: v } })}
           lang={language}
@@ -4379,6 +4438,7 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
         orgId: (config.params?.orgId as string) || "",
         teamId: (config.params?.teamId as string | undefined) || undefined,
         queueIds: (config.params?.queueIds as string[] | undefined) || undefined,
+        counterNames: (config.params?.counterNames as string[] | undefined) || undefined,
         ttsLang: (config.params?.ttsLang as string | undefined) || "zh-TW",
         cycleSeconds: (config.params?.cycleSeconds as number | undefined) || 8,
       }} />
