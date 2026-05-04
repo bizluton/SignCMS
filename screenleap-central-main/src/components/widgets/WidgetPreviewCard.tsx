@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Globe, Code2, Youtube, CloudSun, Loader2, Radio } from "lucide-react";
+import { Globe, Code2, Youtube, CloudSun, Loader2, Radio, Users } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 
 function injectWidgetParams(html: string, params?: Record<string, unknown>): string {
@@ -31,7 +31,7 @@ function WebpageWidgetPreview({ url, bg, params }: { url: string; bg: string; pa
   return <iframe srcDoc={injectWidgetParams(rawHtml, params)} className="w-full h-full border-0 pointer-events-none" sandbox="allow-scripts" />;
 }
 
-export type WidgetSubType = "date" | "clock" | "webpage" | "marquee" | "qrcode" | "countdown" | "youtube" | "weather" | "weather_tw";
+export type WidgetSubType = "date" | "clock" | "webpage" | "marquee" | "qrcode" | "countdown" | "youtube" | "weather" | "weather_tw" | "queue-display" | "announcement" | "stream";
 export type WidgetAnimation = "none" | "fadeIn" | "slideUp" | "bounce" | "zoomIn" | "flipIn";
 
 export interface WidgetConfig {
@@ -213,6 +213,25 @@ export function WidgetPreviewCard({ config }: { config: WidgetConfig }) {
         <span className="text-[9px] font-medium opacity-70">台灣天氣</span>
       </div>
     );
+  }
+
+  if (config.widgetType === "queue-display") {
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-2" style={{ background: "#030712" }}>
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-900/30 via-transparent to-cyan-900/20" />
+        <Users className="relative z-10 w-5 h-5 text-white/30" />
+        <span className="relative z-10 font-black tabular-nums text-white/80" style={{ fontSize: "clamp(1.5rem,8cqi,3rem)", lineHeight: 1 }}>
+          001
+        </span>
+        <span className="relative z-10 text-[8px] font-medium tracking-widest text-white/30 uppercase">
+          Queue Display
+        </span>
+      </div>
+    );
+  }
+
+  if (config.widgetType === "announcement") {
+    if (config.url) return <WebpageWidgetPreview url={config.url} bg={bg} params={config.params} />;
   }
 
   return (

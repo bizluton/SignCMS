@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import Hls from "hls.js";
+import QueueDisplayWidget from "@/components/widgets/QueueDisplayWidget";
 
 /**
  * DesignStage — faithful renderer for a `design_project` saved by Content Studio.
@@ -381,6 +382,27 @@ export function WidgetRender({ config }: { config: WidgetConfig | null | undefin
 
   if (config.widgetType === "stream" && config.streamUrl) {
     return <StreamWidgetRender url={config.streamUrl} muted={config.streamMuted !== false} fitMode={config.streamFit as string | undefined} />;
+  }
+
+  if (config.widgetType === "queue-display") {
+    const orgId =
+      (config.params?.orgId as string) ||
+      (config.orgId as string) ||
+      "";
+    if (!orgId) {
+      return (
+        <div className="w-full h-full flex items-center justify-center" style={{ background: bg }}>
+          <p className="text-[3vmin]" style={{ color: fg, opacity: 0.5 }}>請在 Widget 設定中填入組織 ID</p>
+        </div>
+      );
+    }
+    return (
+      <QueueDisplayWidget config={{
+        orgId,
+        ttsLang:      (config.params?.ttsLang      as string | undefined) ?? (config.ttsLang      as string | undefined) ?? "zh-TW",
+        cycleSeconds: Number((config.params?.cycleSeconds ?? config.cycleSeconds) ?? 8),
+      }} />
+    );
   }
 
   // Unknown widget — render label.
