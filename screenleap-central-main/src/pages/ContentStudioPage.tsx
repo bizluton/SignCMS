@@ -45,6 +45,7 @@ import {
   Search, ArrowUpDown, ArrowDownAZ, ArrowUpAZ, GripVertical, MoreHorizontal, PanelLeft, PanelRight, Edit3, Eye, EyeOff, List, ChevronUp, ChevronDown,
   Music, Volume2, Settings2, VolumeX,
   Download, Loader2, Radio, Megaphone,
+  SlidersHorizontal, CheckCircle2, AlertTriangle,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -4694,6 +4695,10 @@ export default function ContentStudioPage() {
   const { widgets: catalogWidgets } = useWidgets(installedApps);
   const [aspect, setAspect] = useState<AspectRatio>("16:9");
   const [resolution, setResolution] = useState<Resolution>(() => getDefaultResolution("16:9"));
+  type OutputMode = "mirror" | "independent" | "extend-h" | "extend-v";
+  const [outputMode, setOutputMode] = useState<OutputMode>("mirror");
+  const [outputCount, setOutputCount] = useState<number>(1);
+  const [outputModeOpen, setOutputModeOpen] = useState(false);
   const [showCustomResDialog, setShowCustomResDialog] = useState(false);
   const [customResW, setCustomResW] = useState(() => loadStoredCustomRes()?.w ?? "1920");
   const [customResH, setCustomResH] = useState(() => loadStoredCustomRes()?.h ?? "1080");
@@ -5757,6 +5762,8 @@ export default function ContentStudioPage() {
         overlays: p.overlays,
       })),
       activePageId,
+      outputMode,
+      outputCount,
       pageTransition: {
         ...projectTransition,
         pageChannels: pagesSnapshot.map((p, i) => ({
@@ -5862,6 +5869,15 @@ export default function ContentStudioPage() {
 
     // Restore project-level page transition condition
     setProjectTransition(normalizePageTransition(metaEntry?.pageTransition));
+    // Restore output settings
+    const savedOutputMode = metaEntry?.outputMode;
+    if (savedOutputMode === "mirror" || savedOutputMode === "independent" || savedOutputMode === "extend-h" || savedOutputMode === "extend-v") {
+      setOutputMode(savedOutputMode);
+    } else {
+      setOutputMode("mirror");
+    }
+    const savedOutputCount = typeof metaEntry?.outputCount === "number" ? metaEntry.outputCount : 1;
+    setOutputCount(Math.max(1, Math.min(4, savedOutputCount)));
 
     setSelectedZone(null);
     setSelectedOverlay(null);
@@ -6373,6 +6389,8 @@ export default function ContentStudioPage() {
     setSelectedOverlay(null);
     setExtraSelectedZoneIds(new Set());
     setProjectTransition({ ...DEFAULT_PAGE_TRANSITION, triggers: { ...DEFAULT_PAGE_TRANSITION.triggers } });
+    setOutputMode("mirror");
+    setOutputCount(1);
     // Mark clean after state settles
     setTimeout(() => markClean(), 0);
   }, [markClean]);
@@ -7380,6 +7398,87 @@ export default function ContentStudioPage() {
         <div className="flex-1 flex gap-3 min-h-0 min-w-0">
           {/* Canvas column (canvas above, media dock below) */}
           <div className="flex-1 flex flex-col gap-3 min-h-0 min-w-0">
+            {/* Output mode controls */}
+            {pages.length > 0 && (
+              <div className="shrink-0 flex items-center gap-1 mb-1">
+                <Popover open={outputModeOpen} onOpenChange={setOutputModeOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex items-center gap-0 h-8 rounded-md overflow-hidden border border-border hover:border-primary/60 transition-colors"
+                    >
+                      <span className="flex items-center gap-1.5 px-2.5 h-full bg-foreground text-background text-[11px] font-bold uppercase tracking-wide">
+                        <Monitor className="w-3.5 h-3.5" />
+                        OUTPUT
+                      </span>
+                      <span className="flex items-center justify-center px-2 h-full bg-primary text-primary-foreground text-xs font-bold min-w-[22px]">
+                        {outputCount}
+                      </span>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="ml-1 w-7 h-7 inline-flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-primary hover:border-primary/60 hover:bg-primary/5 transition-colors"
+                      title="輸出設定"
+                    >
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent side="bottom" align="start" className="w-72 p-0" onClick={(e) => e.stopPropagation()}>
+                    <div className="px-3 pt-3 pb-1">
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">OUTPUT MODE</p>
+                      {([
+                        { id: "independent", label: "Independent", desc: "Each Output plays its own content" },
+                        { id: "mirror",      label: "Mirror",      desc: "All Outputs display the same picture" },
+                        { id: "extend-h",    label: "Extend Horizontal", desc: "Outputs extend horizontally into one canvas" },
+                        { id: "extend-v",    label: "Extend Vertical",   desc: "Outputs extend vertically into one canvas" },
+                      ] as const).map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => { setOutputMode(opt.id); setOutputModeOpen(false); }}
+                          className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-md text-left transition-colors ${outputMode === opt.id ? "bg-primary/10 text-primary" : "hover:bg-muted/60 text-foreground"}`}
+                        >
+                          <div className="mt-0.5 shrink-0">
+                            {outputMode === opt.id
+                              ? <CheckCircle2 className="w-4 h-4 text-primary" />
+                              : <span className="w-4 h-4 rounded-full border-2 border-muted-foreground/40 inline-block" />}
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold leading-tight">{opt.label}</p>
+                            <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{opt.desc}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="border-t border-border px-3 py-2.5">
+                      <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">輸出數量</p>
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4].map((n) => (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => setOutputCount(n)}
+                            className={`flex-1 h-8 rounded-md border text-xs font-bold transition-colors ${outputCount === n ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/60 hover:bg-muted/60"}`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {(outputMode === "extend-h" || outputMode === "extend-v") && (
+                      <div className="px-3 pb-2.5 text-[11px] text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                        <span>延伸模式下，版面將依輸出數量水平/垂直延展。</span>
+                      </div>
+                    )}
+                  </PopoverContent>
+                </Popover>
+                <div className="w-px h-5 bg-border mx-1" />
+              </div>
+            )}
+
             {/* Page tabs (multi-layout carousel) */}
             {pages.length > 0 && (
               <div className="shrink-0 flex items-center gap-1 overflow-x-auto pb-1">
@@ -7527,6 +7626,9 @@ export default function ContentStudioPage() {
           <div className="absolute bottom-3 right-3 z-20 px-2.5 py-1 rounded-md bg-background/80 backdrop-blur-sm border border-border shadow-sm text-[11px] font-medium text-foreground tabular-nums pointer-events-none flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-primary" />
             {resolution.width}×{resolution.height}
+            {outputCount > 1 && (
+              <span className="text-indigo-500 font-bold">× {outputCount}</span>
+            )}
           </div>
 
           {/* Zone merge / split toolbar */}
@@ -7652,6 +7754,21 @@ export default function ContentStudioPage() {
 
           <div ref={canvasRef} className={`relative bg-card rounded-lg shadow-lg border border-border overflow-hidden ${resizing ? "" : "transition-all duration-300"}`} style={{ width: W, height: H, maxWidth: "100%", maxHeight: "100%" }}
             onClick={() => { if (selectedOverlay) setSelectedOverlay(null); }}>
+            {/* Extend-mode output divider lines */}
+            {outputCount > 1 && (outputMode === "extend-h" || outputMode === "extend-v") && (
+              Array.from({ length: outputCount - 1 }, (_, i) => {
+                const pct = ((i + 1) / outputCount) * 100;
+                return outputMode === "extend-h" ? (
+                  <div key={i} className="pointer-events-none absolute top-0 bottom-0 z-50" style={{ left: `${pct}%`, width: 1, background: "rgba(99,102,241,0.7)", boxShadow: "0 0 4px rgba(99,102,241,0.5)" }}>
+                    <span className="absolute top-1 left-1 text-[9px] font-bold text-indigo-400 bg-black/50 px-1 rounded whitespace-nowrap">OUT {i + 2}</span>
+                  </div>
+                ) : (
+                  <div key={i} className="pointer-events-none absolute left-0 right-0 z-50" style={{ top: `${pct}%`, height: 1, background: "rgba(99,102,241,0.7)", boxShadow: "0 0 4px rgba(99,102,241,0.5)" }}>
+                    <span className="absolute left-1 top-1 text-[9px] font-bold text-indigo-400 bg-black/50 px-1 rounded whitespace-nowrap">OUT {i + 2}</span>
+                  </div>
+                );
+              })
+            )}
             {isMobile && !currentProject && (
               <div className="absolute inset-0 z-40 flex items-center justify-center bg-background/85 backdrop-blur-sm p-4">
                 <div className="w-full max-w-xs rounded-xl border border-border bg-card shadow-lg p-5 flex flex-col items-center text-center gap-3">
