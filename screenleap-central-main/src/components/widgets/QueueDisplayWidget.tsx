@@ -32,7 +32,9 @@ interface Ticket {
 
 export interface QueueDisplayConfig {
   orgId: string;
-  /** If omitted, cycles through all queues for the org */
+  /** If set, only show queues belonging to this team */
+  teamId?: string;
+  /** If set, override teamId and only show these specific queues */
   queueIds?: string[];
   /** e.g. "zh-TW", "en-US", "ja-JP" */
   ttsLang?: string;
@@ -43,7 +45,7 @@ export interface QueueDisplayConfig {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function QueueDisplayWidget({ config }: { config: QueueDisplayConfig }) {
-  const { orgId, queueIds, ttsLang = "zh-TW", cycleSeconds = 8 } = config;
+  const { orgId, teamId, queueIds, ttsLang = "zh-TW", cycleSeconds = 8 } = config;
 
   const [queues, setQueues] = useState<Queue[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
@@ -64,15 +66,18 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
       .eq("org_id", orgId)
       .order("created_at");
 
+    // Priority: explicit queueIds > teamId > all org queues
     if (queueIds && queueIds.length > 0) {
       q = q.in("id", queueIds);
+    } else if (teamId) {
+      q = q.eq("team_id", teamId);
     }
 
     q.then(({ data }) => {
       setQueues(data ?? []);
       setLoading(false);
     });
-  }, [orgId, queueIds]);
+  }, [orgId, teamId, queueIds]);
 
   // ── Active queue ──────────────────────────────────────────────────────────
   const activeQueue = queues[activeIdx] ?? null;

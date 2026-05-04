@@ -396,9 +396,19 @@ export function WidgetRender({ config }: { config: WidgetConfig | null | undefin
         </div>
       );
     }
+    const teamId =
+      (config.params?.teamId as string | undefined) ||
+      (config.teamId as string | undefined) ||
+      undefined;
+    const queueIds =
+      (config.params?.queueIds as string[] | undefined) ||
+      (config.queueIds as string[] | undefined) ||
+      undefined;
     return (
       <QueueDisplayWidget config={{
         orgId,
+        teamId:       teamId || undefined,
+        queueIds:     queueIds?.length ? queueIds : undefined,
         ttsLang:      (config.params?.ttsLang      as string | undefined) ?? (config.ttsLang      as string | undefined) ?? "zh-TW",
         cycleSeconds: Number((config.params?.cycleSeconds ?? config.cycleSeconds) ?? 8),
       }} />

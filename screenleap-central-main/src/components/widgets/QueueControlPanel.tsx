@@ -70,8 +70,10 @@ export default function QueueControlPanel() {
   const [resetting, setResetting] = useState(false);
   const [loadingQueues, setLoadingQueues] = useState(true);
   const [newQueueName, setNewQueueName] = useState("");
+  const [newQueueTeamId, setNewQueueTeamId] = useState("");
   const [creatingQueue, setCreatingQueue] = useState(false);
   const [showNewQueue, setShowNewQueue] = useState(false);
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
 
   // API integration state
   const [showApiSection, setShowApiSection] = useState(false);
@@ -113,6 +115,13 @@ export default function QueueControlPanel() {
   }, [activeOrgId, selectedQueueId]);
 
   useEffect(() => { void loadQueues(); }, [loadQueues]);
+
+  // Load teams for the active org (used in queue creation)
+  useEffect(() => {
+    if (!activeOrgId) return;
+    void supabase.from("teams").select("id, name").eq("org_id", activeOrgId).order("name")
+      .then(({ data }) => setTeams((data || []) as { id: string; name: string }[]));
+  }, [activeOrgId]);
 
   // ── Realtime: keep queue list and waiting count fresh ─────────────────────
   useEffect(() => {
@@ -284,9 +293,11 @@ export default function QueueControlPanel() {
     if (!newQueueName.trim() || !activeOrgId) return;
     setCreatingQueue(true);
     try {
-      const { data, error } = await supabase
+      const payload: Record<string, unknown> = { org_id: activeOrgId, queue_name: newQueueName.trim() };
+      if (newQueueTeamId) payload.team_id = newQueueTeamId;
+      const { data, error } = await (supabase as unknown as { from: (t: string) => { insert: (p: unknown) => { select: (c: string) => { single: () => Promise<{ data: unknown; error: { message: string } | null }> } } } })
         .from("queue_system_queues")
-        .insert({ org_id: activeOrgId, queue_name: newQueueName.trim() })
+        .insert(payload)
         .select("id, queue_name, prefix, current_number")
         .single();
       if (error) throw error;
@@ -294,6 +305,7 @@ export default function QueueControlPanel() {
       setQueues((prev) => [...prev, q]);
       setSelectedQueueId(q.id);
       setNewQueueName("");
+      setNewQueueTeamId("");
       setShowNewQueue(false);
       toast.success(t("隊列已建立", "Queue created", "キューを作成しました"));
     } catch {
@@ -338,22 +350,39 @@ export default function QueueControlPanel() {
         </div>
 
         {showNewQueue && (
-          <div className="flex gap-2">
-            <Input
-              placeholder={t("隊列名稱", "Queue name", "キュー名")}
-              value={newQueueName}
-              onChange={(e) => setNewQueueName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && void handleCreateQueue()}
-              className="h-9 text-sm"
-            />
-            <Button
-              size="sm"
-              onClick={handleCreateQueue}
-              disabled={creatingQueue || !newQueueName.trim()}
-              className="h-9 px-3"
-            >
-              {creatingQueue ? <Loader2 className="h-3 w-3 animate-spin" /> : t("建立", "Create", "作成")}
-            </Button>
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <Input
+                placeholder={t("隊列名稱", "Queue name", "キュー名")}
+                value={newQueueName}
+                onChange={(e) => setNewQueueName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && void handleCreateQueue()}
+                className="h-9 text-sm"
+              />
+              <Button
+                size="sm"
+                onClick={handleCreateQueue}
+                disabled={creatingQueue || !newQueueName.trim()}
+                className="h-9 px-3"
+              >
+                {creatingQueue ? <Loader2 className="h-3 w-3 animate-spin" /> : t("建立", "Create", "作成")}
+              </Button>
+            </div>
+            {teams.length > 0 && (
+              <Select value={newQueueTeamId || "__none__"} onValueChange={(v) => setNewQueueTeamId(v === "__none__" ? "" : v)}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder={t("歸屬團隊（可選）", "Team (optional)", "チーム（任意）")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__" className="text-xs">
+                    {t("全組織（無特定團隊）", "Org-wide (no team)", "組織全体（チームなし）")}
+                  </SelectItem>
+                  {teams.map((tm) => (
+                    <SelectItem key={tm.id} value={tm.id} className="text-xs">{tm.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         )}
 
