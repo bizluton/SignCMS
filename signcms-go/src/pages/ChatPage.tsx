@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Send } from "lucide-react";
 import { clsx } from "clsx";
 
-import type { ChatMessage } from "@/types";
+import type { ChatMessage, MCPToolCall } from "@/types";
 import { loadSettings, isConfigured } from "@/store/settings";
 import { makeMCPClient } from "@/lib/mcp";
 import type { MCPTool } from "@/lib/mcp";
@@ -93,7 +93,6 @@ export default function ChatPage() {
       content:   text.trim(),
       timestamp: Date.now(),
     };
-
     const systemMsg: ChatMessage = {
       id:        "system",
       role:      "system",
@@ -104,70 +103,104 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, userMsg]);
     setTyping(true);
 
-    const history = [systemMsg, ...messages.filter((m) => m.role !== "system"), userMsg];
-    const mcp     = makeMCPClient(settings.mcp);
+    // Working history mutated each agentic round
+    const history: ChatMessage[] = [systemMsg, ...messages.filter((m) => m.role !== "system"), userMsg];
+    const mcp     = mcpClient ?? makeMCPClient(settings.mcp);
     const adapter = getAdapter(settings.llm);
 
-    const assistantId = makeId();
-    let   assistantText = "";
-    const toolCallsForMsg: ChatMessage["toolCalls"] = [];
+    const assistantId              = makeId();
+    let   assistantText            = "";
+    const allToolCalls: NonNullable<ChatMessage["toolCalls"]> = [];
+    let   errorMsg: string | undefined;
 
-    // Add a placeholder assistant message
     setMessages((prev) => [...prev, {
       id: assistantId, role: "assistant", content: "", timestamp: Date.now(),
     }]);
 
-    const processStream = async (): Promise<void> => {
-      return new Promise((resolve) => {
-        adapter.stream(history, tools, async (chunk) => {
+    try {
+      const MAX_ROUNDS = 5;
+
+      for (let round = 0; round < MAX_ROUNDS; round++) {
+        const turnCalls: MCPToolCall[] = [];
+        let   turnError: string | undefined;
+
+        // ── Stream one LLM turn (properly awaited — errors propagate here) ──
+        await adapter.stream(history, tools, (chunk) => {
           if (chunk.type === "text" && chunk.text) {
             assistantText += chunk.text;
             setMessages((prev) => prev.map((m) =>
               m.id === assistantId ? { ...m, content: assistantText } : m,
             ));
           }
-
           if (chunk.type === "tool_call" && chunk.toolCall) {
-            const tc = chunk.toolCall;
-            const t0 = Date.now();
-            try {
-              const result = await mcp.callTool(tc);
-              const resultText = result.content[0]?.text ?? "{}";
-              toolCallsForMsg.push({ tool: tc.name, args: tc.arguments, result: JSON.parse(resultText), ms: Date.now() - t0 });
-
-              // Feed tool result back into history and continue
-              const toolResultMsg: ChatMessage = {
-                id:        makeId(),
-                role:      "system",
-                content:   `Tool ${tc.name} result: ${resultText}`,
-                timestamp: Date.now(),
-              };
-              history.push(toolResultMsg);
-            } catch (e) {
-              toolCallsForMsg.push({ tool: tc.name, args: tc.arguments, result: { error: String(e) }, ms: Date.now() - t0 });
-            }
+            turnCalls.push(chunk.toolCall);
           }
-
-          if (chunk.type === "done" || chunk.type === "error") {
-            setMessages((prev) => prev.map((m) =>
-              m.id === assistantId
-                ? {
-                    ...m,
-                    content:   assistantText || (chunk.error ? "" : m.content),
-                    toolCalls: toolCallsForMsg.length > 0 ? toolCallsForMsg : undefined,
-                    error:     chunk.error,
-                  }
-                : m,
-            ));
-            setTyping(false);
-            resolve();
+          if (chunk.type === "error") {
+            turnError = chunk.error ?? "Unknown LLM error";
           }
         });
-      });
-    };
 
-    await processStream();
-  }, [messages, tools, settings, typing]);
+        if (turnError) throw new Error(turnError);
+
+        // No tool calls → LLM is done
+        if (turnCalls.length === 0) break;
+
+        // ── Execute every tool called this turn ────────────────────────────
+        for (const tc of turnCalls) {
+          const t0 = Date.now();
+          let resultText = "{}";
+          try {
+            const res = await mcp.callTool(tc);
+            resultText = res.content[0]?.text ?? "{}";
+            allToolCalls.push({
+              tool:   tc.name,
+              args:   tc.arguments,
+              result: JSON.parse(resultText),
+              ms:     Date.now() - t0,
+            });
+          } catch (e) {
+            resultText = JSON.stringify({ error: String(e) });
+            allToolCalls.push({
+              tool:   tc.name,
+              args:   tc.arguments,
+              result: { error: String(e) },
+              ms:     Date.now() - t0,
+            });
+          }
+
+          // Inject as "user" so it reaches every LLM provider
+          // (Anthropic filters "system"; OpenAI needs tool role — this
+          //  plain-text form is understood by all models via instruction-following)
+          history.push({
+            id:        makeId(),
+            role:      "user",
+            content:   `[工具結果 ${tc.name}]: ${resultText}`,
+            timestamp: Date.now(),
+          });
+        }
+
+        // Show tool chips in the bubble while we wait for the next round
+        setMessages((prev) => prev.map((m) =>
+          m.id === assistantId ? { ...m, toolCalls: [...allToolCalls] } : m,
+        ));
+      }
+    } catch (e) {
+      errorMsg = e instanceof Error ? e.message : String(e);
+    } finally {
+      // Single final state update — always runs even if stream hangs or throws
+      setMessages((prev) => prev.map((m) =>
+        m.id === assistantId
+          ? {
+              ...m,
+              content:   assistantText,
+              toolCalls: allToolCalls.length > 0 ? allToolCalls : undefined,
+              error:     errorMsg,
+            }
+          : m,
+      ));
+      setTyping(false);
+    }
+  }, [messages, tools, settings, typing, mcpClient]);
 
   // ── Input key handling ───────────────────────────────────────────────────
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
