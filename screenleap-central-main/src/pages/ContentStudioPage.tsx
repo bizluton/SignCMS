@@ -3182,18 +3182,17 @@ function QueueScopePicker({
   onCycleSecondsChange: (v: number) => void;
   lang: string;
 }) {
-  const { orgs } = useUserOrgs();
   const { activeOrgId } = useActiveOrg();
   const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
   const [queues, setQueues] = useState<{ id: string; queue_name: string }[]>([]);
 
-  // Auto-fill orgId on first render
+  // Always use the active org — auto-fill on first render
   useEffect(() => {
-    if (!orgId && activeOrgId) onOrgChange(activeOrgId);
+    if (activeOrgId) onOrgChange(activeOrgId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId]);
 
-  const resolvedOrg = orgId || activeOrgId || "";
+  const resolvedOrg = activeOrgId || "";
 
   // Fetch teams when org changes
   useEffect(() => {
@@ -3205,11 +3204,11 @@ function QueueScopePicker({
   // Fetch queues when org or team changes
   useEffect(() => {
     if (!resolvedOrg) { setQueues([]); return; }
-    type QueueRow = { id: string; queue_name: string; team_id: string | null };
+    type QueueRow = { id: string; queue_name: string };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let q: any = (supabase as any).from("queue_system_queues").select("id, queue_name").eq("org_id", resolvedOrg);
     if (teamId) q = q.eq("team_id", teamId);
-    void (q.order("queue_name") as Promise<{ data: QueueRow[] | null; error: unknown }>)
+    void (q.order("queue_name") as Promise<{ data: QueueRow[] | null }>)
       .then(({ data }) => setQueues(data ?? []));
   }, [resolvedOrg, teamId]);
 
@@ -3217,10 +3216,8 @@ function QueueScopePicker({
   const isJa = lang === "ja";
 
   const L = {
-    org:       isZh ? "組織" : isJa ? "組織" : "Organisation",
     team:      isZh ? "團隊（全組織則留空）" : isJa ? "チーム（組織全体は空白）" : "Team (leave blank for org-wide)",
     queues:    isZh ? "顯示的隊列（留空=全部）" : isJa ? "表示するキュー（空=全て）" : "Queues to display (empty = all)",
-    orgPh:     isZh ? "選擇組織" : isJa ? "組織を選択" : "Select organisation",
     teamAll:   isZh ? "全組織" : isJa ? "組織全体" : "Org-wide",
     teamPh:    isZh ? "選擇團隊" : isJa ? "チームを選択" : "Select team",
     allQueues: isZh ? "（顯示全部隊列）" : isJa ? "（全キュー表示）" : "(Show all queues)",
@@ -3236,17 +3233,6 @@ function QueueScopePicker({
 
   return (
     <div className="space-y-2">
-      {/* Org */}
-      <div className="space-y-1">
-        <Label className="text-[10px] text-muted-foreground">{L.org}</Label>
-        <Select value={resolvedOrg} onValueChange={(v) => { onOrgChange(v); onTeamChange(""); onQueueIdsChange([]); }}>
-          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={L.orgPh} /></SelectTrigger>
-          <SelectContent>
-            {orgs.map((o) => <SelectItem key={o.id} value={o.id} className="text-xs">{o.name}</SelectItem>)}
-          </SelectContent>
-        </Select>
-      </div>
-
       {/* Team */}
       <div className="space-y-1">
         <Label className="text-[10px] text-muted-foreground">{L.team}</Label>
@@ -4388,17 +4374,9 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
   }
 
   if (config.widgetType === "queue-display") {
-    const orgId = (config.params?.orgId as string) || "";
-    if (!orgId) {
-      return (
-        <div className="w-full h-full flex items-center justify-center bg-gray-950 text-white/40 text-[10px]">
-          請在設定中選擇組織
-        </div>
-      );
-    }
     return (
       <QueueDisplayWidget config={{
-        orgId,
+        orgId: (config.params?.orgId as string) || "",
         teamId: (config.params?.teamId as string | undefined) || undefined,
         queueIds: (config.params?.queueIds as string[] | undefined) || undefined,
         ttsLang: (config.params?.ttsLang as string | undefined) || "zh-TW",

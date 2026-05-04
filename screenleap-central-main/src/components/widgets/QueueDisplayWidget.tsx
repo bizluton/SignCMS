@@ -9,6 +9,7 @@
  */
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useActiveOrg } from "@/contexts/ActiveOrgContext";
 import { Volume2, VolumeX, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -45,7 +46,10 @@ export interface QueueDisplayConfig {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function QueueDisplayWidget({ config }: { config: QueueDisplayConfig }) {
-  const { orgId, teamId, queueIds, ttsLang = "zh-TW", cycleSeconds = 8 } = config;
+  const { activeOrgId } = useActiveOrg();
+  const { teamId, queueIds, ttsLang = "zh-TW", cycleSeconds = 8 } = config;
+  // Fallback to active org when config.orgId not yet persisted (e.g. freshly inserted widget)
+  const orgId = config.orgId || activeOrgId || "";
 
   const [queues, setQueues] = useState<Queue[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
