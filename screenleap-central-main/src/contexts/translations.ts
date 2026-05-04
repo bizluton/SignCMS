@@ -2135,6 +2135,32 @@ const translations = {
   studioMediaDragItemsCount: { zh: "{count} 個項目", en: "{count} items", ja: "{count} 件のアイテム" },
   studioZoneTotalCount: { zh: "區塊 {current} / {max}", en: "Zones {current} / {max}", ja: "ブロック {current} / {max}" },
   studioZoneTotalLimitTip: { zh: "區塊總數（含重疊區塊）上限為 {max}", en: "Maximum {max} zones (overlays included)", ja: "ブロック総数の上限は {max}（オーバーレイ含む）" },
+
+  // ── Queue System ───────────────────────────────────────────────────────────
+  queueMgmtTitle: { zh: "排隊叫號管理", en: "Queue Management", ja: "順番呼出し管理" },
+  queueSelectLabel: { zh: "選擇隊列", en: "Queue", ja: "キュー選択" },
+  queueNewQueue: { zh: "新增隊列", en: "New queue", ja: "新規キュー" },
+  queueQueueName: { zh: "隊列名稱", en: "Queue name", ja: "キュー名" },
+  queueCreate: { zh: "建立", en: "Create", ja: "作成" },
+  queueCreated: { zh: "隊列已建立", en: "Queue created", ja: "キューを作成しました" },
+  queueCreateFailed: { zh: "建立失敗", en: "Create failed", ja: "作成に失敗しました" },
+  queueCounterLabel: { zh: "櫃台編號", en: "Counter", ja: "カウンター番号" },
+  queueCounterPlaceholder: { zh: "例：1號櫃台", en: "e.g. Counter 1", ja: "例：1番窓口" },
+  queueWaiting: { zh: "等待人數", en: "Waiting", ja: "待ち人数" },
+  queueCurrent: { zh: "目前叫號", en: "Current", ja: "現在番号" },
+  queueJustCalled: { zh: "剛才叫號", en: "Just called", ja: "呼び出し番号" },
+  queueCallNext: { zh: "叫下一號", en: "Call Next", ja: "次を呼ぶ" },
+  queueReset: { zh: "重置隊列", en: "Reset queue", ja: "キューをリセット" },
+  queueResetConfirmTitle: { zh: "確認重置隊列？", en: "Reset this queue?", ja: "キューをリセットしますか？" },
+  queueResetConfirmDesc: { zh: "所有等待中與呼叫中的號碼將會清除，號碼歸零。此操作無法復原。", en: "All waiting and calling tickets will be cleared and the counter reset to 0. This cannot be undone.", ja: "待機中・呼び出し中のチケットをすべて削除し、番号を0にリセットします。元に戻せません。" },
+  queueResetConfirm: { zh: "確認重置", en: "Reset", ja: "リセット" },
+  queueResetSuccess: { zh: "隊列已重置", en: "Queue reset", ja: "キューをリセットしました" },
+  queueResetFailed: { zh: "重置失敗", en: "Reset failed", ja: "リセットに失敗しました" },
+  queueCallFailed: { zh: "操作失敗", en: "Operation failed", ja: "操作に失敗しました" },
+  queueNoQueues: { zh: "尚無隊列，請先新增", en: "No queues yet — add one above", ja: "キューがありません" },
+  queueNotFound: { zh: "找不到此隊列", en: "Queue not found", ja: "キューが見つかりません" },
+  queueEnableTts: { zh: "點擊啟用語音", en: "Click to enable TTS", ja: "クリックで音声を有効化" },
+  queueNoQueuesDisplay: { zh: "尚無排隊隊列", en: "No queues configured", ja: "キューが設定されていません" },
 } as const;
 
 export { translations };

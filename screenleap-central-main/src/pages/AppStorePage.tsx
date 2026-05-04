@@ -4,10 +4,9 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Megaphone, Users, CloudSun, Instagram, Check, Download, Monitor, DoorOpen, Languages, Clock, Lock, Package, Puzzle } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Megaphone, Users, CloudSun, Instagram, Download, Monitor, DoorOpen, Languages, Clock, Lock, Package, Puzzle } from "lucide-react";
+import QueueControlPanel from "@/components/widgets/QueueControlPanel";
 import { toast } from "sonner";
 import { useInstalledApps, type ExternalAppInfo } from "@/contexts/InstalledAppsContext";
 import { useUserRole } from "@/hooks/useUserRole";
@@ -142,7 +141,6 @@ const AppStorePage = () => {
   const { installedApps, externalApps, installApp, uninstallApp } = useInstalledApps();
   const [searchParams] = useSearchParams();
   const [queueDialogOpen, setQueueDialogOpen] = useState(false);
-  const [queueNumber, setQueueNumber] = useState("105");
   const { isAdmin, isOrgAdmin } = useUserRole();
   const canManageApps = isAdmin || isOrgAdmin;
   const { tier, limits } = useOrgPlan();
@@ -164,15 +162,9 @@ const AppStorePage = () => {
     open: { zh: "開啟", en: "Open", ja: "開く" },
     installed: { zh: "已安裝", en: "Installed", ja: "インストール済" },
     noInstalled: { zh: "尚未安裝任何應用，去商城逛逛吧！", en: "No apps installed yet. Browse the marketplace!", ja: "まだアプリがインストールされていません。" },
-    queueTitle: { zh: "排隊叫號設定", en: "Queue Number Settings", ja: "順番呼出し設定" },
-    currentNum: { zh: "目前叫號號碼", en: "Current Number", ja: "現在の番号" },
-    preview: { zh: "螢幕預覽", en: "Screen Preview", ja: "プレビュー" },
-    confirm: { zh: "確認更新", en: "Update", ja: "更新" },
-    callTo: { zh: "請", en: "Now serving #", ja: "番号" },
-    callToSuffix: { zh: "號至櫃檯取餐", en: "— please proceed to counter", ja: "番のお客様、カウンターへどうぞ" },
+    queueTitle: { zh: "排隊叫號管理", en: "Queue Management", ja: "順番呼出し管理" },
     successInstall: { zh: "已成功安裝", en: "Successfully installed", ja: "インストール完了" },
     successUninstall: { zh: "已成功卸載", en: "Successfully uninstalled", ja: "アンインストール完了" },
-    successUpdate: { zh: "叫號已更新", en: "Queue number updated", ja: "番号を更新しました" },
     uninstall: { zh: "卸載", en: "Uninstall", ja: "アンインストール" },
     noPermission: { zh: "僅組織管理員可操作", en: "Only org admins can manage apps", ja: "組織管理者のみ操作可能" },
     planLimitApps: { zh: "已安裝的應用商店模組數已達方案上限", en: "Installed app count reached plan limit", ja: "インストール済みアプリ数がプラン上限に達しました" },
@@ -216,11 +208,6 @@ const AppStorePage = () => {
     }
     uninstallApp(app.id, app._externalUuid);
     toast.success(`${app.name[language]} ${t("successUninstall")}`);
-  };
-
-  const handleQueueUpdate = () => {
-    setQueueDialogOpen(false);
-    toast.success(t("successUpdate"));
   };
 
   const renderCard = (app: AppItem) => {
@@ -345,7 +332,7 @@ const AppStorePage = () => {
         </TabsContent>
       </Tabs>
 
-      {/* Queue Config Dialog */}
+      {/* Queue Management Dialog */}
       <Dialog open={queueDialogOpen} onOpenChange={setQueueDialogOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -356,51 +343,9 @@ const AppStorePage = () => {
               {t("queueTitle")}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-5 py-2">
-            <div className="space-y-2">
-              <Label>{t("currentNum")}</Label>
-              <Input
-                type="number"
-                value={queueNumber}
-                onChange={(e) => setQueueNumber(e.target.value)}
-                className="text-2xl font-bold text-center h-14"
-                min={1}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{t("preview")}</Label>
-              <div className="relative rounded-xl overflow-hidden bg-gradient-to-br from-gray-900 to-gray-800 aspect-video flex items-center justify-center">
-                <div className="absolute inset-0 bg-[url('/placeholder.svg')] bg-cover opacity-10" />
-                {/* Simulated screen with queue overlay */}
-                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-blue-600/95 to-blue-500/90 px-6 py-4 backdrop-blur-sm">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-white/20 rounded-lg p-2">
-                        <Users className="h-5 w-5 text-white" />
-                      </div>
-                      <span className="text-white/90 text-sm font-medium">
-                        {t("callTo")}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-white text-4xl font-black tabular-nums tracking-wider animate-pulse">
-                        {queueNumber || "—"}
-                      </span>
-                    </div>
-                  </div>
-                  <p className="text-white/70 text-xs mt-1 text-right">{t("callToSuffix")}</p>
-                </div>
-              </div>
-            </div>
+          <div className="py-1">
+            <QueueControlPanel />
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setQueueDialogOpen(false)}>
-              {{ zh: "取消", en: "Cancel", ja: "キャンセル" }[language]}
-            </Button>
-            <Button onClick={handleQueueUpdate} className="bg-gradient-to-r from-blue-500 to-cyan-500 text-white border-0">
-              {t("confirm")}
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

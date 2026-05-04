@@ -3165,6 +3165,154 @@ function ColorSwatchInput({ value, onChange, fallback = "#000000", disabled = fa
 }
 
 // ── Announcement scope picker (org + team dropdowns with auto-fill) ──────────
+// ── QueueScopePicker ──────────────────────────────────────────────────────────
+// Auto-fills org UUID from context; lets user pick team + individual queues.
+function QueueScopePicker({
+  orgId, teamId, queueIds, ttsLang, cycleSeconds,
+  onOrgChange, onTeamChange, onQueueIdsChange, onTtsLangChange, onCycleSecondsChange,
+  lang,
+}: {
+  orgId: string; teamId: string; queueIds: string[];
+  ttsLang: string; cycleSeconds: number;
+  onOrgChange: (v: string) => void;
+  onTeamChange: (v: string) => void;
+  onQueueIdsChange: (v: string[]) => void;
+  onTtsLangChange: (v: string) => void;
+  onCycleSecondsChange: (v: number) => void;
+  lang: string;
+}) {
+  const { orgs } = useUserOrgs();
+  const { activeOrgId } = useActiveOrg();
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
+  const [queues, setQueues] = useState<{ id: string; queue_name: string; team_id: string | null }[]>([]);
+
+  // Auto-fill orgId on first render
+  useEffect(() => {
+    if (!orgId && activeOrgId) onOrgChange(activeOrgId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrgId]);
+
+  const resolvedOrg = orgId || activeOrgId || "";
+
+  // Fetch teams when org changes
+  useEffect(() => {
+    if (!resolvedOrg) { setTeams([]); return; }
+    void supabase.from("teams").select("id, name").eq("org_id", resolvedOrg).order("name")
+      .then(({ data }) => setTeams((data || []) as { id: string; name: string }[]));
+  }, [resolvedOrg]);
+
+  // Fetch queues when org or team changes
+  useEffect(() => {
+    if (!resolvedOrg) { setQueues([]); return; }
+    // queue_system_queues has team_id column added via migration; cast to bypass generated types
+    const db = supabase as unknown as { from: (t: string) => Record<string, unknown> };
+    type QueueRow = { id: string; queue_name: string; team_id: string | null };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = (db.from("queue_system_queues") as any).select("id, queue_name, team_id").eq("org_id", resolvedOrg);
+    if (teamId) q = q.eq("team_id", teamId);
+    void (q.order("queue_name") as Promise<{ data: QueueRow[] | null }>)
+      .then(({ data }) => setQueues(data ?? []));
+  }, [resolvedOrg, teamId]);
+
+  const isZh = lang === "zh" || lang === "zh-TW";
+  const isJa = lang === "ja";
+
+  const L = {
+    org:       isZh ? "組織" : isJa ? "組織" : "Organisation",
+    team:      isZh ? "團隊（全組織則留空）" : isJa ? "チーム（組織全体は空白）" : "Team (leave blank for org-wide)",
+    queues:    isZh ? "顯示的隊列（留空=全部）" : isJa ? "表示するキュー（空=全て）" : "Queues to display (empty = all)",
+    orgPh:     isZh ? "選擇組織" : isJa ? "組織を選択" : "Select organisation",
+    teamAll:   isZh ? "全組織" : isJa ? "組織全体" : "Org-wide",
+    teamPh:    isZh ? "選擇團隊" : isJa ? "チームを選択" : "Select team",
+    allQueues: isZh ? "（顯示全部隊列）" : isJa ? "（全キュー表示）" : "(Show all queues)",
+    tts:       isZh ? "語音播報語言" : isJa ? "TTS言語" : "TTS Language",
+    cycle:     isZh ? "輪播間隔（秒）" : isJa ? "切替間隔（秒）" : "Cycle seconds",
+  };
+
+  const toggleQueue = (id: string) => {
+    onQueueIdsChange(
+      queueIds.includes(id) ? queueIds.filter((q) => q !== id) : [...queueIds, id],
+    );
+  };
+
+  return (
+    <div className="space-y-2">
+      {/* Org */}
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{L.org}</Label>
+        <Select value={resolvedOrg} onValueChange={(v) => { onOrgChange(v); onTeamChange(""); onQueueIdsChange([]); }}>
+          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={L.orgPh} /></SelectTrigger>
+          <SelectContent>
+            {orgs.map((o) => <SelectItem key={o.id} value={o.id} className="text-xs">{o.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Team */}
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{L.team}</Label>
+        <Select value={teamId || "__all__"} onValueChange={(v) => { onTeamChange(v === "__all__" ? "" : v); onQueueIdsChange([]); }}>
+          <SelectTrigger className="h-7 text-xs"><SelectValue placeholder={L.teamPh} /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__" className="text-xs">{L.teamAll}</SelectItem>
+            {teams.map((tm) => <SelectItem key={tm.id} value={tm.id} className="text-xs">{tm.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Queue picker */}
+      {queues.length > 0 && (
+        <div className="space-y-1">
+          <Label className="text-[10px] text-muted-foreground">{L.queues}</Label>
+          <div className="rounded-md border border-border bg-muted/30 p-2 space-y-1 max-h-32 overflow-y-auto">
+            {queueIds.length === 0 && (
+              <p className="text-[9px] text-muted-foreground italic">{L.allQueues}</p>
+            )}
+            {queues.map((q) => (
+              <label key={q.id} className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={queueIds.includes(q.id)}
+                  onChange={() => toggleQueue(q.id)}
+                  className="h-3 w-3 accent-primary"
+                />
+                <span className="text-[10px]">{q.queue_name}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* TTS Language */}
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{L.tts}</Label>
+        <Select value={ttsLang || "zh-TW"} onValueChange={onTtsLangChange}>
+          <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="zh-TW" className="text-xs">中文（台灣）</SelectItem>
+            <SelectItem value="zh-CN" className="text-xs">中文（中国）</SelectItem>
+            <SelectItem value="en-US" className="text-xs">English</SelectItem>
+            <SelectItem value="ja-JP" className="text-xs">日本語</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Cycle seconds */}
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">{L.cycle}</Label>
+        <Input
+          type="number"
+          min={3}
+          max={60}
+          value={cycleSeconds || 8}
+          onChange={(e) => onCycleSecondsChange(Math.max(3, Number(e.target.value) || 8))}
+          className="h-7 text-xs"
+        />
+      </div>
+    </div>
+  );
+}
+
 function AnnouncementScopePicker({
   orgId, teamId, onOrgChange, onTeamChange, lang,
 }: {
@@ -3686,8 +3834,24 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
         </div>
       )}
 
+      {wt === "queue-display" && (
+        <QueueScopePicker
+          orgId={String((config.params || {}).orgId ?? "")}
+          teamId={String((config.params || {}).teamId ?? "")}
+          queueIds={((config.params || {}).queueIds as string[] | undefined) ?? []}
+          ttsLang={String((config.params || {}).ttsLang ?? "zh-TW")}
+          cycleSeconds={Number((config.params || {}).cycleSeconds ?? 8)}
+          onOrgChange={(v) => set({ params: { ...(config.params || {}), orgId: v, teamId: "", queueIds: [] } })}
+          onTeamChange={(v) => set({ params: { ...(config.params || {}), teamId: v, queueIds: [] } })}
+          onQueueIdsChange={(v) => set({ params: { ...(config.params || {}), queueIds: v } })}
+          onTtsLangChange={(v) => set({ params: { ...(config.params || {}), ttsLang: v } })}
+          onCycleSecondsChange={(v) => set({ params: { ...(config.params || {}), cycleSeconds: v } })}
+          lang={language}
+        />
+      )}
+
       {/* Common appearance — hidden for youtube/stream and for widgets that manage colors via their own paramsSchema */}
-      {wt !== "youtube" && wt !== "stream" && wt !== "weather_tw" && wt !== "weather" && wt !== "announcement" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
+      {wt !== "youtube" && wt !== "stream" && wt !== "weather_tw" && wt !== "weather" && wt !== "announcement" && wt !== "queue-display" && !(config.paramsSchema && config.paramsSchema.length > 0 && (wt === "webpage" || wt === "clock")) && <div className="grid grid-cols-2 gap-2 pt-1">
         <div className="space-y-1">
           <Label className="text-[10px] text-muted-foreground">{t("widgetBgColor")}</Label>
           <div className="flex items-center gap-1.5">
@@ -3813,7 +3977,7 @@ function WebpageZonePreview({ url, bg, fg, params, allowSameOrigin }: { url: str
     const win = iframeRef.current?.contentWindow;
     if (!win) return;
     win.postMessage({ widgetParams: params, clockConfig: params }, '*');
-  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [params]);  
 
   // External URL: use iframe src directly (no CORS issue for navigation)
   if (!isStorageUrl) {
@@ -4334,7 +4498,7 @@ export default function ContentStudioPage() {
       next[idx] = { ...cur, zones, overlays };
       return next;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [zones, overlays, activePageId]);
   // BGM track: an always-present audio playlist for the project.
   // audioSource: "bgm" = play this BGM track; "mute" = silence; otherwise zoneId/overlayId whose video provides sound.
@@ -4503,7 +4667,7 @@ export default function ContentStudioPage() {
   }, [computeSnapshot]);
 
   // Initial baseline on mount.
-  useEffect(() => { cleanSnapshotRef.current = computeSnapshot(); setIsDirty(false); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  useEffect(() => { cleanSnapshotRef.current = computeSnapshot(); setIsDirty(false);   }, []);
 
   // ── Unsaved-changes navigation guard ────────────────────────────
   // 1) Browser-level: refresh / close tab triggers the native confirm prompt.

@@ -60,6 +60,7 @@ const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage.tsx"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage.tsx"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+const QueueLiffPage = lazy(() => import("./pages/QueueLiffPage.tsx"));
 const ChatWidget = lazy(() => import("./components/ChatWidget.tsx"));
 
 const PageLoader = () => <RouteSkeleton />;
@@ -113,6 +114,7 @@ const AppRoutes = () => {
           <Route path="/player/:screenId" element={<ProtectedRoute><PlayerPage /></ProtectedRoute>} />
           <Route path="/local-player" element={<CSRoute><LocalPlayerPage /></CSRoute>} />
           <Route path="/smart-trigger-test" element={<ProtectedRoute><SmartTriggerTestPage /></ProtectedRoute>} />
+          <Route path="/liff/queue" element={<QueueLiffPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>
