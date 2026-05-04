@@ -415,6 +415,9 @@ export function WidgetRender({ config }: { config: WidgetConfig | null | undefin
         bgColor:      bg !== "transparent" ? bg : "transparent",
         textColor:    fg,
         numSize:      Number((config.params?.numSize as number | undefined) ?? 16),
+        labelColor:   (config.params?.labelColor as string | undefined) || undefined,
+        labelSize:    Number((config.params?.labelSize as number | undefined) ?? 2.5),
+        subLabelSize: Number((config.params?.subLabelSize as number | undefined) ?? 3),
       }} />
     );
   }

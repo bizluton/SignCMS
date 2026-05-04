@@ -50,10 +50,16 @@ export interface QueueDisplayConfig {
   cycleSeconds?: number;
   /** Background color, or "transparent" for no background (default dark) */
   bgColor?: string;
-  /** Number and label text color (default #ffffff) */
+  /** Main number color (default #ffffff) */
   textColor?: string;
   /** Font size of the main number as a cqi percentage (default 16) */
   numSize?: number;
+  /** Queue/counter name label color (default white/50) */
+  labelColor?: string;
+  /** Queue/counter name label font size as cqi % (default 2.5) */
+  labelSize?: number;
+  /** Counter-name-below-number font size as cqi % (default 3) */
+  subLabelSize?: number;
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -61,7 +67,8 @@ export interface QueueDisplayConfig {
 export default function QueueDisplayWidget({ config }: { config: QueueDisplayConfig }) {
   const { activeOrgId } = useActiveOrg();
   const { teamId, queueIds, counterNames, ttsLang = "zh-TW", cycleSeconds = 8,
-          bgColor, textColor, numSize = 16 } = config;
+          bgColor, textColor, numSize = 16,
+          labelColor, labelSize = 2.5, subLabelSize = 3 } = config;
   // Fallback to active org when config.orgId not yet persisted
   const orgId = config.orgId || activeOrgId || "";
 
@@ -353,8 +360,12 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
 
       {/* Queue / counter label */}
       <p
-        className="relative z-10 font-medium tracking-widest text-white/50 uppercase"
-        style={{ fontSize: "clamp(0.55rem, 2.5cqi, 1.5rem)", marginBottom: "clamp(0.2rem, 1.5cqi, 1rem)" }}
+        className="relative z-10 font-medium tracking-widest uppercase"
+        style={{
+          fontSize: `clamp(0.45rem, ${labelSize}cqi, 2rem)`,
+          marginBottom: "clamp(0.2rem, 1.5cqi, 1rem)",
+          color: labelColor || "rgba(255,255,255,0.5)",
+        }}
       >
         {isMultiCounter ? (displayCounter ?? "") : (displayQueue?.queue_name ?? "")}
       </p>
@@ -372,8 +383,12 @@ export default function QueueDisplayWidget({ config }: { config: QueueDisplayCon
       {/* Counter label (single/no-filter mode) */}
       {!isMultiCounter && counterLabel && (
         <p
-          className="relative z-10 font-semibold text-white/60"
-          style={{ fontSize: "clamp(0.65rem, 3cqi, 2rem)", marginTop: "clamp(0.25rem, 1.5cqi, 1.5rem)" }}
+          className="relative z-10 font-semibold"
+          style={{
+            fontSize: `clamp(0.6rem, ${subLabelSize}cqi, 3rem)`,
+            marginTop: "clamp(0.25rem, 1.5cqi, 1.5rem)",
+            color: labelColor || "rgba(255,255,255,0.6)",
+          }}
         >
           {counterLabel}
         </p>

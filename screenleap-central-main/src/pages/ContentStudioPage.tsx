@@ -3169,12 +3169,12 @@ function ColorSwatchInput({ value, onChange, fallback = "#000000", disabled = fa
 // ── QueueScopePicker ──────────────────────────────────────────────────────────
 // Auto-fills org UUID from context; lets user pick team + individual queues.
 function QueueScopePicker({
-  orgId, teamId, queueIds, counterNames, ttsLang, cycleSeconds, numSize,
-  onOrgChange, onTeamChange, onQueueIdsChange, onCounterNamesChange, onTtsLangChange, onCycleSecondsChange, onNumSizeChange,
+  orgId, teamId, queueIds, counterNames, ttsLang, cycleSeconds, numSize, labelSize, subLabelSize,
+  onOrgChange, onTeamChange, onQueueIdsChange, onCounterNamesChange, onTtsLangChange, onCycleSecondsChange, onNumSizeChange, onLabelSizeChange, onSubLabelSizeChange,
   lang,
 }: {
   orgId: string; teamId: string; queueIds: string[]; counterNames: string[];
-  ttsLang: string; cycleSeconds: number; numSize: number;
+  ttsLang: string; cycleSeconds: number; numSize: number; labelSize: number; subLabelSize: number;
   onOrgChange: (v: string) => void;
   onTeamChange: (v: string) => void;
   onQueueIdsChange: (v: string[]) => void;
@@ -3182,6 +3182,8 @@ function QueueScopePicker({
   onTtsLangChange: (v: string) => void;
   onCycleSecondsChange: (v: number) => void;
   onNumSizeChange: (v: number) => void;
+  onLabelSizeChange: (v: number) => void;
+  onSubLabelSizeChange: (v: number) => void;
   lang: string;
 }) {
   const { activeOrgId } = useActiveOrg();
@@ -3365,6 +3367,38 @@ function QueueScopePicker({
           step={0.5}
           value={numSize ?? 16}
           onChange={(e) => onNumSizeChange(Math.max(6, Math.min(30, Number(e.target.value) || 16)))}
+          className="h-7 text-xs"
+        />
+      </div>
+
+      {/* Queue/counter label font size */}
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">
+          {isZh ? "隊列名稱字體大小（cqi %）" : isJa ? "キュー名フォントサイズ（cqi %）" : "Queue label font size (cqi %)"}
+        </Label>
+        <Input
+          type="number"
+          min={1}
+          max={10}
+          step={0.5}
+          value={labelSize ?? 2.5}
+          onChange={(e) => onLabelSizeChange(Math.max(1, Math.min(10, Number(e.target.value) || 2.5)))}
+          className="h-7 text-xs"
+        />
+      </div>
+
+      {/* Counter sub-label font size */}
+      <div className="space-y-1">
+        <Label className="text-[10px] text-muted-foreground">
+          {isZh ? "服務櫃檯字體大小（cqi %）" : isJa ? "カウンター名フォントサイズ（cqi %）" : "Counter label font size (cqi %)"}
+        </Label>
+        <Input
+          type="number"
+          min={1}
+          max={12}
+          step={0.5}
+          value={subLabelSize ?? 3}
+          onChange={(e) => onSubLabelSizeChange(Math.max(1, Math.min(12, Number(e.target.value) || 3)))}
           className="h-7 text-xs"
         />
       </div>
@@ -3902,6 +3936,8 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
           ttsLang={String((config.params || {}).ttsLang ?? "zh-TW")}
           cycleSeconds={Number((config.params || {}).cycleSeconds ?? 8)}
           numSize={Number((config.params || {}).numSize ?? 16)}
+          labelSize={Number((config.params || {}).labelSize ?? 2.5)}
+          subLabelSize={Number((config.params || {}).subLabelSize ?? 3)}
           onOrgChange={(v) => set({ params: { ...(config.params || {}), orgId: v, teamId: "", queueIds: [], counterNames: [] } })}
           onTeamChange={(v) => set({ params: { ...(config.params || {}), teamId: v, queueIds: [], counterNames: [] } })}
           onQueueIdsChange={(v) => set({ params: { ...(config.params || {}), queueIds: v, counterNames: [] } })}
@@ -3909,6 +3945,8 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
           onTtsLangChange={(v) => set({ params: { ...(config.params || {}), ttsLang: v } })}
           onCycleSecondsChange={(v) => set({ params: { ...(config.params || {}), cycleSeconds: v } })}
           onNumSizeChange={(v) => set({ params: { ...(config.params || {}), numSize: v } })}
+          onLabelSizeChange={(v) => set({ params: { ...(config.params || {}), labelSize: v } })}
+          onSubLabelSizeChange={(v) => set({ params: { ...(config.params || {}), subLabelSize: v } })}
           lang={language}
         />
       )}
@@ -3938,6 +3976,15 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
           <ColorSwatchInput value={config.textColor || "#ffffff"} onChange={(v) => set({ textColor: v })} />
         </div>
       </div>}
+
+      {wt === "queue-display" && (
+        <div className="space-y-1 pt-1">
+          <Label className="text-[10px] text-muted-foreground">
+            {language === "zh" ? "標籤文字顏色（隊列名 / 櫃檯名）" : language === "ja" ? "ラベル文字色（キュー名／カウンター名）" : "Label color (queue / counter name)"}
+          </Label>
+          <ColorSwatchInput value={config.params?.labelColor as string || "#ffffff80"} onChange={(v) => set({ params: { ...(config.params || {}), labelColor: v } })} />
+        </div>
+      )}
 
       {((wt === "clock" && (!config.paramsSchema || config.paramsSchema.length === 0)) || wt === "date" || wt === "marquee" || wt === "countdown") && (
         <div className="space-y-1">
@@ -4463,6 +4510,9 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
         bgColor: config.bgColor || undefined,
         textColor: config.textColor || undefined,
         numSize: Number((config.params?.numSize as number | undefined) ?? 16),
+        labelColor: (config.params?.labelColor as string | undefined) || undefined,
+        labelSize: Number((config.params?.labelSize as number | undefined) ?? 2.5),
+        subLabelSize: Number((config.params?.subLabelSize as number | undefined) ?? 3),
       }} />
     );
   }
