@@ -4695,7 +4695,7 @@ export default function ContentStudioPage() {
   const { widgets: catalogWidgets } = useWidgets(installedApps);
   const [aspect, setAspect] = useState<AspectRatio>("16:9");
   const [resolution, setResolution] = useState<Resolution>(() => getDefaultResolution("16:9"));
-  type OutputMode = "mirror" | "independent" | "extend-h" | "extend-v" | "grid-2x2-h" | "grid-2x2-v";
+  type OutputMode = "mirror" | "independent" | "extend-h" | "extend-v" | "grid-2x2-h";
   const [outputMode, setOutputMode] = useState<OutputMode>("mirror");
   const [outputCount, setOutputCount] = useState<number>(1);
   const [activeOutput, setActiveOutput] = useState<number>(1);
@@ -5138,12 +5138,11 @@ export default function ContentStudioPage() {
   // Linear extend modes
   const extendCount = (outputMode === "extend-h" || outputMode === "extend-v") ? outputCount : 1;
   // 2×2 grid modes (always 4 panels, 2 cols × 2 rows)
-  const isGrid2x2 = outputMode === "grid-2x2-h" || outputMode === "grid-2x2-v";
+  const isGrid2x2 = outputMode === "grid-2x2-h";
   // Effective aspect ratio for the whole canvas display
   const displayRatio = outputMode === "extend-h" ? ratio * extendCount
-    : outputMode === "extend-v"    ? ratio / extendCount
-    : outputMode === "grid-2x2-h"  ? ratio        // 2W × 2H → same 16:9 ratio
-    : outputMode === "grid-2x2-v"  ? 1 / ratio    // 2(9:16 cell) → 9:16 portrait grid
+    : outputMode === "extend-v"   ? ratio / extendCount
+    : outputMode === "grid-2x2-h" ? ratio   // 2W × 2H → same ratio; canvas shows 2×2 panels
     : ratio;
   const { W, H } = (() => {
     const maxH = outputMode === "extend-v" ? 540 * extendCount : isGrid2x2 ? 620 : 540;
@@ -5901,7 +5900,7 @@ export default function ContentStudioPage() {
     setProjectTransition(normalizePageTransition(metaEntry?.pageTransition));
     // Restore output settings
     const savedOutputMode = metaEntry?.outputMode;
-    if (savedOutputMode === "mirror" || savedOutputMode === "independent" || savedOutputMode === "extend-h" || savedOutputMode === "extend-v" || savedOutputMode === "grid-2x2-h" || savedOutputMode === "grid-2x2-v") {
+    if (savedOutputMode === "mirror" || savedOutputMode === "independent" || savedOutputMode === "extend-h" || savedOutputMode === "extend-v" || savedOutputMode === "grid-2x2-h") {
       setOutputMode(savedOutputMode);
     } else {
       setOutputMode("mirror");
@@ -7489,8 +7488,7 @@ export default function ContentStudioPage() {
                         { id: "mirror",       label: "Mirror",               desc: "All Outputs display the same picture",             fixedCount: null },
                         { id: "extend-h",     label: "Extend Horizontal",    desc: "Outputs extend horizontally into one canvas",      fixedCount: null },
                         { id: "extend-v",     label: "Extend Vertical",      desc: "Outputs extend vertically into one canvas",        fixedCount: null },
-                        { id: "grid-2x2-h",   label: "2×2 Extend Horizontal", desc: "4 landscape screens in a 2×2 grid (3840×2160)",  fixedCount: 4 },
-                        { id: "grid-2x2-v",   label: "2×2 Extend Vertical",   desc: "4 portrait screens in a 2×2 grid (2160×3840)",   fixedCount: 4 },
+                        { id: "grid-2x2-h",   label: "2×2 Matrix",            desc: "4 landscape screens in a 2×2 grid (3840×2160)", fixedCount: 4 },
                       ] as const).map((opt) => (
                         <button
                           key={opt.id}
@@ -7696,18 +7694,9 @@ export default function ContentStudioPage() {
             <span className="w-1.5 h-1.5 rounded-full bg-primary" />
             {isGrid2x2 ? (
               <>
-                <span className="text-muted-foreground">
-                  {outputMode === "grid-2x2-v"
-                    ? `${resolution.height}×${resolution.width}`
-                    : `${resolution.width}×${resolution.height}`}
-                  {" ×4"}
-                </span>
+                <span className="text-muted-foreground">{resolution.width}×{resolution.height} ×4</span>
                 <span className="text-border">|</span>
-                <span>
-                  {outputMode === "grid-2x2-v"
-                    ? `${resolution.height * 2}×${resolution.width * 2}`
-                    : `${resolution.width * 2}×${resolution.height * 2}`}
-                </span>
+                <span>{resolution.width * 2}×{resolution.height * 2}</span>
               </>
             ) : extendCount > 1 ? (
               <>
@@ -7876,13 +7865,13 @@ export default function ContentStudioPage() {
                     );
                   })()}
                   {/* Divider lines — vertical */}
-                  {(outputMode === "extend-h" || outputMode === "grid-2x2-h" || outputMode === "grid-2x2-v") &&
+                  {(outputMode === "extend-h" || isGrid2x2) &&
                     Array.from({ length: isGrid2x2 ? 1 : extendCount - 1 }, (_, i) => (
                       <div key={`v${i}`} className="pointer-events-none absolute z-50"
                         style={{ top: 0, bottom: 0, left: singleW * (i + 1) - 1, width: 2, ...DIVIDER }} />
                     ))}
                   {/* Divider lines — horizontal */}
-                  {(outputMode === "extend-v" || outputMode === "grid-2x2-h" || outputMode === "grid-2x2-v") &&
+                  {(outputMode === "extend-v" || isGrid2x2) &&
                     Array.from({ length: isGrid2x2 ? 1 : extendCount - 1 }, (_, i) => (
                       <div key={`h${i}`} className="pointer-events-none absolute z-50"
                         style={{ left: 0, right: 0, top: singleH * (i + 1) - 1, height: 2, ...DIVIDER }} />
