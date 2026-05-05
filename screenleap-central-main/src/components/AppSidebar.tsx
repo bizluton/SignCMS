@@ -46,8 +46,11 @@ export function AppSidebar() {
   // When on: sidebar stays icon-only; hovering reveals the text labels.
   // When off: sidebar behaves normally (manual toggle via SidebarTrigger).
   const [autoHide, setAutoHide] = useState<boolean>(() => {
-    try { return localStorage.getItem(SIDEBAR_AUTO_HIDE_KEY) === "true"; }
-    catch { return false; }
+    try {
+      const stored = localStorage.getItem(SIDEBAR_AUTO_HIDE_KEY);
+      return stored === null ? true : stored === "true"; // default ON
+    }
+    catch { return true; }
   });
 
   // Collapse immediately when auto-hide is enabled (or on first mount when already on)
