@@ -4750,7 +4750,7 @@ export default function ContentStudioPage() {
     () => new Intl.DateTimeFormat(language, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(studioSources.cache.loadedAt)),
     [language, studioSources.cache.loadedAt],
   );
-  const [zones, setZones] = useState<Zone[]>(INITIAL_LAYOUT_PRESETS[0].zones.map((z) => ({ ...z })));
+  const [zones, setZones] = useState<Zone[]>([]);
   const [overlays, setOverlays] = useState<OverlayBlock[]>([]);
   // ── Multi-page (carousel) support ──────────────────────────────
   // Each "page" is a layout snapshot (zones + overlays). The active page is
@@ -4794,7 +4794,7 @@ export default function ContentStudioPage() {
     1: [{
       id: _initPageId,
       name: "版型 1",
-      zones: INITIAL_LAYOUT_PRESETS[0].zones.map((z) => ({ ...z })),
+      zones: [],
       overlays: [],
     }],
   }));
@@ -4973,6 +4973,9 @@ export default function ContentStudioPage() {
   const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [projectName, setProjectName] = useState("");
+  // Inline project-name editing (badge in canvas header)
+  const [projectNameEditing, setProjectNameEditing] = useState(false);
+  const [projectNameInput, setProjectNameInput] = useState("");
   const [saving, setSaving] = useState(false);
   const [projectTeamId, setProjectTeamId] = useState<string>("none");
   const [teams, setTeams] = useState<Array<{ id: string; name: string; org_id: string }>>([]);
@@ -5311,13 +5314,30 @@ export default function ContentStudioPage() {
     }
   }, []);
 
-  // Guard wrappers — show confirmation before applying
+  // Guard wrappers — show confirmation before applying.
+  // If the canvas is blank (no zones), apply directly and auto-name the project.
   const applyLayout = useCallback((preset: LayoutPreset, mobileClose?: boolean) => {
+    if (zones.length === 0) {
+      if (!currentProject && !projectName) {
+        setProjectName(generateProjectName(projects.map((p) => p.name || "")));
+      }
+      doApplyLayout(preset);
+      if (mobileClose) setMobilePanelOpen(false);
+      return;
+    }
     setPendingApply({ kind: "layout", preset, mobileClose });
-  }, []);
+  }, [zones.length, currentProject, projectName, projects, doApplyLayout]);
   const applyTemplate = useCallback((tpl: TemplateItem, mobileClose?: boolean) => {
+    if (zones.length === 0) {
+      if (!currentProject && !projectName) {
+        setProjectName(generateProjectName(projects.map((p) => p.name || "")));
+      }
+      doApplyTemplate(tpl);
+      if (mobileClose) setMobilePanelOpen(false);
+      return;
+    }
     setPendingApply({ kind: "template", tpl, mobileClose });
-  }, []);
+  }, [zones.length, currentProject, projectName, projects, doApplyTemplate]);
 
   // Add a blank page using the simplest (single full-canvas) layout.
   const addBlankPage = useCallback(() => {
@@ -6591,12 +6611,11 @@ export default function ContentStudioPage() {
   // New project
   const handleNew = useCallback(() => {
     setCurrentProject(null);
-    const initialZones = studioSources.layouts[0].zones.map((z) => ({ ...z }));
     const firstPageId = makePageId();
-    // Reset to a single output with a single page
-    setOutputPages({ 1: [{ id: firstPageId, name: "版型 1", zones: initialZones, overlays: [] }] });
+    // Reset to a single output with a single blank page
+    setOutputPages({ 1: [{ id: firstPageId, name: "版型 1", zones: [], overlays: [] }] });
     setOutputActivePageId({ 1: firstPageId });
-    setZones(initialZones);
+    setZones([]);
     setOverlays([]);
     setBgmItems([]);
     setBgmVolume(30);
@@ -6614,7 +6633,7 @@ export default function ContentStudioPage() {
     setProjectName(generateProjectName(projects.map((p) => p.name || "")));
     // Mark clean after state settles
     setTimeout(() => markClean(), 0);
-  }, [markClean, studioSources.layouts, projects]);
+  }, [markClean, projects]);
 
   // Wrappers that warn before discarding unsaved work
   const requestNew = useCallback(() => {
@@ -6978,6 +6997,8 @@ export default function ContentStudioPage() {
   const activeZone = zones.find((z) => z.id === selectedZone);
   const activeOverlay = overlays.find((o) => o.id === selectedOverlay);
   const canEdit = !isMobile || mobileEditMode;
+  // Working project name: saved name takes priority over the draft name in the save-dialog input
+  const workingProjectName = currentProject?.name || projectName;
   const layoutPanelCollapsed = !isMobile && (layoutPanelManuallyCollapsed || ((!!activeZone || !!activeOverlay) && !layoutPanelOpen));
   const existingVideoZoneLabel = (() => {
     if (activeZone) {
@@ -7697,7 +7718,9 @@ export default function ContentStudioPage() {
 
             {/* Page tabs (multi-layout carousel) */}
             {pages.length > 0 && (
-              <div className="shrink-0 flex items-center gap-1 overflow-x-auto pb-1">
+              <div className="shrink-0 flex items-center gap-0 pb-1">
+                {/* Scrollable tabs area */}
+                <div className="flex items-center gap-1 overflow-x-auto min-w-0 flex-1">
                 <TooltipProvider delayDuration={300}>
                 {pages.map((p, idx) => {
                   const isActive = p.id === activePageId;
@@ -7835,6 +7858,51 @@ export default function ContentStudioPage() {
                     <Settings2 className="w-3.5 h-3.5" />
                   </button>
                 )}
+                </div>{/* end scrollable tabs area */}
+
+                {/* ── Project name badge (right of page tabs) ─────────── */}
+                <div className="shrink-0 ml-2 flex items-center">
+                  {projectNameEditing ? (
+                    <Input
+                      autoFocus
+                      value={projectNameInput}
+                      onChange={(e) => setProjectNameInput(e.target.value)}
+                      onBlur={() => {
+                        const trimmed = projectNameInput.trim();
+                        setProjectNameEditing(false);
+                        if (!trimmed) return;
+                        setProjectName(trimmed);
+                        if (currentProject) setCurrentProject({ ...currentProject, name: trimmed });
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const trimmed = projectNameInput.trim();
+                          setProjectNameEditing(false);
+                          if (!trimmed) return;
+                          setProjectName(trimmed);
+                          if (currentProject) setCurrentProject({ ...currentProject, name: trimmed });
+                        } else if (e.key === "Escape") {
+                          setProjectNameEditing(false);
+                        }
+                      }}
+                      className="h-7 text-xs w-44 shrink-0"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { setProjectNameInput(workingProjectName || ""); setProjectNameEditing(true); }}
+                      title={t("studioProjectNameEdit")}
+                      className="group flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-dashed border-border/50 hover:border-primary/50 bg-transparent hover:bg-muted/50 transition-colors max-w-[200px]"
+                    >
+                      {workingProjectName ? (
+                        <span className="text-xs font-medium text-foreground/80 truncate">{workingProjectName}</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/50 italic">{t("studioProjectNamePlaceholder")}</span>
+                      )}
+                      <Edit3 className="w-3 h-3 text-muted-foreground/50 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                    </button>
+                  )}
+                </div>
               </div>
             )}
             <div ref={canvasContainerRef} className="flex-1 flex items-center justify-center bg-muted/30 rounded-xl border border-border relative overflow-hidden min-h-0">
@@ -8046,6 +8114,18 @@ export default function ContentStudioPage() {
                       <FilePlus className="w-3.5 h-3.5" /> {t("studioNew")}
                     </Button>
                   </div>
+                </div>
+              </div>
+            )}
+            {/* Desktop: blank canvas hint when no zones exist */}
+            {!isMobile && zones.length === 0 && (
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 pointer-events-none select-none">
+                <div className="w-14 h-14 rounded-full bg-primary/8 flex items-center justify-center">
+                  <LayoutGrid className="w-7 h-7 text-primary/40" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-medium text-muted-foreground/70">{t("studioCanvasBlankHint")}</p>
+                  <p className="text-xs text-muted-foreground/45 mt-1">{t("studioCanvasBlankDesc")}</p>
                 </div>
               </div>
             )}
@@ -8885,6 +8965,10 @@ export default function ContentStudioPage() {
             <AlertDialogAction
               onClick={() => {
                 if (!pendingApply) return;
+                // Auto-name the project if not yet named
+                if (!currentProject && !projectName) {
+                  setProjectName(generateProjectName(projects.map((p) => p.name || "")));
+                }
                 if (pendingApply.kind === "layout") {
                   doApplyLayout(pendingApply.preset);
                   if (pendingApply.mobileClose) setMobilePanelOpen(false);
