@@ -2784,15 +2784,15 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
                   </div>
                   {/* Per-item fitMode row (images and videos only) */}
                   {(m.type === "image" || m.type === "video") && (
-                    <div className="flex items-center gap-1 mt-1 pl-5">
-                      <span className="text-[9px] text-muted-foreground">{t("studioFitMode")}:</span>
+                    <div className="flex items-center gap-1 mt-1.5 ml-1 pl-2 border-l-2 border-muted">
+                      <span className="text-[10px] text-muted-foreground shrink-0">{t("studioFitMode")}:</span>
                       {([
-                        { val: undefined as ("cover-x"|"cover-y"|"contain"|"stretch"|undefined), label: t("studioFitDefault"), icon: <span className="text-[8px] font-bold leading-none">—</span> },
-                        { val: "cover-x" as const, label: t("studioFitCoverX"), icon: <Maximize2 className="w-2.5 h-2.5 rotate-90" /> },
-                        { val: "cover-y" as const, label: t("studioFitCoverY"), icon: <Maximize2 className="w-2.5 h-2.5" /> },
-                        { val: "contain" as const, label: t("studioFitContain"), icon: <Square className="w-2.5 h-2.5" /> },
-                        { val: "stretch" as const, label: t("studioFitStretch"), icon: <Move className="w-2.5 h-2.5" /> },
-                      ]).map(({ val, label, icon }) => (
+                        { val: undefined as ("cover-x"|"cover-y"|"contain"|"stretch"|undefined), label: t("studioFitDefault"), short: t("studioFitDefaultShort") },
+                        { val: "cover-x" as const, label: t("studioFitCoverXTip"), short: t("studioFitCoverXShort") },
+                        { val: "cover-y" as const, label: t("studioFitCoverYTip"), short: t("studioFitCoverYShort") },
+                        { val: "contain" as const, label: t("studioFitContainTip"), short: t("studioFitContainShort") },
+                        { val: "stretch" as const, label: t("studioFitStretchTip"), short: t("studioFitStretchShort") },
+                      ]).map(({ val, label, short }) => (
                         <button
                           key={String(val ?? "default")}
                           type="button"
@@ -2808,13 +2808,13 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
                             }
                             onUpdate({ ...content, type: "media", mediaItems: updated });
                           }}
-                          className={`h-5 min-w-[20px] px-1 flex items-center justify-center rounded text-[9px] transition-colors ${
+                          className={`h-6 px-1.5 flex items-center justify-center rounded text-[10px] font-medium transition-colors ${
                             m.fitMode === val
                               ? "bg-primary text-primary-foreground"
-                              : "bg-muted/0 border border-border/60 hover:bg-accent text-muted-foreground"
+                              : "bg-muted/40 border border-border/60 hover:bg-accent hover:text-foreground text-muted-foreground"
                           }`}
                         >
-                          {icon}
+                          {short}
                         </button>
                       ))}
                     </div>
