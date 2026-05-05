@@ -7406,19 +7406,20 @@ export default function ContentStudioPage() {
             {/* Output mode controls */}
             {pages.length > 0 && (
               <div className="shrink-0 flex items-center gap-1.5 mb-1">
-                {/* OUTPUT label + per-output number buttons */}
-                <div className="flex items-center h-8 rounded-md overflow-hidden border border-border">
-                  <span className="flex items-center gap-1.5 px-2.5 h-full bg-foreground text-background text-[11px] font-bold uppercase tracking-wide select-none">
+                {/* OUTPUT capsule pill */}
+                <div className="flex items-stretch h-8 rounded-full overflow-hidden shadow-sm border border-border/60">
+                  {/* Icon + label segment */}
+                  <span className="flex items-center gap-1.5 pl-3 pr-3 bg-[hsl(var(--foreground))] text-[hsl(var(--background))] text-[11px] font-bold uppercase tracking-wide select-none whitespace-nowrap">
                     <Monitor className="w-3.5 h-3.5 shrink-0" />
                     OUTPUT
                   </span>
+                  {/* Number segments */}
                   {outputMode === "mirror" ? (
-                    /* Mirror: single non-clickable badge */
-                    <span className="flex items-center justify-center px-2.5 h-full bg-primary/80 text-primary-foreground text-xs font-bold min-w-[28px] select-none">
+                    /* Mirror — single passive count pill */
+                    <span className="flex items-center justify-center px-3 bg-primary/70 text-primary-foreground text-xs font-bold select-none min-w-[32px]">
                       {outputCount}
                     </span>
                   ) : (
-                    /* Other modes: individual clickable output buttons */
                     Array.from({ length: outputCount }, (_, i) => {
                       const n = i + 1;
                       const isActive = activeOutput === n;
@@ -7427,10 +7428,11 @@ export default function ContentStudioPage() {
                           key={n}
                           type="button"
                           onClick={() => setActiveOutput(n)}
-                          className={`flex items-center justify-center h-full px-2.5 text-xs font-bold transition-colors min-w-[28px] border-l border-border/40 ${
+                          title={`切換至輸出 ${n}`}
+                          className={`flex items-center justify-center min-w-[32px] px-2.5 text-sm font-bold transition-all duration-150 border-l border-white/15 ${
                             isActive
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-primary/30 text-primary-foreground/80 hover:bg-primary/60"
+                              ? "bg-primary text-primary-foreground scale-[1.02]"
+                              : "bg-primary/45 text-primary-foreground/75 hover:bg-primary/70"
                           }`}
                         >
                           {n}
