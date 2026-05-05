@@ -7367,7 +7367,7 @@ export default function ContentStudioPage() {
         </div>
 
         {/* Left panel toggle tab — pinned near scrollbar start */}
-        <div className="hidden md:flex shrink-0 w-6 items-start pt-10 justify-center">
+        <div className="hidden md:flex shrink-0 w-6 items-start pt-[72px] justify-center">
           <button
             type="button"
             onClick={toggleLayoutPanelManualCollapse}
@@ -8060,7 +8060,7 @@ export default function ContentStudioPage() {
 
           {/* Right panel toggle tab — pinned near scrollbar start */}
           {!isMobile && (
-            <div className="flex shrink-0 w-6 items-start pt-10 justify-center">
+            <div className="flex shrink-0 w-6 items-start pt-[72px] justify-center">
               <button
                 type="button"
                 onClick={() => setMediaLibraryOpen(!mediaLibraryOpen)}
