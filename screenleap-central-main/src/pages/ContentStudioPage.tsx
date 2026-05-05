@@ -7485,7 +7485,7 @@ export default function ContentStudioPage() {
                       <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">OUTPUT MODE</p>
                       {([
                         { id: "independent",  label: "Independent",          desc: "Each Output plays its own content",                fixedCount: null },
-                        { id: "mirror",       label: "Mirror",               desc: "All Outputs display the same picture",             fixedCount: null },
+                        { id: "mirror",       label: "Mirror",               desc: "All Outputs display the same picture — count locked to 1", fixedCount: 1 },
                         { id: "extend-h",     label: "Extend Horizontal",    desc: "Outputs extend horizontally into one canvas",      fixedCount: null },
                         { id: "extend-v",     label: "Extend Vertical",      desc: "Outputs extend vertically into one canvas",        fixedCount: null },
                         { id: "grid-2x2-h",   label: "2×2 Matrix",            desc: "4 screens in a 2×2 grid (3840×2160 or 2160×3840) — count locked to 4", fixedCount: 4 },
@@ -7512,10 +7512,14 @@ export default function ContentStudioPage() {
                         </button>
                       ))}
                     </div>
-                    {isGrid2x2 ? (
+                    {isGrid2x2 || outputMode === "mirror" ? (
                       <div className="border-t border-border px-3 py-2.5 flex items-center gap-2 text-[11px] text-muted-foreground">
-                        <span className="bg-primary/10 text-primary font-bold px-2 py-0.5 rounded">4</span>
-                        <span>輸出數量固定為 4（2 列 × 2 行）</span>
+                        <span className="bg-primary/10 text-primary font-bold px-2 py-0.5 rounded">
+                          {outputMode === "mirror" ? "1" : "4"}
+                        </span>
+                        <span>
+                          {outputMode === "mirror" ? "Mirror 模式輸出數量固定為 1" : "輸出數量固定為 4（2 列 × 2 行）"}
+                        </span>
                       </div>
                     ) : (
                       <div className="border-t border-border px-3 py-2.5">
