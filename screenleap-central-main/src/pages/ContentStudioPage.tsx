@@ -195,6 +195,30 @@ const CUSTOM_RES_STORAGE_KEY = "studio:lastCustomRes";
 const MY_PRESETS_STORAGE_KEY = "studio:myResPresets";
 const STUDIO_SESSION_KEY = "studio:session";
 
+// ── Auto-name helper ─────────────────────────────────────────────────────────
+// Generates a unique project name in the format PRJ{YYMMDD}{XX} where XX is
+// the next free 2-digit hex sequence (00–FF) for today.
+function generateProjectName(existingNames: string[]): string {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(2);
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const prefix = `PRJ${yy}${mm}${dd}`;
+  const pattern = new RegExp(`^${prefix}([0-9A-Fa-f]{2})$`);
+  const used = new Set<number>();
+  for (const name of existingNames) {
+    const m = name.match(pattern);
+    if (m) used.add(parseInt(m[1], 16));
+  }
+  for (let i = 0; i <= 0xff; i++) {
+    if (!used.has(i)) {
+      return `${prefix}${i.toString(16).toUpperCase().padStart(2, "0")}`;
+    }
+  }
+  // Extremely unlikely: all 256 slots used today
+  return `${prefix}${(Date.now() & 0xff).toString(16).toUpperCase().padStart(2, "0")}X`;
+}
+
 type StudioSession = {
   projectId: string | null;
   selectedZone: string | null;
@@ -4965,6 +4989,8 @@ export default function ContentStudioPage() {
 
   // Export download dialog (manual click fallback, avoids iframe download blocking)
   const [exportDownload, setExportDownload] = useState<{ url: string; filename: string; sizeBytes: number } | null>(null);
+  // Page-switch confirmation: when non-null, holds the target pageId awaiting user OK
+  const [pendingPageSwitch, setPendingPageSwitch] = useState<string | null>(null);
 
   // Build a stable signature of the editable project state for dirty detection.
   const computeSnapshot = useCallback(() => {
@@ -5309,8 +5335,9 @@ export default function ContentStudioPage() {
     });
   }, []);
 
-  // Switch to another page: load its zones/overlays into the live editor state
-  const switchToPage = useCallback((pageId: string) => {
+  // Switch to another page: load its zones/overlays into the live editor state.
+  // doSwitchPage performs the actual switch; switchToPage adds a confirmation guard.
+  const doSwitchPage = useCallback((pageId: string) => {
     // 點擊版型編號頁籤：三個區域全部展開
     setLayoutPanelOpen(true);
     setMediaLibraryOpen(true);
@@ -5323,7 +5350,13 @@ export default function ContentStudioPage() {
     setSelectedZone(null);
     setSelectedOverlay(null);
     setExtraSelectedZoneIds(new Set());
-  }, [activePageId, pages]);
+  }, [activePageId, pages, setActivePageId]);
+
+  const switchToPage = useCallback((pageId: string) => {
+    if (pageId === activePageId) return;
+    // Show confirmation before switching (prevents accidental tab clicks)
+    setPendingPageSwitch(pageId);
+  }, [activePageId]);
 
   const renamePage = useCallback((pageId: string, newName: string) => {
     const trimmed = newName.trim();
@@ -6562,9 +6595,11 @@ export default function ContentStudioPage() {
     setOutputMode("mirror");
     setOutputCount(1);
     setActiveOutput(1);
+    // Auto-generate a project name (PRJ + YYMMDD + next hex sequence)
+    setProjectName(generateProjectName(projects.map((p) => p.name || "")));
     // Mark clean after state settles
     setTimeout(() => markClean(), 0);
-  }, [markClean, studioSources.layouts]);
+  }, [markClean, studioSources.layouts, projects]);
 
   // Wrappers that warn before discarding unsaved work
   const requestNew = useCallback(() => {
@@ -6588,39 +6623,38 @@ export default function ContentStudioPage() {
   // dialog and remember which follow-up action to run after saving.
   const postSaveActionRef = useRef<null | "destructive" | "leave">(null);
 
+  // Helper: open the Save dialog for a new project, pre-filling an auto-generated name.
+  const openSaveDialogForNew = useCallback(() => {
+    setProjectName(generateProjectName(projects.map((p) => p.name || "")));
+    setProjectTeamId("none");
+    setProjectCollab("creator");
+    setShowSaveDialog(true);
+  }, [projects]);
+
   const saveAndConfirmDestructive = useCallback(async () => {
     if (!currentProject) {
       // Defer: route through the Save dialog so the user can name the project.
       postSaveActionRef.current = "destructive";
-      setPendingDestructiveAction((prev) => {
-        // Keep the action so we can re-run it after save completes.
-        return prev;
-      });
-      setProjectName("");
-      setProjectTeamId("none");
-      setProjectCollab("creator");
-      setShowSaveDialog(true);
+      setPendingDestructiveAction((prev) => prev);
+      openSaveDialogForNew();
       return;
     }
     const ok = await handleSave();
     if (!ok) return;
     confirmDestructiveAction();
-  }, [currentProject, handleSave, confirmDestructiveAction]);
+  }, [currentProject, handleSave, confirmDestructiveAction, openSaveDialogForNew]);
 
   const saveAndLeave = useCallback(async () => {
     if (!currentProject) {
       postSaveActionRef.current = "leave";
-      setProjectName("");
-      setProjectTeamId("none");
-      setProjectCollab("creator");
-      setShowSaveDialog(true);
+      openSaveDialogForNew();
       return;
     }
     const ok = await handleSave();
     if (!ok) return;
     // confirmLeave reads pendingNavHref, which is still set.
     confirmLeave();
-  }, [currentProject, handleSave, confirmLeave]);
+  }, [currentProject, handleSave, confirmLeave, openSaveDialogForNew]);
 
   // Save dialog wrapper: persist, then run any pending follow-up action.
   const handleSaveFromDialog = useCallback(async () => {
@@ -6966,7 +7000,7 @@ export default function ContentStudioPage() {
           <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={requestNew}><FilePlus className="w-3.5 h-3.5" /> {t("studioNew")}</Button>
           <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={requestOpen}><FolderOpen className="w-3.5 h-3.5" /> {t("studioOpen")}</Button>
           <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={requestPreview}><Eye className="w-3.5 h-3.5" /> {t("studioPreview")}</Button>
-          <Button variant="default" size="sm" className="gap-1.5 text-xs h-8" onClick={() => { if (currentProject) handleSave(); else { setProjectName(""); setProjectTeamId("none"); setProjectCollab("creator"); setShowSaveDialog(true); } }} disabled={saving}>
+          <Button variant="default" size="sm" className="gap-1.5 text-xs h-8" onClick={() => { if (currentProject) handleSave(); else openSaveDialogForNew(); }} disabled={saving}>
             <Save className="w-3.5 h-3.5" /> {t("save")}
           </Button>
           {currentProject && (
@@ -8437,7 +8471,7 @@ export default function ContentStudioPage() {
                   <FolderOpen className="w-3.5 h-3.5" /> {t("studioOpen")}
                 </Button>
                 <Button variant="default" size="sm" className="gap-1.5 text-xs h-10" disabled={saving || !mobileEditMode} title={!mobileEditMode ? t("studioMobileEditDisabledTip") : undefined}
-                  onClick={() => { if (currentProject) handleSave(); else { setProjectName(""); setProjectTeamId("none"); setProjectCollab("creator"); setShowSaveDialog(true); } setMobileToolsOpen(false); }}>
+                  onClick={() => { if (currentProject) handleSave(); else openSaveDialogForNew(); setMobileToolsOpen(false); }}>
                   <Save className="w-3.5 h-3.5" /> {t("save")}
                 </Button>
               </div>
@@ -8788,12 +8822,40 @@ export default function ContentStudioPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Page-switch confirmation */}
+      <AlertDialog open={pendingPageSwitch !== null} onOpenChange={(o) => { if (!o) setPendingPageSwitch(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("studioPageSwitchTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("studioPageSwitchDesc").replace(
+                "{name}",
+                pages.find((p) => p.id === pendingPageSwitch)?.name ?? ""
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingPageSwitch) {
+                  doSwitchPage(pendingPageSwitch);
+                  setPendingPageSwitch(null);
+                }
+              }}
+            >
+              {t("studioPageSwitchConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Unsaved-changes navigation guard */}
       <AlertDialog open={pendingNavHref !== null} onOpenChange={(o) => { if (!o) setPendingNavHref(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("studioUnsavedTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("studioUnsavedDesc")}</AlertDialogDescription>
+            <AlertDialogTitle>{t("studioUnsavedLeaveTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("studioUnsavedLeaveDesc")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:gap-2">
             <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
@@ -8828,9 +8890,7 @@ export default function ContentStudioPage() {
                 if (currentProject) {
                   handleSave();
                 } else {
-                  setProjectName("");
-                  setProjectTeamId("none");
-                  setShowSaveDialog(true);
+                  openSaveDialogForNew();
                 }
               }}
             >
