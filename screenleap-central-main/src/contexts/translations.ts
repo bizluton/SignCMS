@@ -1044,6 +1044,7 @@ const translations = {
   studioMediaViewGrid: { zh: "卡片檢視", en: "Grid view", ja: "カード表示" },
   studioMediaViewList: { zh: "列表檢視", en: "List view", ja: "リスト表示" },
   studioTimelineDragReorder: { zh: "拖曳排序", en: "Drag to reorder", ja: "ドラッグで並べ替え" },
+  studioTimelineItemPinned: { zh: "已定格此素材・點擊填滿方式套用至此張", en: "Pinned — click a fill mode to apply to this item", ja: "固定中・フィットモードをクリックしてこの素材に適用" },
   studioTimelineDragDuration: { zh: "拖曳調整秒數", en: "Drag to adjust duration", ja: "ドラッグで秒数を調整" },
   studioTimelineVideoDurationLocked: { zh: "影片秒數鎖定為實際長度", en: "Video duration locked to actual length", ja: "動画の長さは実時間に固定" },
   studioTimelineItemSettings: { zh: "項目設定", en: "Item settings", ja: "項目設定" },

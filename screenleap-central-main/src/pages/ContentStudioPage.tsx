@@ -2150,17 +2150,29 @@ function ZoneTimeline({
                               onDragOver={onDragOver}
                               onDrop={onDrop}
                               onDragEnd={onDragEnd}
-                              onClick={(e) => {
-                                // Don't trigger if clicking action buttons (gear, trash, chevrons)
+                              onMouseDown={(e) => {
+                                // Record start position; used by onMouseUp to detect a click vs drag
                                 if ((e.target as HTMLElement).closest('button')) return;
-                                onPinItem?.(track.id, idx);
+                                (e.currentTarget as HTMLDivElement).dataset.pinStart = `${e.clientX},${e.clientY}`;
+                              }}
+                              onMouseUp={(e) => {
+                                const el = e.currentTarget as HTMLDivElement;
+                                const raw = el.dataset.pinStart;
+                                if (!raw) return;
+                                delete el.dataset.pinStart;
+                                if ((e.target as HTMLElement).closest('button')) return;
+                                const [sx, sy] = raw.split(',').map(Number);
+                                // Only treat as a click if pointer barely moved (< 6 px)
+                                if (Math.hypot(e.clientX - sx, e.clientY - sy) < 6) {
+                                  onPinItem?.(track.id, idx);
+                                }
                               }}
                               className={`group h-full flex flex-col rounded border bg-background/60 overflow-hidden relative shrink-0 transition-[width,opacity] ${
                                 isDragging ? "opacity-40 border-primary border-dashed" :
                                 isDropTarget ? "border-primary border-2" : "border-border"
                               } ${isPinned ? "ring-2 ring-primary" : ""}`}
-                              style={{ width: livePx, cursor: dragState ? "grabbing" : "grab" }}
-                              title={canResizeDuration ? t("studioTimelineDragReorder") : t("studioTimelineVideoDurationLocked")}
+                              style={{ width: livePx, cursor: isPinned ? "default" : dragState ? "grabbing" : "grab" }}
+                              title={isPinned ? t("studioTimelineItemPinned") : canResizeDuration ? t("studioTimelineDragReorder") : t("studioTimelineVideoDurationLocked")}
                             >
                               <span className="absolute top-0.5 left-0.5 z-10 bg-foreground/80 text-background text-[8px] font-bold px-1 py-0.5 rounded leading-none flex items-center gap-0.5">
                                 <GripVertical className="w-2 h-2" />{idx + 1}
