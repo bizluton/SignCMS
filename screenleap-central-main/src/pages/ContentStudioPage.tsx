@@ -8075,15 +8075,27 @@ export default function ContentStudioPage() {
             const isSingle = extraSelectedZoneIds.size === 0;
             const pxW = z ? Math.round((z.w / 100) * resolution.width) : 0;
             const pxH = z ? Math.round((z.h / 100) * resolution.height) : 0;
-            const fit = z?.content?.fitMode || "cover-x";
+            // If a timeline card is pinned for this zone, operate on that single item; otherwise batch
+            const pinnedForThisZone = pinnedPreview?.trackId === `z-${z?.id}`;
+            const pinnedIdx = pinnedForThisZone ? pinnedPreview!.itemIdx : -1;
+            const pinnedItem = pinnedForThisZone ? z?.content?.mediaItems?.[pinnedIdx] : undefined;
+            const fit = pinnedItem?.fitMode ?? z?.content?.fitMode ?? "cover-x";
             const setFit = (mode: "cover-x" | "cover-y" | "contain" | "stretch") => {
               if (!z) return;
               const base: ZoneContent = z.content || { type: "color", value: "", bgColor: "hsl(var(--muted))" };
-              // Apply to each image/video item so per-item fitMode is updated
-              const updatedItems = (base.mediaItems || []).map((item) =>
-                (item.type === "image" || item.type === "video") ? { ...item, fitMode: mode } : item
-              );
-              updateZoneContent(z.id, { ...base, fitMode: mode, mediaItems: updatedItems });
+              if (pinnedForThisZone && pinnedIdx >= 0) {
+                // Single-item mode: apply only to the pinned item
+                const updatedItems = (base.mediaItems || []).map((item, i) =>
+                  (i === pinnedIdx && (item.type === "image" || item.type === "video")) ? { ...item, fitMode: mode } : item
+                );
+                updateZoneContent(z.id, { ...base, mediaItems: updatedItems });
+              } else {
+                // Batch mode: apply to all image/video items
+                const updatedItems = (base.mediaItems || []).map((item) =>
+                  (item.type === "image" || item.type === "video") ? { ...item, fitMode: mode } : item
+                );
+                updateZoneContent(z.id, { ...base, fitMode: mode, mediaItems: updatedItems });
+              }
             };
             return (
             <div className={`absolute z-30 flex flex-col gap-1.5 px-2 py-1.5 rounded-lg bg-background/90 backdrop-blur-sm border border-border shadow-md transition-[box-shadow,border-color,transform,top,left,right] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:shadow-lg hover:border-primary/30 ${zoneToolbarCollapsed ? "top-3 right-3" : "top-3 left-1/2 -translate-x-1/2"}`}>
@@ -8125,7 +8137,9 @@ export default function ContentStudioPage() {
               </div>
               {!zoneToolbarCollapsed && isSingle && z && (
                 <div className="flex items-center gap-1 border-t border-border pt-1.5 animate-studio-toolbar-expand origin-top">
-                  <span className="text-[11px] text-muted-foreground px-1.5">{t("studioFitModeDefault")}</span>
+                  <span className="text-[11px] text-muted-foreground px-1.5">
+                    {pinnedForThisZone && pinnedIdx >= 0 ? `${t("studioFitModeSingle")} #${pinnedIdx + 1}` : t("studioFitModeDefault")}
+                  </span>
                   <Button size="sm" variant={fit === "cover-x" ? "default" : "ghost"} className="h-7 px-2 text-xs gap-1" onClick={() => setFit("cover-x")} title={t("studioFitCoverXTip")}>
                     <Maximize2 className="w-3.5 h-3.5" /> {t("studioFitCoverX")}
                   </Button>

@@ -964,6 +964,7 @@ const translations = {
   studioMultiSelectHint: { zh: "Shift/Ctrl+點選多選", en: "Shift/Ctrl+click to multi-select", ja: "Shift/Ctrl+クリックで複数選択" },
   studioFitMode: { zh: "填滿方式", en: "Fit mode", ja: "フィット方式" },
   studioFitModeDefault: { zh: "批次套用填滿方式", en: "Batch apply fill mode", ja: "一括フィルモード適用" },
+  studioFitModeSingle: { zh: "套用至此素材", en: "Apply to item", ja: "この素材に適用" },
   studioFitDefault: { zh: "預設", en: "Default", ja: "デフォルト" },
   studioFitDefaultShort: { zh: "預設", en: "Def", ja: "既定" },
   studioFitCoverXShort: { zh: "橫填", en: "W↔", ja: "横" },
