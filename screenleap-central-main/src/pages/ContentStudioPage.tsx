@@ -599,13 +599,13 @@ function buildTemplatePresets(): TemplateItem[] {
 const INITIAL_LAYOUT_PRESETS = buildLayoutPresets();
 
 // ── Carousel Preview ───────────────────────────────────────────────
-function CarouselPreview({ items, transition = "fade", fitMode = "cover-x", unmuteVideo = false, playing = true }: { items: MediaItem[]; transition?: CarouselTransition; fitMode?: "cover-x" | "cover-y" | "contain" | "stretch"; unmuteVideo?: boolean; playing?: boolean }) {
+function CarouselPreview({ items, transition = "fade", fitMode = "cover-x", unmuteVideo = false, playing = true, pinToIdx }: { items: MediaItem[]; transition?: CarouselTransition; fitMode?: "cover-x" | "cover-y" | "contain" | "stretch"; unmuteVideo?: boolean; playing?: boolean; pinToIdx?: number }) {
   const [idx, setIdx] = useState(0);
   const [prevIdx, setPrevIdx] = useState(0);
   const [animating, setAnimating] = useState(false);
 
   useEffect(() => {
-    if (!playing || items.length <= 1) return;
+    if (pinToIdx !== undefined || !playing || items.length <= 1) return;
     const currentDuration = (items[idx]?.duration || 5) * 1000;
     const timer = setTimeout(() => {
       setPrevIdx(idx);
@@ -614,7 +614,16 @@ function CarouselPreview({ items, transition = "fade", fitMode = "cover-x", unmu
       setTimeout(() => setAnimating(false), 600);
     }, currentDuration);
     return () => clearTimeout(timer);
-  }, [playing, items.length, idx, items]);
+  }, [playing, items.length, idx, items, pinToIdx]);
+
+  // Sync internal idx when pinToIdx changes
+  useEffect(() => {
+    if (pinToIdx !== undefined) {
+      const safeIdx = Math.min(Math.max(0, pinToIdx), Math.max(0, items.length - 1));
+      setIdx(safeIdx);
+      setPrevIdx(safeIdx);
+    }
+  }, [pinToIdx, items.length]);
 
   if (items.length === 0) return null;
 
@@ -1362,6 +1371,8 @@ function ZoneTimeline({
   onMediaUploaded,
   height,
   onHeightChange,
+  onPinItem,
+  pinnedItem,
 }: {
   zones: Zone[];
   overlays: OverlayBlock[];
@@ -1386,6 +1397,8 @@ function ZoneTimeline({
   onMediaUploaded?: () => Promise<void> | void;
   height: number;
   onHeightChange: (h: number) => void;
+  onPinItem?: (trackId: string, itemIdx: number) => void;
+  pinnedItem?: { trackId: string; itemIdx: number } | null;
 }) {
   const { t } = useLanguage();
   const resizingRef = useRef(false);
@@ -2128,6 +2141,7 @@ function ZoneTimeline({
                             window.addEventListener("mouseup", onUp);
                           };
 
+                          const isPinned = pinnedItem?.trackId === track.id && pinnedItem.itemIdx === idx;
                           return (
                             <div
                               key={`${item.id}-${idx}`}
@@ -2136,10 +2150,15 @@ function ZoneTimeline({
                               onDragOver={onDragOver}
                               onDrop={onDrop}
                               onDragEnd={onDragEnd}
+                              onClick={(e) => {
+                                // Don't trigger if clicking action buttons (gear, trash, chevrons)
+                                if ((e.target as HTMLElement).closest('button')) return;
+                                onPinItem?.(track.id, idx);
+                              }}
                               className={`group h-full flex flex-col rounded border bg-background/60 overflow-hidden relative shrink-0 transition-[width,opacity] ${
                                 isDragging ? "opacity-40 border-primary border-dashed" :
                                 isDropTarget ? "border-primary border-2" : "border-border"
-                              }`}
+                              } ${isPinned ? "ring-2 ring-primary" : ""}`}
                               style={{ width: livePx, cursor: dragState ? "grabbing" : "grab" }}
                               title={canResizeDuration ? t("studioTimelineDragReorder") : t("studioTimelineVideoDurationLocked")}
                             >
@@ -2276,6 +2295,45 @@ function ZoneTimeline({
                                           />
                                         </div>
                                       </>)}
+
+                                      {/* Per-item fitMode for image and video items */}
+                                      {(isImg || isVid) && (
+                                        <div className="space-y-1 pt-2 border-t border-border">
+                                          <Label className="text-[10px] text-muted-foreground">{t("studioFitMode")}</Label>
+                                          <div className="flex gap-1 flex-wrap">
+                                            {([
+                                              { val: undefined as ("cover-x"|"cover-y"|"contain"|"stretch"|undefined), label: t("studioFitDefault"), short: t("studioFitDefaultShort") },
+                                              { val: "cover-x" as const, label: t("studioFitCoverXTip"), short: t("studioFitCoverXShort") },
+                                              { val: "cover-y" as const, label: t("studioFitCoverYTip"), short: t("studioFitCoverYShort") },
+                                              { val: "contain" as const, label: t("studioFitContainTip"), short: t("studioFitContainShort") },
+                                              { val: "stretch" as const, label: t("studioFitStretchTip"), short: t("studioFitStretchShort") },
+                                            ]).map(({ val, label, short }) => (
+                                              <Button
+                                                key={String(val ?? "default")}
+                                                type="button"
+                                                title={label}
+                                                size="sm"
+                                                variant={item.fitMode === val ? "default" : "outline"}
+                                                className="h-6 px-2 text-[10px]"
+                                                onClick={() => {
+                                                  let newItem: MediaItem;
+                                                  if (val === undefined) {
+                                                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                                                    const { fitMode: _fm, ...rest } = item as (MediaItem & { fitMode?: unknown });
+                                                    newItem = rest as MediaItem;
+                                                  } else {
+                                                    newItem = { ...item, fitMode: val };
+                                                  }
+                                                  const newItems = track.items.map((it, i) => i === idx ? newItem : it);
+                                                  track.onUpdate(newItems);
+                                                }}
+                                              >
+                                                {short}
+                                              </Button>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
                                     </PopoverContent>
                                   </Popover>
                                   <Button variant="ghost" size="icon" className="h-4 w-4 text-destructive hover:text-destructive" title={t("studioTimelineRemove")} onClick={() => removeItem(idx)}>
@@ -4926,6 +4984,8 @@ export default function ContentStudioPage() {
   const persistedSessionRef = useRef<Partial<StudioSession> | null>(loadStudioSession());
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const [selectedOverlay, setSelectedOverlay] = useState<string | null>(null);
+  const [pinnedPreview, setPinnedPreview] = useState<{ trackId: string; itemIdx: number } | null>(null);
+  const pinnedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [sidebarTab, setSidebarTab] = useState<string>(() => {
     const saved = persistedSessionRef.current?.sidebarTab ?? "new";
@@ -6792,6 +6852,15 @@ export default function ContentStudioPage() {
     });
   }, []);
 
+  const handlePinPreview = useCallback((trackId: string, itemIdx: number) => {
+    setPinnedPreview({ trackId, itemIdx });
+    if (pinnedTimerRef.current) clearTimeout(pinnedTimerRef.current);
+    pinnedTimerRef.current = setTimeout(() => {
+      setPinnedPreview(null);
+      pinnedTimerRef.current = null;
+    }, 30000);
+  }, []);
+
   // Layout panel manual collapse (persisted) — independent from auto-collapse on zone selection
   const [layoutPanelManuallyCollapsed, setLayoutPanelManuallyCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem("studio:layoutPanelManuallyCollapsed") === "1"; } catch { return false; }
@@ -8243,7 +8312,9 @@ export default function ContentStudioPage() {
 
                   {/* Content render */}
                   {zone.content?.type === "media" && mediaItems.length > 0 ? (
-                    <CarouselPreview items={mediaItems} transition={zone.content.carouselTransition || "fade"} fitMode={zone.content.fitMode || "cover-x"} />
+                    <CarouselPreview items={mediaItems} transition={zone.content.carouselTransition || "fade"} fitMode={zone.content.fitMode || "cover-x"}
+                      pinToIdx={pinnedPreview?.trackId === `z-${zone.id}` ? pinnedPreview.itemIdx : undefined}
+                    />
                   ) : zone.content?.type === "widget" && zone.content.widgetConfig ? (
                     <ZoneAnimatedWrapper animation={zone.content.widgetConfig.animation}>
                       <WidgetZonePreview config={zone.content.widgetConfig} />
@@ -8322,7 +8393,9 @@ export default function ContentStudioPage() {
                 >
                   {/* Content render */}
                   {overlay.content?.type === "media" && mediaItems.length > 0 ? (
-                    <CarouselPreview items={mediaItems} transition={overlay.content.carouselTransition || "fade"} fitMode={overlay.content.fitMode || "cover-x"} />
+                    <CarouselPreview items={mediaItems} transition={overlay.content.carouselTransition || "fade"} fitMode={overlay.content.fitMode || "cover-x"}
+                      pinToIdx={pinnedPreview?.trackId === `o-${overlay.id}` ? pinnedPreview.itemIdx : undefined}
+                    />
                   ) : overlay.content?.type === "widget" && overlay.content.widgetConfig ? (
                     <ZoneAnimatedWrapper animation={overlay.content.widgetConfig.animation}>
                       <WidgetZonePreview config={overlay.content.widgetConfig} />
@@ -8395,6 +8468,8 @@ export default function ContentStudioPage() {
                 onBgmAudioSourceChange={setBgmAudioSource}
                 height={dockHeight}
                 onHeightChange={setDockHeight}
+                onPinItem={handlePinPreview}
+                pinnedItem={pinnedPreview}
               />
             )}
           </div>
