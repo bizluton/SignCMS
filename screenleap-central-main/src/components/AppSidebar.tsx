@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { Monitor, Image, CalendarClock, ShieldCheck, Brush, Send, FileText, Store, Megaphone, Users, CloudSun, Instagram, DoorOpen, Languages, Clock, HeadphonesIcon, BookOpen, Radio, BarChart3, AlertTriangle, UserCog, Key, Settings, Wrench, Building2, TrendingUp, Code2, LayoutGrid, MonitorPlay, Rocket, History, Type, Puzzle, ClipboardCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Monitor, Image, CalendarClock, ShieldCheck, Brush, Send, FileText, Store, Megaphone, Users, CloudSun, Instagram, DoorOpen, Languages, Clock, HeadphonesIcon, BookOpen, Radio, BarChart3, AlertTriangle, UserCog, Key, Settings, Wrench, Building2, TrendingUp, Code2, LayoutGrid, MonitorPlay, Rocket, History, Type, Puzzle, ClipboardCheck, Pin, PinOff } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import logoLightImg from "@/assets/logo-light.png";
 import { useTheme } from "next-themes";
@@ -35,10 +35,40 @@ const INSTALLED_ICONS: Record<string, React.ElementType> = {
   attendance: Clock,
 };
 
+const SIDEBAR_AUTO_HIDE_KEY = "sidebar:autoHide";
+
 export function AppSidebar() {
-  const { state, isMobile, setOpenMobile } = useSidebar();
+  const { state, setOpen, isMobile, setOpenMobile } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
+
+  // ── Auto-hide (hover-to-reveal) ──────────────────────────────────────────
+  // When on: sidebar stays icon-only; hovering reveals the text labels.
+  // When off: sidebar behaves normally (manual toggle via SidebarTrigger).
+  const [autoHide, setAutoHide] = useState<boolean>(() => {
+    try { return localStorage.getItem(SIDEBAR_AUTO_HIDE_KEY) === "true"; }
+    catch { return false; }
+  });
+
+  // Collapse immediately when auto-hide is enabled (or on first mount when already on)
+  useEffect(() => {
+    if (autoHide && !isMobile) setOpen(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoHide, isMobile]);
+
+  const handleMouseEnter = () => {
+    if (autoHide && !isMobile) setOpen(true);
+  };
+  const handleMouseLeave = () => {
+    if (autoHide && !isMobile) setOpen(false);
+  };
+  const toggleAutoHide = () => {
+    const next = !autoHide;
+    setAutoHide(next);
+    try { localStorage.setItem(SIDEBAR_AUTO_HIDE_KEY, String(next)); } catch { /* ignore */ }
+    // Snap to the correct state immediately
+    if (!isMobile) setOpen(!next);
+  };
   const { isAdmin, isOrgAdmin, isCsAgent } = useUserRole();
   const { t, language } = useLanguage();
   const { user } = useAuth();
@@ -81,7 +111,12 @@ export function AppSidebar() {
   const localPlayerLabel: Record<Language, string> = { zh: "本機播放器", en: "Local Player", ja: "ローカルプレーヤー" };
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-sidebar-border">
+    <Sidebar
+      collapsible="icon"
+      className="border-r border-sidebar-border"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
       <div className="p-3 sm:p-4 flex items-center gap-2">
         <Link to="/" aria-label="SignCMS" className="flex items-center gap-2 rounded-md hover:opacity-80 transition-opacity">
           <img src={currentLogo} alt="SignCMS" className="h-10 sm:h-12 shrink-0 object-contain" style={collapsed ? { width: 30 } : {}} />
@@ -409,6 +444,28 @@ export function AppSidebar() {
           </>
         )}
       </SidebarContent>
+
+      {/* Auto-hide toggle — always visible at the bottom */}
+      {!isMobile && (
+        <div className="shrink-0 border-t border-sidebar-border p-2 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleAutoHide}
+            title={autoHide ? "關閉文字自動隱藏（固定顯示）" : "開啟文字自動隱藏（懸停顯示）"}
+            className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/70 transition-colors shrink-0"
+          >
+            {autoHide
+              ? <PinOff className="w-[15px] h-[15px]" />
+              : <Pin className="w-[15px] h-[15px]" />
+            }
+          </button>
+          {!collapsed && (
+            <span className="text-[11px] text-muted-foreground leading-tight select-none">
+              {autoHide ? "懸停顯示文字" : "固定顯示文字"}
+            </span>
+          )}
+        </div>
+      )}
     </Sidebar>
   );
 }
