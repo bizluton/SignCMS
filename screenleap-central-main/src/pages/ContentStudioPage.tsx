@@ -7488,7 +7488,7 @@ export default function ContentStudioPage() {
                         { id: "mirror",       label: "Mirror",               desc: "All Outputs display the same picture",             fixedCount: null },
                         { id: "extend-h",     label: "Extend Horizontal",    desc: "Outputs extend horizontally into one canvas",      fixedCount: null },
                         { id: "extend-v",     label: "Extend Vertical",      desc: "Outputs extend vertically into one canvas",        fixedCount: null },
-                        { id: "grid-2x2-h",   label: "2×2 Matrix",            desc: "4 landscape screens in a 2×2 grid (3840×2160)", fixedCount: 4 },
+                        { id: "grid-2x2-h",   label: "2×2 Matrix",            desc: "4 screens in a 2×2 grid (3840×2160 or 2160×3840) — count locked to 4", fixedCount: 4 },
                       ] as const).map((opt) => (
                         <button
                           key={opt.id}
