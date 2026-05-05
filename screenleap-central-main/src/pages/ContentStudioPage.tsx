@@ -7366,16 +7366,18 @@ export default function ContentStudioPage() {
           </Tabs>
         </div>
 
-        {/* Left panel toggle tab — always visible, vertically centred */}
-        <div className="hidden md:flex shrink-0 w-5 items-center justify-center">
+        {/* Left panel toggle tab — pinned near scrollbar start */}
+        <div className="hidden md:flex shrink-0 w-6 items-start pt-10 justify-center">
           <button
             type="button"
             onClick={toggleLayoutPanelManualCollapse}
             title={layoutPanelCollapsed ? t("studioRailExpandLayouts") : t("studioRailCollapseLayouts")}
             aria-label={layoutPanelCollapsed ? t("studioRailExpandLayouts") : t("studioRailCollapseLayouts")}
             aria-expanded={!layoutPanelCollapsed}
-            className="group h-20 w-5 rounded-r-xl border border-l-0 border-border bg-card/90 backdrop-blur-sm shadow-sm flex flex-col items-center justify-center gap-1.5 transition-all duration-200 text-muted-foreground hover:bg-primary/10 hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+            className="group relative h-24 w-6 rounded-r-xl border border-l-0 border-primary/30 bg-gradient-to-b from-primary/10 via-card/90 to-card/80 backdrop-blur-sm shadow-md flex flex-col items-center justify-center gap-1.5 transition-all duration-200 text-primary/60 hover:border-primary/60 hover:from-primary/20 hover:to-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 overflow-hidden"
           >
+            {/* Top accent stripe */}
+            <div className="pointer-events-none absolute top-0 left-0 right-0 h-[3px] rounded-tr-xl bg-gradient-to-r from-primary/80 to-primary/30" />
             <PanelLeft className="w-3 h-3 shrink-0" />
             <ChevronRight className={`w-3 h-3 shrink-0 transition-transform duration-300 ${layoutPanelCollapsed ? "" : "rotate-180"}`} />
           </button>
@@ -8056,17 +8058,19 @@ export default function ContentStudioPage() {
             )}
           </div>
 
-          {/* Right panel toggle tab — always visible, vertically centred */}
+          {/* Right panel toggle tab — pinned near scrollbar start */}
           {!isMobile && (
-            <div className="flex shrink-0 w-5 items-center justify-center">
+            <div className="flex shrink-0 w-6 items-start pt-10 justify-center">
               <button
                 type="button"
                 onClick={() => setMediaLibraryOpen(!mediaLibraryOpen)}
                 title={mediaLibraryOpen ? t("studioRailCollapseMedia") : t("studioRailExpandMedia")}
                 aria-label={mediaLibraryOpen ? t("studioRailCollapseMedia") : t("studioRailExpandMedia")}
                 aria-expanded={mediaLibraryOpen}
-                className="group h-20 w-5 rounded-l-xl border border-r-0 border-border bg-card/90 backdrop-blur-sm shadow-sm flex flex-col items-center justify-center gap-1.5 transition-all duration-200 text-muted-foreground hover:bg-primary/10 hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                className="group relative h-24 w-6 rounded-l-xl border border-r-0 border-primary/30 bg-gradient-to-b from-primary/10 via-card/90 to-card/80 backdrop-blur-sm shadow-md flex flex-col items-center justify-center gap-1.5 transition-all duration-200 text-primary/60 hover:border-primary/60 hover:from-primary/20 hover:to-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 overflow-hidden"
               >
+                {/* Top accent stripe */}
+                <div className="pointer-events-none absolute top-0 left-0 right-0 h-[3px] rounded-tl-xl bg-gradient-to-l from-primary/80 to-primary/30" />
                 <PanelRight className="w-3 h-3 shrink-0" />
                 <ChevronLeft className={`w-3 h-3 shrink-0 transition-transform duration-300 ${mediaLibraryOpen ? "" : "rotate-180"}`} />
               </button>
