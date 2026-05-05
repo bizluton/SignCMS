@@ -7179,74 +7179,15 @@ export default function ContentStudioPage() {
       </Dialog>
 
       {/* Body */}
-      <div className="flex flex-1 gap-4 min-h-0">
+      <div className="flex flex-1 min-h-0">
         {/* Left sidebar (hidden on mobile — accessed via bottom Sheet) */}
-        <div className={`${layoutPanelCollapsed ? "w-11" : "w-64"} shrink-0 hidden md:flex flex-col min-h-0 transition-[width] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]`}>
-          {layoutPanelCollapsed ? (
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => { setLayoutPanelManuallyCollapsed(false); try { localStorage.setItem("studio:layoutPanelManuallyCollapsed", "0"); } catch { /* ignore */ } setLayoutPanelOpen(true); }}
-                    aria-label={t("studioRailExpandLayouts")}
-                    aria-expanded={false}
-                    className="group relative h-full min-h-40 w-10 rounded-xl border-2 border-dashed border-primary/40 bg-gradient-to-b from-primary/10 via-card to-primary/5 overflow-hidden flex flex-col items-center justify-between py-3 animate-fade-in transition-[border-color,box-shadow,transform] duration-300 hover:border-primary hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.4),0_8px_24px_-12px_hsl(var(--primary)/0.6)] hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                  >
-                    {/* sheen overlay */}
-                    <span
-                      aria-hidden
-                      className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-[linear-gradient(180deg,transparent_0%,hsl(var(--primary)/0.15)_50%,transparent_100%)] bg-[length:100%_300%] animate-studio-rail-sheen"
-                    />
-                    <PanelLeft className="relative w-5 h-5 text-primary transition-colors" />
-                    <span
-                      className="relative text-xs font-bold tracking-[0.3em] text-primary transition-colors select-none"
-                      style={{ writingMode: "vertical-rl" }}
-                    >
-                      {t("studioLayouts")}
-                    </span>
-                    <ChevronRight className="relative w-4 h-4 text-primary transition-colors group-hover:animate-studio-rail-arrow" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right" className="flex flex-col gap-0.5 text-xs">
-                  <span className="flex items-center gap-1.5">
-                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-muted-foreground" />
-                    <span className="font-medium">{t("studioRailStateCollapsed")}</span>
-                  </span>
-                  <span className="text-muted-foreground">{t("studioRailHintExpandLayouts")}</span>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          ) : (
-          <Tabs value={sidebarTab} onValueChange={setSidebarTab} className="flex flex-col min-h-0 h-full animate-studio-panel-expand">
+        <div className={`${layoutPanelCollapsed ? "w-0" : "w-64"} shrink-0 hidden md:flex flex-col min-h-0 overflow-hidden transition-[width] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]`}>
+          <Tabs value={sidebarTab} onValueChange={setSidebarTab} className="flex flex-col min-h-0 h-full">
             <div className="flex items-center gap-1.5 shrink-0">
-              <TabsList className="flex-1 min-w-0">
+              <TabsList className="w-full min-w-0">
                 <TabsTrigger value="new" className="flex-1 text-xs">{t("studioNewProject")}</TabsTrigger>
                 <TabsTrigger value="my" className="flex-1 text-xs">{t("studioMyProject")}</TabsTrigger>
               </TabsList>
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-8 w-8 shrink-0 hover:border-primary/60 hover:text-primary hover:shadow-[0_0_0_3px_hsl(var(--primary)/0.12)] transition-all"
-                      onClick={toggleLayoutPanelManualCollapse}
-                      aria-label={t("studioRailCollapseLayouts")}
-                      aria-expanded={true}
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom" className="flex flex-col gap-0.5 text-xs">
-                    <span className="flex items-center gap-1.5">
-                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-primary" />
-                      <span className="font-medium">{t("studioRailStateExpanded")}</span>
-                    </span>
-                    <span className="text-muted-foreground">{t("studioRailHintCollapseLayouts")}</span>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
             </div>
 
             {/* New Project: Layout + Scene inner tabs */}
@@ -7423,7 +7364,21 @@ export default function ContentStudioPage() {
               </div>
             </TabsContent>
           </Tabs>
-          )}
+        </div>
+
+        {/* Left panel toggle tab — always visible, vertically centred */}
+        <div className="hidden md:flex shrink-0 w-5 items-center justify-center">
+          <button
+            type="button"
+            onClick={toggleLayoutPanelManualCollapse}
+            title={layoutPanelCollapsed ? t("studioRailExpandLayouts") : t("studioRailCollapseLayouts")}
+            aria-label={layoutPanelCollapsed ? t("studioRailExpandLayouts") : t("studioRailCollapseLayouts")}
+            aria-expanded={!layoutPanelCollapsed}
+            className="group h-20 w-5 rounded-r-xl border border-l-0 border-border bg-card/90 backdrop-blur-sm shadow-sm flex flex-col items-center justify-center gap-1.5 transition-all duration-200 text-muted-foreground hover:bg-primary/10 hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+          >
+            <PanelLeft className="w-3 h-3 shrink-0" />
+            <ChevronRight className={`w-3 h-3 shrink-0 transition-transform duration-300 ${layoutPanelCollapsed ? "" : "rotate-180"}`} />
+          </button>
         </div>
 
         {/* Canvas + Dock + Right Editor Panel */}
@@ -8101,65 +8056,49 @@ export default function ContentStudioPage() {
             )}
           </div>
 
+          {/* Right panel toggle tab — always visible, vertically centred */}
+          {!isMobile && (
+            <div className="flex shrink-0 w-5 items-center justify-center">
+              <button
+                type="button"
+                onClick={() => setMediaLibraryOpen(!mediaLibraryOpen)}
+                title={mediaLibraryOpen ? t("studioRailCollapseMedia") : t("studioRailExpandMedia")}
+                aria-label={mediaLibraryOpen ? t("studioRailCollapseMedia") : t("studioRailExpandMedia")}
+                aria-expanded={mediaLibraryOpen}
+                className="group h-20 w-5 rounded-l-xl border border-r-0 border-border bg-card/90 backdrop-blur-sm shadow-sm flex flex-col items-center justify-center gap-1.5 transition-all duration-200 text-muted-foreground hover:bg-primary/10 hover:border-primary/50 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+              >
+                <PanelRight className="w-3 h-3 shrink-0" />
+                <ChevronLeft className={`w-3 h-3 shrink-0 transition-transform duration-300 ${mediaLibraryOpen ? "" : "rotate-180"}`} />
+              </button>
+            </div>
+          )}
+
           {/* Right-side Media Library (desktop only) */}
           {!isMobile && (
             <div
-              className="shrink-0 flex flex-col relative transition-[width] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
-              style={{ width: mediaLibraryOpen ? `${mediaLibWidth}px` : "44px" }}
+              className="shrink-0 flex flex-col relative overflow-hidden transition-[width] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]"
+              style={{ width: mediaLibraryOpen ? `${mediaLibWidth}px` : "0px" }}
             >
-              {!mediaLibraryOpen ? (
-                <button
-                  type="button"
-                  onClick={() => setMediaLibraryOpen(true)}
-                  title={t("studioRailExpandMedia")}
-                  aria-label={t("studioRailExpandMedia")}
-                  className="group relative h-full min-h-40 w-10 rounded-xl border-2 border-dashed border-primary/40 bg-gradient-to-b from-primary/10 via-card to-primary/5 overflow-hidden flex flex-col items-center justify-between py-3 animate-fade-in transition-[border-color,box-shadow,transform] duration-300 hover:border-primary hover:shadow-[0_0_0_1px_hsl(var(--primary)/0.4),0_8px_24px_-12px_hsl(var(--primary)/0.6)] hover:scale-[1.03] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                >
-                  <span
-                    aria-hidden
-                    className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-[linear-gradient(180deg,transparent_0%,hsl(var(--primary)/0.15)_50%,transparent_100%)] bg-[length:100%_300%] animate-studio-rail-sheen"
-                  />
-                  <PanelRight className="relative w-5 h-5 text-primary transition-colors" />
-                  <span
-                    className="relative text-xs font-bold tracking-[0.3em] text-primary transition-colors select-none"
-                    style={{ writingMode: "vertical-rl" }}
-                  >
-                    {t("studioMediaLibraryDock")}
-                  </span>
-                  <ChevronLeft className="relative w-4 h-4 text-primary transition-colors group-hover:animate-studio-rail-arrow" />
-                </button>
-              ) : (
-                <div className="flex flex-col h-full animate-studio-panel-expand">
-              {/* Drag handle on the left edge */}
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                onMouseDown={startMediaResize}
-                className="absolute left-0 top-0 bottom-0 w-1.5 -translate-x-1/2 cursor-col-resize z-10 hover:bg-primary/40 active:bg-primary/60 transition-colors"
-                title={t("studioMediaResizeHandle")}
-                aria-label={t("studioMediaResizeHandle")}
-              />
-              <Button
-                variant="outline"
-                size="icon"
-                className="absolute right-2 top-2 z-20 h-7 w-7 bg-background/90 transition-all hover:border-primary/60 hover:text-primary hover:shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"
-                onClick={() => setMediaLibraryOpen(false)}
-                title={t("studioRailCollapseMedia")}
-                aria-label={t("studioRailCollapseMedia")}
-              >
-                <ChevronRight className="w-3.5 h-3.5 transition-transform duration-300" />
-              </Button>
-              <MediaLibraryDock
-                variant="side"
-                dbMedia={dbMedia}
-                dbWidgets={dbWidgets}
-                activeOrgId={activeOrgId}
-                onMediaUploaded={loadMedia}
-                onAddItems={addItemsToActiveTarget}
-                selectedZoneLabel={activeZone?.label || activeOverlay?.label || null}
-              />
-                </div>
-              )}
+              <div className="flex flex-col h-full">
+                {/* Drag handle on the left edge */}
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  onMouseDown={startMediaResize}
+                  className="absolute left-0 top-0 bottom-0 w-1.5 -translate-x-1/2 cursor-col-resize z-10 hover:bg-primary/40 active:bg-primary/60 transition-colors"
+                  title={t("studioMediaResizeHandle")}
+                  aria-label={t("studioMediaResizeHandle")}
+                />
+                <MediaLibraryDock
+                  variant="side"
+                  dbMedia={dbMedia}
+                  dbWidgets={dbWidgets}
+                  activeOrgId={activeOrgId}
+                  onMediaUploaded={loadMedia}
+                  onAddItems={addItemsToActiveTarget}
+                  selectedZoneLabel={activeZone?.label || activeOverlay?.label || null}
+                />
+              </div>
             </div>
           )}
         </div>
