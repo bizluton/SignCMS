@@ -5135,19 +5135,30 @@ export default function ContentStudioPage() {
     return () => ro.disconnect();
   }, []);
   const ratio = resolution.width / resolution.height;
+  // In extend modes the canvas spans N screens: wider for extend-h, taller for extend-v.
+  const extendCount = (outputMode === "extend-h" || outputMode === "extend-v") ? outputCount : 1;
+  const displayRatio = outputMode === "extend-h"
+    ? ratio * extendCount
+    : outputMode === "extend-v"
+      ? ratio / extendCount
+      : ratio;
   const { W, H } = (() => {
-    const maxH = 540;
+    // Taller cap when stacking vertically so each screen remains recognisably 16:9
+    const maxH = outputMode === "extend-v" ? 540 * extendCount : 540;
     // leave a tiny inner padding so border/shadow doesn't clip
     const availW = containerSize.w > 0 ? containerSize.w - 8 : Infinity;
     const availH = containerSize.h > 0 ? Math.min(containerSize.h - 8, maxH) : maxH;
     let h = availH;
-    let w = h * ratio;
+    let w = h * displayRatio;
     if (w > availW) {
       w = availW;
-      h = w / ratio;
+      h = w / displayRatio;
     }
     return { W: Math.round(w), H: Math.round(h) };
   })();
+  // Pixel size of a single output panel within the extended canvas
+  const singleW = outputMode === "extend-h" ? Math.round(W / extendCount) : W;
+  const singleH = outputMode === "extend-v" ? Math.round(H / extendCount) : H;
 
   // Auto-clamp overlays when canvas size shrinks so they remain visible/operable
   useEffect(() => {
@@ -7653,9 +7664,19 @@ export default function ContentStudioPage() {
           {/* Floating resolution badge */}
           <div className="absolute bottom-3 right-3 z-20 px-2.5 py-1 rounded-md bg-background/80 backdrop-blur-sm border border-border shadow-sm text-[11px] font-medium text-foreground tabular-nums pointer-events-none flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-            {resolution.width}×{resolution.height}
-            {outputCount > 1 && (
-              <span className="text-indigo-500 font-bold">× {outputCount}</span>
+            {extendCount > 1 ? (
+              <>
+                <span className="text-muted-foreground">{resolution.width}×{resolution.height}</span>
+                <span className="text-muted-foreground/60">×{extendCount}</span>
+                <span className="text-border">|</span>
+                <span>
+                  {outputMode === "extend-h"
+                    ? `${resolution.width * extendCount}×${resolution.height}`
+                    : `${resolution.width}×${resolution.height * extendCount}`}
+                </span>
+              </>
+            ) : (
+              <>{resolution.width}×{resolution.height}</>
             )}
           </div>
 
@@ -7782,32 +7803,46 @@ export default function ContentStudioPage() {
 
           <div ref={canvasRef} className={`relative bg-card rounded-lg shadow-lg border border-border overflow-hidden ${resizing ? "" : "transition-all duration-300"}`} style={{ width: W, height: H, maxWidth: "100%", maxHeight: "100%" }}
             onClick={() => { if (selectedOverlay) setSelectedOverlay(null); }}>
-            {/* Extend-mode: active output highlight + divider lines */}
-            {outputCount > 1 && (outputMode === "extend-h" || outputMode === "extend-v") && (() => {
-              const segPct = 100 / outputCount;
-              const activeStart = (activeOutput - 1) * segPct;
+            {/* Extend-mode: output panel labels + divider lines + active highlight */}
+            {extendCount > 1 && (() => {
+              const isH = outputMode === "extend-h";
               return (
                 <>
-                  {/* Active output region highlight */}
-                  <div
-                    className="pointer-events-none absolute z-40 ring-2 ring-primary/60 rounded-sm"
-                    style={outputMode === "extend-h"
-                      ? { top: 0, bottom: 0, left: `${activeStart}%`, width: `${segPct}%` }
-                      : { left: 0, right: 0, top: `${activeStart}%`, height: `${segPct}%` }}
-                  />
-                  {/* Divider lines */}
-                  {Array.from({ length: outputCount - 1 }, (_, i) => {
-                    const pct = ((i + 1) / outputCount) * 100;
-                    return outputMode === "extend-h" ? (
-                      <div key={i} className="pointer-events-none absolute top-0 bottom-0 z-50" style={{ left: `${pct}%`, width: 1, background: "rgba(99,102,241,0.7)", boxShadow: "0 0 4px rgba(99,102,241,0.5)" }}>
-                        <span className="absolute top-1 left-1 text-[9px] font-bold text-indigo-400 bg-black/50 px-1 rounded whitespace-nowrap">OUT {i + 2}</span>
-                      </div>
-                    ) : (
-                      <div key={i} className="pointer-events-none absolute left-0 right-0 z-50" style={{ top: `${pct}%`, height: 1, background: "rgba(99,102,241,0.7)", boxShadow: "0 0 4px rgba(99,102,241,0.5)" }}>
-                        <span className="absolute left-1 top-1 text-[9px] font-bold text-indigo-400 bg-black/50 px-1 rounded whitespace-nowrap">OUT {i + 2}</span>
+                  {/* Per-output panel label (top-left of each panel) */}
+                  {Array.from({ length: extendCount }, (_, i) => {
+                    const n = i + 1;
+                    const isActive = activeOutput === n;
+                    return (
+                      <div
+                        key={n}
+                        className="pointer-events-none absolute z-50"
+                        style={isH
+                          ? { left: singleW * i + 6, top: 6 }
+                          : { left: 6, top: singleH * i + 6 }}
+                      >
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isActive ? "bg-primary text-primary-foreground" : "bg-black/50 text-white/80"}`}>
+                          OUT {n}
+                        </span>
                       </div>
                     );
                   })}
+                  {/* Active output highlight ring */}
+                  <div
+                    className="pointer-events-none absolute z-40 ring-2 ring-primary/70"
+                    style={isH
+                      ? { top: 0, bottom: 0, left: singleW * (activeOutput - 1), width: singleW }
+                      : { left: 0, right: 0, top: singleH * (activeOutput - 1), height: singleH }}
+                  />
+                  {/* Divider lines */}
+                  {Array.from({ length: extendCount - 1 }, (_, i) => (
+                    <div
+                      key={i}
+                      className="pointer-events-none absolute z-50"
+                      style={isH
+                        ? { top: 0, bottom: 0, left: singleW * (i + 1) - 1, width: 2, background: "rgba(99,102,241,0.8)", boxShadow: "0 0 6px rgba(99,102,241,0.6)" }
+                        : { left: 0, right: 0, top: singleH * (i + 1) - 1, height: 2, background: "rgba(99,102,241,0.8)", boxShadow: "0 0 6px rgba(99,102,241,0.6)" }}
+                    />
+                  ))}
                 </>
               );
             })()}
