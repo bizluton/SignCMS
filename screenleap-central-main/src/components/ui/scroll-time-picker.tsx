@@ -7,7 +7,7 @@ import { ChevronUp, ChevronDown } from "lucide-react";
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 const HOURS_12: number[] = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-const MINUTES: number[] = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+const MINUTES: number[] = Array.from({ length: 60 }, (_, i) => i);
 const PERIODS: ("AM" | "PM")[] = ["AM", "PM"];
 
 function parse24h(v: string): { h: number; m: number; period: "AM" | "PM" } {
@@ -22,12 +22,7 @@ function parse24h(v: string): { h: number; m: number; period: "AM" | "PM" } {
 }
 
 function nearestMinute(m: number): number {
-  const rounded = Math.round(m / 5) * 5;
-  return MINUTES.includes(rounded)
-    ? rounded
-    : MINUTES.reduce((prev, cur) =>
-        Math.abs(cur - m) < Math.abs(prev - m) ? cur : prev
-      );
+  return Math.max(0, Math.min(59, Math.round(m)));
 }
 
 function to24h(h12: number, m: number, period: "AM" | "PM"): string {
