@@ -82,6 +82,7 @@ const translations = {
 
   // Common
   cancel: { zh: "取消", en: "Cancel", ja: "キャンセル" },
+  confirm: { zh: "確認", en: "Confirm", ja: "確認" },
   save: { zh: "儲存", en: "Save", ja: "保存" },
   delete: { zh: "刪除", en: "Delete", ja: "削除" },
   edit: { zh: "編輯", en: "Edit", ja: "編集" },

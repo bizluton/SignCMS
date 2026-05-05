@@ -4866,6 +4866,9 @@ export default function ContentStudioPage() {
   const activeOutputRef = useRef<number>(1);
   activeOutputRef.current = activeOutput;
   const [outputModeOpen, setOutputModeOpen] = useState(false);
+  // Draft state while the popover is open — committed only on Confirm
+  const [pendingOutputMode, setPendingOutputMode] = useState<OutputMode>("mirror");
+  const [pendingOutputCount, setPendingOutputCount] = useState<number>(1);
   const [showCustomResDialog, setShowCustomResDialog] = useState(false);
   const [customResW, setCustomResW] = useState(() => loadStoredCustomRes()?.w ?? "1920");
   const [customResH, setCustomResH] = useState(() => loadStoredCustomRes()?.h ?? "1080");
@@ -7786,7 +7789,14 @@ export default function ContentStudioPage() {
                 </div>
 
                 {/* Sliders icon — opens mode/count settings */}
-                <Popover open={outputModeOpen} onOpenChange={setOutputModeOpen}>
+                <Popover open={outputModeOpen} onOpenChange={(open) => {
+                  if (open) {
+                    // Initialise draft from current applied values when opening
+                    setPendingOutputMode(outputMode);
+                    setPendingOutputCount(outputCount);
+                  }
+                  setOutputModeOpen(open);
+                }}>
                   <PopoverTrigger asChild>
                     <button
                       type="button"
@@ -7797,27 +7807,28 @@ export default function ContentStudioPage() {
                     </button>
                   </PopoverTrigger>
                   <PopoverContent side="bottom" align="start" className="w-72 p-0" onClick={(e) => e.stopPropagation()}>
+                    {/* ── Mode list ── */}
                     <div className="px-3 pt-3 pb-1">
                       <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">OUTPUT MODE</p>
                       {([
-                        { id: "independent",  label: "Independent",          desc: "Each Output plays its own content",                fixedCount: null },
-                        { id: "mirror",       label: "Mirror",               desc: "All Outputs display the same picture — count locked to 1", fixedCount: 1 },
-                        { id: "extend-h",     label: "Extend Horizontal",    desc: "Outputs extend horizontally into one canvas",      fixedCount: null },
-                        { id: "extend-v",     label: "Extend Vertical",      desc: "Outputs extend vertically into one canvas",        fixedCount: null },
-                        { id: "grid-2x2-h",   label: "2×2 Matrix",            desc: "4 screens in a 2×2 grid (3840×2160 or 2160×3840) — count locked to 4", fixedCount: 4 },
+                        { id: "independent",  label: "Independent",       desc: "Each Output plays its own content",                fixedCount: null },
+                        { id: "mirror",       label: "Mirror",            desc: "All Outputs display the same picture — count locked to 1", fixedCount: 1 },
+                        { id: "extend-h",     label: "Extend Horizontal", desc: "Outputs extend horizontally into one canvas",      fixedCount: null },
+                        { id: "extend-v",     label: "Extend Vertical",   desc: "Outputs extend vertically into one canvas",        fixedCount: null },
+                        { id: "grid-2x2-h",   label: "2×2 Matrix",        desc: "4 screens in a 2×2 grid (3840×2160 or 2160×3840) — count locked to 4", fixedCount: 4 },
                       ] as const).map((opt) => (
                         <button
                           key={opt.id}
                           type="button"
                           onClick={() => {
-                            setOutputMode(opt.id);
-                            if (opt.fixedCount) { setOutputCount(opt.fixedCount); switchToOutput(1); }
-                            setOutputModeOpen(false);
+                            setPendingOutputMode(opt.id);
+                            // Auto-set fixed counts
+                            if (opt.fixedCount !== null) setPendingOutputCount(opt.fixedCount);
                           }}
-                          className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-md text-left transition-colors ${outputMode === opt.id ? "bg-primary/10 text-primary" : "hover:bg-muted/60 text-foreground"}`}
+                          className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-md text-left transition-colors ${pendingOutputMode === opt.id ? "bg-primary/10 text-primary" : "hover:bg-muted/60 text-foreground"}`}
                         >
                           <div className="mt-0.5 shrink-0">
-                            {outputMode === opt.id
+                            {pendingOutputMode === opt.id
                               ? <CheckCircle2 className="w-4 h-4 text-primary" />
                               : <span className="w-4 h-4 rounded-full border-2 border-muted-foreground/40 inline-block" />}
                           </div>
@@ -7828,13 +7839,15 @@ export default function ContentStudioPage() {
                         </button>
                       ))}
                     </div>
-                    {isGrid2x2 || outputMode === "mirror" ? (
+
+                    {/* ── Count section ── */}
+                    {pendingOutputMode === "grid-2x2-h" || pendingOutputMode === "mirror" ? (
                       <div className="border-t border-border px-3 py-2.5 flex items-center gap-2 text-[11px] text-muted-foreground">
                         <span className="bg-primary/10 text-primary font-bold px-2 py-0.5 rounded">
-                          {outputMode === "mirror" ? "1" : "4"}
+                          {pendingOutputMode === "mirror" ? "1" : "4"}
                         </span>
                         <span>
-                          {outputMode === "mirror" ? "Mirror 模式輸出數量固定為 1" : "輸出數量固定為 4（2 列 × 2 行）"}
+                          {pendingOutputMode === "mirror" ? "Mirror 模式輸出數量固定為 1" : "輸出數量固定為 4（2 列 × 2 行）"}
                         </span>
                       </div>
                     ) : (
@@ -7845,8 +7858,8 @@ export default function ContentStudioPage() {
                             <button
                               key={n}
                               type="button"
-                              onClick={() => { setOutputCount(n); if (activeOutput > n) switchToOutput(n); }}
-                              className={`flex-1 h-8 rounded-md border text-xs font-bold transition-colors ${outputCount === n ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/60 hover:bg-muted/60"}`}
+                              onClick={() => setPendingOutputCount(n)}
+                              className={`flex-1 h-8 rounded-md border text-xs font-bold transition-colors ${pendingOutputCount === n ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/60 hover:bg-muted/60"}`}
                             >
                               {n}
                             </button>
@@ -7854,12 +7867,37 @@ export default function ContentStudioPage() {
                         </div>
                       </div>
                     )}
-                    {(outputMode === "extend-h" || outputMode === "extend-v") && (
-                      <div className="px-3 pb-2.5 text-[11px] text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
+
+                    {/* Extend mode hint */}
+                    {(pendingOutputMode === "extend-h" || pendingOutputMode === "extend-v") && (
+                      <div className="px-3 pb-1 text-[11px] text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
                         <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                         <span>延伸模式下，版面將依輸出數量水平/垂直延展。</span>
                       </div>
                     )}
+
+                    {/* ── Confirm / Cancel ── */}
+                    <div className="border-t border-border px-3 py-2.5 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setOutputModeOpen(false)}
+                        className="h-8 px-3 rounded-md border border-border text-xs font-medium text-foreground hover:bg-muted/60 transition-colors"
+                      >
+                        {t("cancel")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setOutputMode(pendingOutputMode);
+                          setOutputCount(pendingOutputCount);
+                          if (activeOutput > pendingOutputCount) switchToOutput(pendingOutputCount);
+                          setOutputModeOpen(false);
+                        }}
+                        className="h-8 px-4 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
+                      >
+                        {t("confirm")}
+                      </button>
+                    </div>
                   </PopoverContent>
                 </Popover>
                 <div className="w-px h-5 bg-border mx-1" />
