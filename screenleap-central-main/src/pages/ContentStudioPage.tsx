@@ -4699,6 +4699,9 @@ export default function ContentStudioPage() {
   const [outputMode, setOutputMode] = useState<OutputMode>("mirror");
   const [outputCount, setOutputCount] = useState<number>(1);
   const [activeOutput, setActiveOutput] = useState<number>(1);
+  // Keep a stable ref so callbacks can always read the latest activeOutput without deps
+  const activeOutputRef = useRef<number>(1);
+  activeOutputRef.current = activeOutput;
   const [outputModeOpen, setOutputModeOpen] = useState(false);
   const [showCustomResDialog, setShowCustomResDialog] = useState(false);
   const [customResW, setCustomResW] = useState(() => loadStoredCustomRes()?.w ?? "1920");
@@ -4757,17 +4760,57 @@ export default function ContentStudioPage() {
   };
   type StudioPage = { id: string; name: string; zones: Zone[]; overlays: OverlayBlock[]; transition?: PageTransition };
   const makePageId = () => `pg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const [pages, setPages] = useState<StudioPage[]>(() => [{
-    id: makePageId(),
-    name: "版型 1",
-    zones: INITIAL_LAYOUT_PRESETS[0].zones.map((z) => ({ ...z })),
-    overlays: [],
-  }]);
-  const [activePageId, setActivePageId] = useState<string>(() => "");
-  // Initialise activePageId once `pages` is ready
+
+  // ── Per-output pages ──────────────────────────────────────────────────────
+  // Each output has its own independent carousel of layout pages.
+  // outputPages:         { [outputIndex]: StudioPage[] }
+  // outputActivePageId:  { [outputIndex]: string }
+  const _initPageId = makePageId();
+  const [outputPages, setOutputPages] = useState<Record<number, StudioPage[]>>(() => ({
+    1: [{
+      id: _initPageId,
+      name: "版型 1",
+      zones: INITIAL_LAYOUT_PRESETS[0].zones.map((z) => ({ ...z })),
+      overlays: [],
+    }],
+  }));
+  const [outputActivePageId, setOutputActivePageId] = useState<Record<number, string>>(() => ({
+    1: _initPageId,
+  }));
+
+  // Stable refs so callbacks can read latest values without stale closures
+  const outputPagesRef = useRef(outputPages);
+  outputPagesRef.current = outputPages;
+  const outputActivePageIdRef = useRef(outputActivePageId);
+  outputActivePageIdRef.current = outputActivePageId;
+
+  // Derived: current output's pages and active page ID
+  const pages = outputPages[activeOutput] ?? [];
+  const activePageId = outputActivePageId[activeOutput] ?? (pages[0]?.id ?? "");
+
+  // Stable setters — always operate on the currently-active output (via ref)
+  const setPages = useCallback((updater: StudioPage[] | ((prev: StudioPage[]) => StudioPage[])) => {
+    setOutputPages((prev) => {
+      const ao = activeOutputRef.current;
+      const cur = prev[ao] ?? [];
+      const next = typeof updater === "function" ? updater(cur) : updater;
+      if (next === cur) return prev;
+      return { ...prev, [ao]: next };
+    });
+  }, []);
+  const setActivePageId = useCallback((id: string) => {
+    setOutputActivePageId((prev) => {
+      const ao = activeOutputRef.current;
+      if (prev[ao] === id) return prev;
+      return { ...prev, [ao]: id };
+    });
+  }, []);
+
+  // Safety: initialise activePageId if missing for current output
   useEffect(() => {
     if (!activePageId && pages.length > 0) setActivePageId(pages[0].id);
-  }, [activePageId, pages]);
+  }, [activePageId, pages, setActivePageId]);
+
   // Mirror live zones/overlays into the active page on every change
   useEffect(() => {
     if (!activePageId) return;
@@ -4781,8 +4824,7 @@ export default function ContentStudioPage() {
       next[idx] = { ...cur, zones, overlays };
       return next;
     });
-     
-  }, [zones, overlays, activePageId]);
+  }, [zones, overlays, activePageId, setPages]);
   // BGM track: an always-present audio playlist for the project.
   // audioSource: "bgm" = play this BGM track; "mute" = silence; otherwise zoneId/overlayId whose video provides sound.
   const [bgmItems, setBgmItems] = useState<MediaItem[]>([]);
@@ -5771,31 +5813,70 @@ export default function ContentStudioPage() {
     });
   }, []);
 
+  // ── Switch active output ────────────────────────────────────────────────
+  // Saves current output's page state automatically (the mirror useEffect keeps
+  // it up to date), then loads the target output's active page.
+  const switchToOutput = useCallback((n: number) => {
+    if (n === activeOutputRef.current) return;
+    const allPages = outputPagesRef.current;
+    const allActiveIds = outputActivePageIdRef.current;
+    let targetPages = allPages[n];
+    let targetActiveId = allActiveIds[n];
+    if (!targetPages || targetPages.length === 0) {
+      // Lazily initialise this output with a default page
+      const id = makePageId();
+      const initZones = INITIAL_LAYOUT_PRESETS[0].zones.map((z) => ({ ...z }));
+      const newPage: StudioPage = { id, name: "版型 1", zones: initZones, overlays: [] };
+      targetPages = [newPage];
+      targetActiveId = id;
+      setOutputPages((prev) => ({ ...prev, [n]: [newPage] }));
+      setOutputActivePageId((prev) => ({ ...prev, [n]: id }));
+    } else if (!targetActiveId || !targetPages.find((p) => p.id === targetActiveId)) {
+      targetActiveId = targetPages[0].id;
+      setOutputActivePageId((prev) => ({ ...prev, [n]: targetActiveId! }));
+    }
+    setActiveOutput(n);
+    const targetPage = targetPages.find((p) => p.id === targetActiveId) ?? targetPages[0];
+    if (targetPage) {
+      setZones(targetPage.zones);
+      setOverlays(targetPage.overlays);
+    }
+    setSelectedZone(null);
+    setSelectedOverlay(null);
+    setExtraSelectedZoneIds(new Set());
+  }, []); // stable — reads everything from refs
+
   // Save project (resolution 內嵌為 zones[0] 的 _meta 標記，避免 schema 變更)
   const handleSave = useCallback(async (name?: string): Promise<boolean> => {
     setSaving(true);
-    // Build a snapshot of all pages, ensuring the currently-active page reflects
-    // the very latest zones/overlays (in case the mirror effect has not flushed).
-    const pagesSnapshot = pages.map((p) => p.id === activePageId
-      ? { ...p, zones, overlays }
-      : p);
+    // Build a per-output snapshot, ensuring the currently-active page of the
+    // active output reflects the very latest zones/overlays.
+    const ao = activeOutput;
+    const aoPagesSnapshot = (outputPages[ao] ?? []).map((p) =>
+      p.id === activePageId ? { ...p, zones, overlays } : p
+    );
+    const outputPagesSnapshot = { ...outputPages, [ao]: aoPagesSnapshot };
     const metaEntry = {
       _meta: true,
       resolution: { id: resolution.id, width: resolution.width, height: resolution.height },
       bgm: { items: bgmItems, volume: bgmVolume, audioSource: bgmAudioSource },
-      pages: pagesSnapshot.map((p) => ({
-        id: p.id,
-        name: p.name,
-        zones: p.zones,
-        overlays: p.overlays,
-      })),
+      // New multi-output format
+      outputPages: Object.fromEntries(
+        Object.entries(outputPagesSnapshot).map(([k, pgList]) => [
+          k,
+          pgList.map((p) => ({ id: p.id, name: p.name, zones: p.zones, overlays: p.overlays })),
+        ])
+      ),
+      outputActivePageId,
+      // Legacy compat: also persist current output's pages in 'pages' field
+      pages: aoPagesSnapshot.map((p) => ({ id: p.id, name: p.name, zones: p.zones, overlays: p.overlays })),
       activePageId,
       outputMode,
       outputCount,
       activeOutput,
       pageTransition: {
         ...projectTransition,
-        pageChannels: pagesSnapshot.map((p, i) => ({
+        pageChannels: aoPagesSnapshot.map((p, i) => ({
           id: p.id,
           name: p.name,
           gpioChannel: i,
@@ -5830,7 +5911,7 @@ export default function ContentStudioPage() {
     setShowSaveDialog(false);
     setTimeout(() => markClean(), 0);
     return ok;
-  }, [currentProject, aspect, zones, overlays, user, t, loadProjects, activeOrgId, defaultOrgId, resolution, bgmItems, bgmVolume, bgmAudioSource, markClean, pages, activePageId, projectTransition, projectTeamId, projectCollab]);
+  }, [currentProject, aspect, zones, overlays, user, t, loadProjects, activeOrgId, defaultOrgId, resolution, bgmItems, bgmVolume, bgmAudioSource, markClean, outputPages, outputActivePageId, activeOutput, activePageId, projectTransition, projectTeamId, projectCollab]);
 
   // Load project
   const handleLoad = useCallback((project: DesignProject) => {
@@ -5866,28 +5947,74 @@ export default function ContentStudioPage() {
       setResolution(getDefaultResolution(loadedAspect));
     }
 
-    // Restore multi-page snapshot if present; fall back to legacy single-page projects.
-    const savedPages: Array<Record<string, unknown>> = Array.isArray(metaEntry?.pages) ? metaEntry.pages as Array<Record<string, unknown>> : [];
-    if (savedPages.length > 0) {
-      const restored: StudioPage[] = savedPages.map((p, i) => ({
+    // Restore output settings first (needed for page restoration below)
+    const savedOutputMode = metaEntry?.outputMode;
+    if (savedOutputMode === "mirror" || savedOutputMode === "independent" || savedOutputMode === "extend-h" || savedOutputMode === "extend-v" || savedOutputMode === "grid-2x2-h") {
+      setOutputMode(savedOutputMode);
+    } else {
+      setOutputMode("mirror");
+    }
+    const savedOutputCount = typeof metaEntry?.outputCount === "number" ? metaEntry.outputCount : 1;
+    setOutputCount(Math.max(1, Math.min(4, savedOutputCount)));
+    const savedActiveOutput = typeof metaEntry?.activeOutput === "number" ? metaEntry.activeOutput : 1;
+    const loadAO = Math.max(1, Math.min(savedOutputCount, savedActiveOutput));
+    setActiveOutput(loadAO);
+
+    // Helper to deserialise a raw pages array into StudioPage[]
+    const deserialisePages = (raw: Array<Record<string, unknown>>): StudioPage[] =>
+      raw.map((p, i) => ({
         id: typeof p.id === "string" ? p.id : makePageId(),
         name: typeof p.name === "string" && p.name ? p.name : `版型 ${i + 1}`,
         zones: Array.isArray(p.zones) ? p.zones as Zone[] : [],
         overlays: Array.isArray(p.overlays) ? p.overlays as OverlayBlock[] : [],
       }));
-      setPages(restored);
-      const wantId = typeof metaEntry?.activePageId === "string" ? metaEntry.activePageId as string : restored[0].id;
-      const active = restored.find((p) => p.id === wantId) || restored[0];
-      setActivePageId(active.id);
-      setZones(active.zones);
-      setOverlays(active.overlays);
+
+    // ── Restore per-output pages ──────────────────────────────────────
+    const savedOutputPagesRaw = metaEntry?.outputPages as Record<string, Array<Record<string, unknown>>> | undefined;
+    const savedOutputActivePageIdRaw = metaEntry?.outputActivePageId as Record<string, string> | undefined;
+
+    if (savedOutputPagesRaw && Object.keys(savedOutputPagesRaw).length > 0) {
+      // New multi-output format
+      const restoredOutputPages: Record<number, StudioPage[]> = {};
+      const restoredOutputActivePageId: Record<number, string> = {};
+      for (const [k, pgListRaw] of Object.entries(savedOutputPagesRaw)) {
+        const oNum = parseInt(k, 10);
+        if (!Number.isFinite(oNum) || !Array.isArray(pgListRaw)) continue;
+        const pgList = deserialisePages(pgListRaw);
+        restoredOutputPages[oNum] = pgList;
+        const wantId = savedOutputActivePageIdRaw?.[k];
+        const found = typeof wantId === "string" && pgList.find((p) => p.id === wantId);
+        restoredOutputActivePageId[oNum] = found ? found.id : (pgList[0]?.id ?? "");
+      }
+      setOutputPages(restoredOutputPages);
+      setOutputActivePageId(restoredOutputActivePageId);
+      const loadPages = restoredOutputPages[loadAO] ?? [];
+      const loadActiveId = restoredOutputActivePageId[loadAO] ?? loadPages[0]?.id ?? "";
+      const activePg = loadPages.find((p) => p.id === loadActiveId) ?? loadPages[0];
+      setZones(activePg?.zones ?? []);
+      setOverlays(activePg?.overlays ?? []);
     } else {
-      // Legacy project: wrap the single canvas in a single page.
-      const firstPageId = makePageId();
-      setPages([{ id: firstPageId, name: "版型 1", zones: regularZones, overlays: overlayData }]);
-      setActivePageId(firstPageId);
-      setZones(regularZones);
-      setOverlays(overlayData);
+      // Legacy single-output format
+      const savedPages: Array<Record<string, unknown>> = Array.isArray(metaEntry?.pages) ? metaEntry.pages as Array<Record<string, unknown>> : [];
+      let restoredPages: StudioPage[];
+      let restoredActiveId: string;
+      if (savedPages.length > 0) {
+        restoredPages = deserialisePages(savedPages);
+        const wantId = typeof metaEntry?.activePageId === "string" ? metaEntry.activePageId as string : restoredPages[0].id;
+        const active = restoredPages.find((p) => p.id === wantId) ?? restoredPages[0];
+        restoredActiveId = active.id;
+        setZones(active.zones);
+        setOverlays(active.overlays);
+      } else {
+        // Ancient legacy: no pages at all, wrap raw zones
+        const firstPageId = makePageId();
+        restoredPages = [{ id: firstPageId, name: "版型 1", zones: regularZones, overlays: overlayData }];
+        restoredActiveId = firstPageId;
+        setZones(regularZones);
+        setOverlays(overlayData);
+      }
+      setOutputPages({ [loadAO]: restoredPages });
+      setOutputActivePageId({ [loadAO]: restoredActiveId });
     }
 
     // Restore BGM track from _meta (graceful defaults for legacy projects)
@@ -5898,17 +6025,6 @@ export default function ContentStudioPage() {
 
     // Restore project-level page transition condition
     setProjectTransition(normalizePageTransition(metaEntry?.pageTransition));
-    // Restore output settings
-    const savedOutputMode = metaEntry?.outputMode;
-    if (savedOutputMode === "mirror" || savedOutputMode === "independent" || savedOutputMode === "extend-h" || savedOutputMode === "extend-v" || savedOutputMode === "grid-2x2-h") {
-      setOutputMode(savedOutputMode);
-    } else {
-      setOutputMode("mirror");
-    }
-    const savedOutputCount = typeof metaEntry?.outputCount === "number" ? metaEntry.outputCount : 1;
-    setOutputCount(Math.max(1, Math.min(4, savedOutputCount)));
-    const savedActiveOutput = typeof metaEntry?.activeOutput === "number" ? metaEntry.activeOutput : 1;
-    setActiveOutput(Math.max(1, Math.min(savedOutputCount, savedActiveOutput)));
 
     setSelectedZone(null);
     setSelectedOverlay(null);
@@ -5945,10 +6061,21 @@ export default function ContentStudioPage() {
       );
       // Multi-page projects keep zones inside _meta.pages, so check there too.
       const meta = allZoneEntries.find((z) => z._meta) as Record<string, unknown> | undefined;
+      // Collect IDs from legacy 'pages' field
       if (Array.isArray(meta?.pages)) {
         for (const pg of meta!.pages as Array<{ zones?: Array<{ id?: string }>; overlays?: Array<{ id?: string }> }>) {
           (pg.zones || []).forEach((z) => z?.id && regularZoneIds.add(z.id));
           (pg.overlays || []).forEach((o) => o?.id && overlayIds.add(o.id));
+        }
+      }
+      // Collect IDs from new per-output 'outputPages' field
+      if (meta?.outputPages && typeof meta.outputPages === "object") {
+        for (const pgList of Object.values(meta.outputPages as Record<string, Array<{ zones?: Array<{ id?: string }>; overlays?: Array<{ id?: string }> }>>) ) {
+          if (!Array.isArray(pgList)) continue;
+          for (const pg of pgList) {
+            (pg.zones || []).forEach((z) => z?.id && regularZoneIds.add(z.id));
+            (pg.overlays || []).forEach((o) => o?.id && overlayIds.add(o.id));
+          }
         }
       }
       if (saved.selectedZone && regularZoneIds.has(saved.selectedZone)) {
@@ -6089,12 +6216,23 @@ export default function ContentStudioPage() {
       }
       // Walk ALL pages from _meta so non-active pages' media is also included
       const metaEntry = zonesData.find((z) => z._meta === true);
+      // Legacy 'pages' field
       const allPages = Array.isArray(metaEntry?.pages)
         ? (metaEntry!.pages as Array<{ zones?: unknown[]; overlays?: unknown[] }>)
         : [];
       for (const page of allPages) {
         for (const z of (page.zones || [])) walkContent((z as Record<string, unknown>).content);
         for (const o of (page.overlays || [])) walkContent((o as Record<string, unknown>).content);
+      }
+      // New per-output 'outputPages' field
+      if (metaEntry?.outputPages && typeof metaEntry.outputPages === "object") {
+        for (const pgList of Object.values(metaEntry.outputPages as Record<string, Array<{ zones?: unknown[]; overlays?: unknown[] }>>)) {
+          if (!Array.isArray(pgList)) continue;
+          for (const page of pgList) {
+            for (const z of (page.zones || [])) walkContent((z as Record<string, unknown>).content);
+            for (const o of (page.overlays || [])) walkContent((o as Record<string, unknown>).content);
+          }
+        }
       }
       // Walk BGM audio items from _meta.bgm.items
       const bgmMeta = metaEntry?.bgm as { items?: Array<{ id?: unknown }> } | undefined;
@@ -6407,8 +6545,9 @@ export default function ContentStudioPage() {
     setCurrentProject(null);
     const initialZones = studioSources.layouts[0].zones.map((z) => ({ ...z }));
     const firstPageId = makePageId();
-    setPages([{ id: firstPageId, name: "版型 1", zones: initialZones, overlays: [] }]);
-    setActivePageId(firstPageId);
+    // Reset to a single output with a single page
+    setOutputPages({ 1: [{ id: firstPageId, name: "版型 1", zones: initialZones, overlays: [] }] });
+    setOutputActivePageId({ 1: firstPageId });
     setZones(initialZones);
     setOverlays([]);
     setBgmItems([]);
@@ -6425,7 +6564,7 @@ export default function ContentStudioPage() {
     setActiveOutput(1);
     // Mark clean after state settles
     setTimeout(() => markClean(), 0);
-  }, [markClean]);
+  }, [markClean, studioSources.layouts]);
 
   // Wrappers that warn before discarding unsaved work
   const requestNew = useCallback(() => {
@@ -7411,7 +7550,7 @@ export default function ContentStudioPage() {
                         <button
                           key={n}
                           type="button"
-                          onClick={() => setActiveOutput(n)}
+                          onClick={() => switchToOutput(n)}
                           title={`切換至輸出 ${n}`}
                           className={`flex items-center justify-center min-w-[32px] px-2.5 text-sm font-bold transition-all duration-150 border-l border-white/15 ${
                             isActive
@@ -7452,7 +7591,7 @@ export default function ContentStudioPage() {
                           type="button"
                           onClick={() => {
                             setOutputMode(opt.id);
-                            if (opt.fixedCount) { setOutputCount(opt.fixedCount); setActiveOutput(1); }
+                            if (opt.fixedCount) { setOutputCount(opt.fixedCount); switchToOutput(1); }
                             setOutputModeOpen(false);
                           }}
                           className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-md text-left transition-colors ${outputMode === opt.id ? "bg-primary/10 text-primary" : "hover:bg-muted/60 text-foreground"}`}
@@ -7486,7 +7625,7 @@ export default function ContentStudioPage() {
                             <button
                               key={n}
                               type="button"
-                              onClick={() => { setOutputCount(n); setActiveOutput((prev) => Math.min(prev, n)); }}
+                              onClick={() => { setOutputCount(n); if (activeOutput > n) switchToOutput(n); }}
                               className={`flex-1 h-8 rounded-md border text-xs font-bold transition-colors ${outputCount === n ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/60 hover:bg-muted/60"}`}
                             >
                               {n}
