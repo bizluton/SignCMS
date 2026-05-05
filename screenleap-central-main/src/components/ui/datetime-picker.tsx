@@ -5,7 +5,7 @@ import { CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
-import { Input } from "@/components/ui/input";
+import { ScrollTimePicker } from "@/components/ui/scroll-time-picker";
 import {
   Popover,
   PopoverContent,
@@ -149,12 +149,14 @@ export function DateTimePicker({
           />
         </PopoverContent>
       </Popover>
-      <Input
-        type="time"
+      <ScrollTimePicker
         value={time}
-        min={minTime}
-        onChange={handleTimeChange}
-        className="w-[120px]"
+        onChange={(next) => {
+          const base = date ?? today;
+          onChange(combine(base, next));
+        }}
+        className="w-[140px]"
+        placeholder="時間"
       />
     </div>
   );

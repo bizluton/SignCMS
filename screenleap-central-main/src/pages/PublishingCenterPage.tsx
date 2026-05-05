@@ -24,6 +24,7 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollTimePicker } from "@/components/ui/scroll-time-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -1187,10 +1188,9 @@ export default function PublishingCenterPage() {
               </Popover>
               <div className="space-y-1.5">
                 <Label className="text-sm font-medium">{t("publishScheduleTime")}</Label>
-                <Input
-                  type="time"
+                <ScrollTimePicker
                   value={scheduledTime}
-                  onChange={(e) => setScheduledTime(e.target.value)}
+                  onChange={setScheduledTime}
                   className="w-full"
                 />
               </div>

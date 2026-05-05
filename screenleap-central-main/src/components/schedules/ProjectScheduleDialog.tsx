@@ -7,10 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, X } from "lucide-react";
-import { format } from "date-fns";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { ScrollTimePicker } from "@/components/ui/scroll-time-picker";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
@@ -161,7 +159,7 @@ export function ProjectScheduleDialog({ open, onOpenChange, orgId, schedule, des
     onOpenChange(false);
   };
 
-  const dateLabel = (d: string) => d ? format(new Date(d), "yyyy-MM-dd") : null;
+  const pad = (n: number) => String(n).padStart(2, "0");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -246,67 +244,30 @@ export function ProjectScheduleDialog({ open, onOpenChange, orgId, schedule, des
                 </div>
               </div>
 
-              {/* Start date + time */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>{t("blockStartAt")} (日期)</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button type="button" variant="outline"
-                        className={cn("w-full justify-start text-left font-normal h-10", !calStartDate && "text-muted-foreground")}>
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {dateLabel(calStartDate) ?? <span>選擇日期</span>}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar mode="single"
-                        selected={calStartDate ? new Date(calStartDate) : undefined}
-                        onSelect={(d) => {
-                          if (!d) return;
-                          setCalStartDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
-                        }}
-                        disabled={(d) => d < startOfToday()}
-                        initialFocus className="p-3 pointer-events-auto" />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div>
-                  <Label>{t("blockStartAt")} (時間)</Label>
-                  <Input type="time" value={calStartTime} onChange={(e) => setCalStartTime(e.target.value)} />
-                </div>
+              {/* Date range */}
+              <div>
+                <Label>{t("blockStartAt")} ~ {t("blockEndAt")} (日期)</Label>
+                <DateRangePicker
+                  from={calStartDate ? new Date(calStartDate) : undefined}
+                  to={calEndDate ? new Date(calEndDate) : undefined}
+                  onChange={({ from, to }) => {
+                    setCalStartDate(from ? `${from.getFullYear()}-${pad(from.getMonth() + 1)}-${pad(from.getDate())}` : "");
+                    setCalEndDate(to ? `${to.getFullYear()}-${pad(to.getMonth() + 1)}-${pad(to.getDate())}` : "");
+                  }}
+                  disabled={(d) => d < startOfToday()}
+                  placeholder="選擇日期範圍"
+                />
               </div>
 
-              {/* End date + time */}
+              {/* Time range */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>{t("blockEndAt")} (日期)</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button type="button" variant="outline"
-                        className={cn("w-full justify-start text-left font-normal h-10", !calEndDate && "text-muted-foreground")}>
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {dateLabel(calEndDate) ?? <span>選擇日期</span>}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar mode="single"
-                        selected={calEndDate ? new Date(calEndDate) : undefined}
-                        onSelect={(d) => {
-                          if (!d) return;
-                          setCalEndDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
-                        }}
-                        disabled={(d) => {
-                          if (d < startOfToday()) return true;
-                          if (calStartDate && d < new Date(calStartDate)) return true;
-                          return false;
-                        }}
-                        initialFocus className="p-3 pointer-events-auto" />
-                    </PopoverContent>
-                  </Popover>
+                  <Label>{t("blockStartAt")} (時間)</Label>
+                  <ScrollTimePicker value={calStartTime} onChange={setCalStartTime} />
                 </div>
                 <div>
                   <Label>{t("blockEndAt")} (時間)</Label>
-                  <Input type="time" value={calEndTime} onChange={(e) => setCalEndTime(e.target.value)} />
+                  <ScrollTimePicker value={calEndTime} onChange={setCalEndTime} />
                 </div>
               </div>
             </TabsContent>
@@ -329,76 +290,26 @@ export function ProjectScheduleDialog({ open, onOpenChange, orgId, schedule, des
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>{t("blockStartTime")}</Label>
-                  <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                  <ScrollTimePicker value={startTime} onChange={setStartTime} />
                 </div>
                 <div>
                   <Label>{t("blockEndTime")}</Label>
-                  <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+                  <ScrollTimePicker value={endTime} onChange={setEndTime} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>{t("blockEffectiveFrom")}</Label>
-                  <div className="flex items-center gap-1">
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button type="button" variant="outline"
-                          className={cn("flex-1 justify-start text-left font-normal h-10", !effectiveFrom && "text-muted-foreground")}>
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {effectiveFrom ? format(new Date(effectiveFrom), "yyyy-MM-dd") : <span>{t("blockEffectiveFrom")}</span>}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar mode="single"
-                          selected={effectiveFrom ? new Date(effectiveFrom) : undefined}
-                          onSelect={(d) => {
-                            if (!d) { setEffectiveFrom(""); return; }
-                            setEffectiveFrom(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
-                          }}
-                          disabled={(d) => d < startOfToday()}
-                          initialFocus className="p-3 pointer-events-auto" />
-                      </PopoverContent>
-                    </Popover>
-                    {effectiveFrom && (
-                      <Button type="button" variant="ghost" size="icon" className="h-10 w-10 shrink-0" onClick={() => setEffectiveFrom("")}>
-                        <X className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <Label>{t("blockEffectiveTo")}</Label>
-                  <div className="flex items-center gap-1">
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button type="button" variant="outline"
-                          className={cn("flex-1 justify-start text-left font-normal h-10", !effectiveTo && "text-muted-foreground")}>
-                          <CalendarIcon className="mr-2 h-4 w-4" />
-                          {effectiveTo ? format(new Date(effectiveTo), "yyyy-MM-dd") : <span>{t("blockEffectiveTo")}</span>}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar mode="single"
-                          selected={effectiveTo ? new Date(effectiveTo) : undefined}
-                          onSelect={(d) => {
-                            if (!d) { setEffectiveTo(""); return; }
-                            setEffectiveTo(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
-                          }}
-                          disabled={(d) => {
-                            if (d < startOfToday()) return true;
-                            if (effectiveFrom && d < new Date(effectiveFrom)) return true;
-                            return false;
-                          }}
-                          initialFocus className="p-3 pointer-events-auto" />
-                      </PopoverContent>
-                    </Popover>
-                    {effectiveTo && (
-                      <Button type="button" variant="ghost" size="icon" className="h-10 w-10 shrink-0" onClick={() => setEffectiveTo("")}>
-                        <X className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </div>
-                </div>
+              <div>
+                <Label>{t("blockEffectiveFrom")} ~ {t("blockEffectiveTo")}</Label>
+                <DateRangePicker
+                  from={effectiveFrom ? new Date(effectiveFrom) : undefined}
+                  to={effectiveTo ? new Date(effectiveTo) : undefined}
+                  onChange={({ from, to }) => {
+                    setEffectiveFrom(from ? `${from.getFullYear()}-${pad(from.getMonth() + 1)}-${pad(from.getDate())}` : "");
+                    setEffectiveTo(to ? `${to.getFullYear()}-${pad(to.getMonth() + 1)}-${pad(to.getDate())}` : "");
+                  }}
+                  disabled={(d) => d < startOfToday()}
+                  placeholder={`${t("blockEffectiveFrom")} ~ ${t("blockEffectiveTo")}`}
+                  clearable
+                />
               </div>
             </TabsContent>
           </Tabs>

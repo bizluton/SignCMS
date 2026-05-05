@@ -11,8 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { ScrollTimePicker } from "@/components/ui/scroll-time-picker";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -1372,62 +1372,28 @@ export default function QuickPublishPage() {
                   </div>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className={cn("mb-1.5 block", QP_TYPE.cardMeta)}>{t("startDate")}</label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                         <Button variant="outline" className={cn("w-full justify-start gap-2 font-normal", QP_SPACE.control)}>
-                          <CalendarDays className="h-4 w-4" />
-                          {calendarStart ? format(calendarStart, "PPP") : t("pickDate")}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={calendarStart}
-                          onSelect={(d) => {
-                            setCalendarStart(d);
-                            if (d && calendarEnd && calendarEnd < d) setCalendarEnd(d);
-                          }}
-                          initialFocus
-                          className={cn("p-3 pointer-events-auto")}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <div>
-                    <label className={cn("mb-1.5 block", QP_TYPE.cardMeta)}>{t("endDate")}</label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                         <Button variant="outline" className={cn("w-full justify-start gap-2 font-normal", QP_SPACE.control)} disabled={!calendarStart}>
-                          <CalendarDays className="h-4 w-4" />
-                          {calendarEnd ? format(calendarEnd, "PPP") : t("pickDate")}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={calendarEnd}
-                          onSelect={setCalendarEnd}
-                          disabled={(d) => (calendarStart ? d < calendarStart : false)}
-                          initialFocus
-                          className={cn("p-3 pointer-events-auto")}
-                        />
-                      </PopoverContent>
-                    </Popover>
-                  </div>
+                <div>
+                  <label className={cn("mb-1.5 block", QP_TYPE.cardMeta)}>{t("startDate")} ~ {t("endDate")}</label>
+                  <DateRangePicker
+                    from={calendarStart}
+                    to={calendarEnd}
+                    onChange={({ from, to }) => {
+                      setCalendarStart(from);
+                      setCalendarEnd(to);
+                    }}
+                    placeholder={`${t("pickDate")} ~ ${t("pickDate")}`}
+                  />
                 </div>
               )}
 
               <div className="grid grid-cols-2 gap-3 pt-2 border-t">
                 <div>
                   <label className={cn("mb-1.5 block", QP_TYPE.cardMeta)}>{t("startTime")}</label>
-                  <Input className={cn(QP_SPACE.control, "bg-card")} type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                  <ScrollTimePicker className={QP_SPACE.control} value={startTime} onChange={setStartTime} />
                 </div>
                 <div>
                   <label className={cn("mb-1.5 block", QP_TYPE.cardMeta)}>{t("endTime")}</label>
-                  <Input className={cn(QP_SPACE.control, "bg-card")} type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+                  <ScrollTimePicker className={QP_SPACE.control} value={endTime} onChange={setEndTime} />
                 </div>
               </div>
             </Card>

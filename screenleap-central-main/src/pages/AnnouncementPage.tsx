@@ -12,12 +12,11 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
-  Megaphone, Upload, CalendarIcon, Send, Monitor, Smartphone,
+  Megaphone, Upload, Send, Monitor, Smartphone,
   Trash2, ImageIcon, Pin, Pencil, Save, Settings, Loader2,
 } from "lucide-react";
 import AnnouncementSettings, { type LabelItem, type DbCategory } from "@/components/announcement/AnnouncementSettings";
@@ -373,23 +372,7 @@ const AnnouncementPage = () => {
 
   const hasContent = subject || (content && content !== "<p></p>") || imageUrl;
 
-  // ── Date picker component ─────────────────────────────────────────────────
-  const DatePicker = ({ label, value, onChange }: { label: string; value: Date | undefined; onChange: (d: Date | undefined) => void }) => (
-    <div className="space-y-2">
-      <Label className="text-base font-semibold">{label}</Label>
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button variant="outline" className={cn("w-full h-12 justify-start text-left text-base", !value && "text-muted-foreground")}>
-            <CalendarIcon className="mr-2 h-4 w-4" />
-            {value ? format(value, "yyyy/MM/dd") : t("pickDate")}
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="start">
-          <Calendar mode="single" selected={value} onSelect={onChange} initialFocus className="p-3 pointer-events-auto" />
-        </PopoverContent>
-      </Popover>
-    </div>
-  );
+  // ── Date range picker helper (kept for layout consistency) ────────────────
 
   // ── Preview helpers ───────────────────────────────────────────────────────
   const previewCat = catForId(categoryId);
@@ -519,9 +502,15 @@ const AnnouncementPage = () => {
               </div>
 
               {/* Dates + Dwell */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <DatePicker label={t("startTime")} value={startDate} onChange={setStartDate} />
-                <DatePicker label={t("endTime")}   value={endDate}   onChange={setEndDate} />
+              <div className="space-y-2">
+                <Label className="text-base font-semibold">{t("startTime")} ~ {t("endTime")}</Label>
+                <DateRangePicker
+                  from={startDate}
+                  to={endDate}
+                  onChange={({ from, to }) => { setStartDate(from); setEndDate(to); }}
+                  placeholder={`${t("pickDate")} ~ ${t("pickDate")}`}
+                  clearable
+                />
               </div>
               <div className="space-y-2">
                 <Label className="text-base font-semibold">{t("dwellLabel")} (3–60 秒)</Label>
@@ -762,35 +751,15 @@ const AnnouncementPage = () => {
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) { const r = new FileReader(); r.onload = (ev) => setEditImageUrl(ev.target?.result as string); r.readAsDataURL(f); }}} />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-base font-semibold">{t("startTime")}</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className={cn("w-full h-12 justify-start text-left text-base", !editStartDate && "text-muted-foreground")}>
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {editStartDate ? format(editStartDate, "yyyy/MM/dd") : t("pickDate")}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar mode="single" selected={editStartDate} onSelect={setEditStartDate} initialFocus className="p-3 pointer-events-auto" />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-base font-semibold">{t("endTime")}</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className={cn("w-full h-12 justify-start text-left text-base", !editEndDate && "text-muted-foreground")}>
-                      <CalendarIcon className="mr-2 h-4 w-4" />
-                      {editEndDate ? format(editEndDate, "yyyy/MM/dd") : t("pickDate")}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar mode="single" selected={editEndDate} onSelect={setEditEndDate} initialFocus className="p-3 pointer-events-auto" />
-                  </PopoverContent>
-                </Popover>
-              </div>
+            <div className="space-y-2">
+              <Label className="text-base font-semibold">{t("startTime")} ~ {t("endTime")}</Label>
+              <DateRangePicker
+                from={editStartDate}
+                to={editEndDate}
+                onChange={({ from, to }) => { setEditStartDate(from); setEditEndDate(to); }}
+                placeholder={`${t("pickDate")} ~ ${t("pickDate")}`}
+                clearable
+              />
             </div>
             <div className="space-y-2">
               <Label className="text-base font-semibold">{t("dwellLabel")} (3–60 秒)</Label>

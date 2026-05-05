@@ -15,14 +15,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Loader2, Search, Wifi, Settings, CalendarClock, AlertTriangle, Monitor,
   RefreshCw, Building2, FileText, Download, User, LogIn, LogOut, Plus, Pencil,
-  Trash2, Send, ShieldCheck, Image, Brush, ChevronLeft, ChevronRight, BarChart3, Play, Clock, CalendarIcon, X,
+  Trash2, Send, ShieldCheck, Image, Brush, ChevronLeft, ChevronRight, BarChart3, Play, Clock, X,
   BookOpenText,
 } from "lucide-react";
 import { format, startOfDay, startOfWeek, startOfMonth, isAfter, subDays } from "date-fns";
 import * as XLSX from "xlsx";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { cn } from "@/lib/utils";
 import { renderScreenLog } from "@/lib/screenLogI18n";
 import { localizeAction, localizeCategory, localizeActivityDetail } from "@/lib/activityLogI18n";
@@ -635,29 +634,17 @@ export default function SystemLogsPage() {
                 {screens.map(s => <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>)}
               </SelectContent>
             </Select>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className={cn("w-[150px] justify-start text-left font-normal", !playbackStartDate && "text-muted-foreground")}>
-                  <CalendarIcon className="w-4 h-4 mr-2" />
-                  {playbackStartDate ? format(playbackStartDate, "yyyy-MM-dd") : <span>{{ zh: "起始日期", en: "Start date", ja: "開始日" }[language]}</span>}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar mode="single" selected={playbackStartDate} onSelect={setPlaybackStartDate} initialFocus className={cn("p-3 pointer-events-auto")} />
-              </PopoverContent>
-            </Popover>
-            <span className="text-muted-foreground text-sm">~</span>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" className={cn("w-[150px] justify-start text-left font-normal", !playbackEndDate && "text-muted-foreground")}>
-                  <CalendarIcon className="w-4 h-4 mr-2" />
-                  {playbackEndDate ? format(playbackEndDate, "yyyy-MM-dd") : <span>{{ zh: "結束日期", en: "End date", ja: "終了日" }[language]}</span>}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <Calendar mode="single" selected={playbackEndDate} onSelect={setPlaybackEndDate} initialFocus className={cn("p-3 pointer-events-auto")} />
-              </PopoverContent>
-            </Popover>
+            <DateRangePicker
+              from={playbackStartDate}
+              to={playbackEndDate}
+              onChange={({ from, to }) => {
+                setPlaybackStartDate(from);
+                setPlaybackEndDate(to);
+              }}
+              placeholder={{ zh: "起始日期 ~ 結束日期", en: "Start ~ End date", ja: "開始日 ~ 終了日" }[language]}
+              clearable
+              className="w-[280px]"
+            />
             {(playbackStartDate || playbackEndDate || playbackFilterScreen !== "all") && (
               <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground" onClick={() => { setPlaybackFilterScreen("all"); setPlaybackStartDate(undefined); setPlaybackEndDate(undefined); }}>
                 <X className="w-3.5 h-3.5" />{{ zh: "清除篩選", en: "Clear", ja: "クリア" }[language]}

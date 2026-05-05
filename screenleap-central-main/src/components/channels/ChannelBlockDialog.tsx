@@ -2,16 +2,12 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DateTimePicker } from "@/components/ui/datetime-picker";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { CalendarIcon, X } from "lucide-react";
-import { format } from "date-fns";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { ScrollTimePicker } from "@/components/ui/scroll-time-picker";
 import { cn } from "@/lib/utils";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
@@ -322,25 +318,59 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
                   ))}
                 </div>
               </div>
+              {/* Date range */}
               <div>
-                <Label>{t("blockStartAt")}</Label>
-                <DateTimePicker
-                  value={startAt}
-                  onChange={setStartAt}
-                  disablePast
-                  placeholder={t("blockStartAt")}
-                  tz={tz}
+                <Label>{t("blockStartAt")} ~ {t("blockEndAt")} (日期)</Label>
+                <DateRangePicker
+                  from={(() => {
+                    if (!startAt) return undefined;
+                    const [y, mo, d] = (startAt.split("T")[0] ?? "").split("-").map(Number);
+                    return y && mo && d ? new Date(y, mo - 1, d) : undefined;
+                  })()}
+                  to={(() => {
+                    if (!endAt) return undefined;
+                    const [y, mo, d] = (endAt.split("T")[0] ?? "").split("-").map(Number);
+                    return y && mo && d ? new Date(y, mo - 1, d) : undefined;
+                  })()}
+                  onChange={({ from, to }) => {
+                    const p = (n: number) => String(n).padStart(2, "0");
+                    if (from) {
+                      const ds = `${from.getFullYear()}-${p(from.getMonth()+1)}-${p(from.getDate())}`;
+                      setStartAt(`${ds}T${startAt.split("T")[1] ?? "09:00"}`);
+                    }
+                    if (to) {
+                      const ds = `${to.getFullYear()}-${p(to.getMonth()+1)}-${p(to.getDate())}`;
+                      setEndAt(`${ds}T${endAt.split("T")[1] ?? "18:00"}`);
+                    } else {
+                      setEndAt("");
+                    }
+                  }}
+                  disabled={(d) => d < startOfToday()}
+                  placeholder="選擇日期範圍"
                 />
               </div>
-              <div>
-                <Label>{t("blockEndAt")}</Label>
-                <DateTimePicker
-                  value={endAt}
-                  onChange={setEndAt}
-                  disablePast
-                  placeholder={t("blockEndAt")}
-                  tz={tz}
-                />
+              {/* Time range */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>{t("blockStartAt")} (時間)</Label>
+                  <ScrollTimePicker
+                    value={startAt.split("T")[1] ?? "09:00"}
+                    onChange={(tv) => {
+                      const ds = startAt.split("T")[0] ?? "";
+                      setStartAt(ds ? `${ds}T${tv}` : startAt);
+                    }}
+                  />
+                </div>
+                <div>
+                  <Label>{t("blockEndAt")} (時間)</Label>
+                  <ScrollTimePicker
+                    value={endAt.split("T")[1] ?? "18:00"}
+                    onChange={(tv) => {
+                      const ds = endAt.split("T")[0] ?? "";
+                      setEndAt(ds ? `${ds}T${tv}` : endAt);
+                    }}
+                  />
+                </div>
               </div>
             </TabsContent>
             <TabsContent value="weekly" className="space-y-3 pt-3">
@@ -364,116 +394,35 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>{t("blockStartTime")}</Label>
-                  <Input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                  <ScrollTimePicker value={startTime} onChange={setStartTime} />
                 </div>
                 <div>
                   <Label>{t("blockEndTime")}</Label>
-                  <Input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
+                  <ScrollTimePicker value={endTime} onChange={setEndTime} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>{t("blockEffectiveFrom")}</Label>
-                  <div className="flex items-center gap-1">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className={cn(
-                          "flex-1 justify-start text-left font-normal h-10",
-                          !effectiveFrom && "text-muted-foreground",
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {effectiveFrom
-                          ? format(new Date(effectiveFrom), "yyyy-MM-dd")
-                          : <span>{t("blockEffectiveFrom")}</span>}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={effectiveFrom ? new Date(effectiveFrom) : undefined}
-                        onSelect={(d) => {
-                          if (!d) { setEffectiveFrom(""); return; }
-                          const pad = (n: number) => String(n).padStart(2, "0");
-                          setEffectiveFrom(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
-                        }}
-                        disabled={(d) => d < startOfToday()}
-                        initialFocus
-                        className={cn("p-3 pointer-events-auto")}
-                      />
-                    </PopoverContent>
-                  </Popover>
-                  {effectiveFrom && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-10 w-10 shrink-0"
-                      onClick={() => setEffectiveFrom("")}
-                      aria-label="Clear"
-                      title="Clear"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  )}
-                  </div>
-                </div>
-                <div>
-                  <Label>{t("blockEffectiveTo")}</Label>
-                  <div className="flex items-center gap-1">
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className={cn(
-                          "flex-1 justify-start text-left font-normal h-10",
-                          !effectiveTo && "text-muted-foreground",
-                        )}
-                      >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {effectiveTo
-                          ? format(new Date(effectiveTo), "yyyy-MM-dd")
-                          : <span>{t("blockEffectiveTo")}</span>}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={effectiveTo ? new Date(effectiveTo) : undefined}
-                        onSelect={(d) => {
-                          if (!d) { setEffectiveTo(""); return; }
-                          const pad = (n: number) => String(n).padStart(2, "0");
-                          setEffectiveTo(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`);
-                        }}
-                        disabled={(d) => {
-                          if (d < startOfToday()) return true;
-                          if (effectiveFrom && d < new Date(effectiveFrom)) return true;
-                          return false;
-                        }}
-                        initialFocus
-                        className={cn("p-3 pointer-events-auto")}
-                      />
-                    </PopoverContent>
-                  </Popover>
-                  {effectiveTo && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-10 w-10 shrink-0"
-                      onClick={() => setEffectiveTo("")}
-                      aria-label="Clear"
-                      title="Clear"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  )}
-                  </div>
-                </div>
+              <div>
+                <Label>{t("blockEffectiveFrom")} ~ {t("blockEffectiveTo")}</Label>
+                <DateRangePicker
+                  from={(() => {
+                    if (!effectiveFrom) return undefined;
+                    const [y, mo, d] = effectiveFrom.split("-").map(Number);
+                    return y && mo && d ? new Date(y, mo - 1, d) : undefined;
+                  })()}
+                  to={(() => {
+                    if (!effectiveTo) return undefined;
+                    const [y, mo, d] = effectiveTo.split("-").map(Number);
+                    return y && mo && d ? new Date(y, mo - 1, d) : undefined;
+                  })()}
+                  onChange={({ from, to }) => {
+                    const p = (n: number) => String(n).padStart(2, "0");
+                    setEffectiveFrom(from ? `${from.getFullYear()}-${p(from.getMonth()+1)}-${p(from.getDate())}` : "");
+                    setEffectiveTo(to ? `${to.getFullYear()}-${p(to.getMonth()+1)}-${p(to.getDate())}` : "");
+                  }}
+                  disabled={(d) => d < startOfToday()}
+                  placeholder={`${t("blockEffectiveFrom")} ~ ${t("blockEffectiveTo")}`}
+                  clearable
+                />
               </div>
             </TabsContent>
           </Tabs>
