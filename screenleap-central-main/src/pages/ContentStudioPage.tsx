@@ -4991,6 +4991,12 @@ export default function ContentStudioPage() {
   const [exportDownload, setExportDownload] = useState<{ url: string; filename: string; sizeBytes: number } | null>(null);
   // Page-switch confirmation: when non-null, holds the target pageId awaiting user OK
   const [pendingPageSwitch, setPendingPageSwitch] = useState<string | null>(null);
+  // Library-apply confirmation: layout preset or scene template pending user OK
+  const [pendingApply, setPendingApply] = useState<
+    | { kind: "layout"; preset: LayoutPreset; mobileClose?: boolean }
+    | { kind: "template"; tpl: TemplateItem; mobileClose?: boolean }
+    | null
+  >(null);
 
   // Build a stable signature of the editable project state for dirty detection.
   const computeSnapshot = useCallback(() => {
@@ -5281,7 +5287,8 @@ export default function ContentStudioPage() {
     setExtraSelectedZoneIds(new Set());
     toast.success(t("studioPageAdded"));
   }, [t]);
-  const applyLayout = useCallback((preset: LayoutPreset) => {
+  // Actual apply logic (called after user confirms)
+  const doApplyLayout = useCallback((preset: LayoutPreset) => {
     const newZones = preset.zones.map((z) => ({ ...z }));
     setZones(newZones);
     setOverlays([]);
@@ -5289,7 +5296,7 @@ export default function ContentStudioPage() {
     setSelectedOverlay(null);
     setExtraSelectedZoneIds(new Set());
   }, []);
-  const applyTemplate = useCallback((tpl: TemplateItem) => {
+  const doApplyTemplate = useCallback((tpl: TemplateItem) => {
     setAspect(tpl.aspect);
     const newZones = tpl.zones.map((z) => ({ ...z }));
     setZones(newZones);
@@ -5302,6 +5309,14 @@ export default function ContentStudioPage() {
       setBgmVolume(tpl.bgm.volume ?? 30);
       setBgmAudioSource(tpl.bgm.audioSource ?? "bgm");
     }
+  }, []);
+
+  // Guard wrappers — show confirmation before applying
+  const applyLayout = useCallback((preset: LayoutPreset, mobileClose?: boolean) => {
+    setPendingApply({ kind: "layout", preset, mobileClose });
+  }, []);
+  const applyTemplate = useCallback((tpl: TemplateItem, mobileClose?: boolean) => {
+    setPendingApply({ kind: "template", tpl, mobileClose });
   }, []);
 
   // Add a blank page using the simplest (single full-canvas) layout.
@@ -8325,7 +8340,7 @@ export default function ContentStudioPage() {
                           </p>
                           <div className={`grid gap-2 ${aspect === "9:16" ? "grid-cols-3" : "grid-cols-2"}`}>
                             {filtered.map((lp) => (
-                              <button key={lp.id} onClick={() => { applyLayout(lp); setMobilePanelOpen(false); }} title={t(lp.nameKey as TranslationKey)}
+                              <button key={lp.id} onClick={() => applyLayout(lp, true)} title={t(lp.nameKey as TranslationKey)}
                                 className="flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left">
                                 <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border ${aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
                                   <LayoutThumb zones={lp.zones} aspect={aspect} />
@@ -8349,7 +8364,7 @@ export default function ContentStudioPage() {
                         {studioSources.templates.map((tpl) => (
                           <div key={tpl.id} className="relative group">
                             <button
-                              onClick={() => { applyTemplate(tpl); setMobilePanelOpen(false); }}
+                              onClick={() => applyTemplate(tpl, true)}
                               className="w-full flex flex-col gap-1.5 p-2 rounded-lg border border-border bg-card active:bg-accent transition-colors text-left"
                             >
                               <div className={`w-full rounded-md overflow-hidden bg-muted ring-1 ring-border ${tpl.aspect === "9:16" ? "aspect-[9/16]" : "aspect-video"}`}>
@@ -8845,6 +8860,42 @@ export default function ContentStudioPage() {
               }}
             >
               {t("studioPageSwitchConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Library apply confirmation (layout template or scene template) */}
+      <AlertDialog open={pendingApply !== null} onOpenChange={(o) => { if (!o) setPendingApply(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingApply?.kind === "template" ? t("studioApplyTemplateTitle") : t("studioApplyLayoutTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingApply?.kind === "template"
+                ? t("studioApplyTemplateDesc").replace("{name}", t(pendingApply.tpl.nameKey as TranslationKey))
+                : pendingApply?.kind === "layout"
+                  ? t("studioApplyLayoutDesc").replace("{name}", t(pendingApply.preset.nameKey as TranslationKey))
+                  : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!pendingApply) return;
+                if (pendingApply.kind === "layout") {
+                  doApplyLayout(pendingApply.preset);
+                  if (pendingApply.mobileClose) setMobilePanelOpen(false);
+                } else {
+                  doApplyTemplate(pendingApply.tpl);
+                  if (pendingApply.mobileClose) setMobilePanelOpen(false);
+                }
+                setPendingApply(null);
+              }}
+            >
+              {t("studioApplyConfirm")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
