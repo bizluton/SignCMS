@@ -4695,7 +4695,7 @@ export default function ContentStudioPage() {
   const { widgets: catalogWidgets } = useWidgets(installedApps);
   const [aspect, setAspect] = useState<AspectRatio>("16:9");
   const [resolution, setResolution] = useState<Resolution>(() => getDefaultResolution("16:9"));
-  type OutputMode = "mirror" | "independent" | "extend-h" | "extend-v";
+  type OutputMode = "mirror" | "independent" | "extend-h" | "extend-v" | "grid-2x2-h" | "grid-2x2-v";
   const [outputMode, setOutputMode] = useState<OutputMode>("mirror");
   const [outputCount, setOutputCount] = useState<number>(1);
   const [activeOutput, setActiveOutput] = useState<number>(1);
@@ -5135,17 +5135,18 @@ export default function ContentStudioPage() {
     return () => ro.disconnect();
   }, []);
   const ratio = resolution.width / resolution.height;
-  // In extend modes the canvas spans N screens: wider for extend-h, taller for extend-v.
+  // Linear extend modes
   const extendCount = (outputMode === "extend-h" || outputMode === "extend-v") ? outputCount : 1;
-  const displayRatio = outputMode === "extend-h"
-    ? ratio * extendCount
-    : outputMode === "extend-v"
-      ? ratio / extendCount
-      : ratio;
+  // 2×2 grid modes (always 4 panels, 2 cols × 2 rows)
+  const isGrid2x2 = outputMode === "grid-2x2-h" || outputMode === "grid-2x2-v";
+  // Effective aspect ratio for the whole canvas display
+  const displayRatio = outputMode === "extend-h" ? ratio * extendCount
+    : outputMode === "extend-v"    ? ratio / extendCount
+    : outputMode === "grid-2x2-h"  ? ratio        // 2W × 2H → same 16:9 ratio
+    : outputMode === "grid-2x2-v"  ? 1 / ratio    // 2(9:16 cell) → 9:16 portrait grid
+    : ratio;
   const { W, H } = (() => {
-    // Taller cap when stacking vertically so each screen remains recognisably 16:9
-    const maxH = outputMode === "extend-v" ? 540 * extendCount : 540;
-    // leave a tiny inner padding so border/shadow doesn't clip
+    const maxH = outputMode === "extend-v" ? 540 * extendCount : isGrid2x2 ? 620 : 540;
     const availW = containerSize.w > 0 ? containerSize.w - 8 : Infinity;
     const availH = containerSize.h > 0 ? Math.min(containerSize.h - 8, maxH) : maxH;
     let h = availH;
@@ -5156,9 +5157,25 @@ export default function ContentStudioPage() {
     }
     return { W: Math.round(w), H: Math.round(h) };
   })();
-  // Pixel size of a single output panel within the extended canvas
-  const singleW = outputMode === "extend-h" ? Math.round(W / extendCount) : W;
-  const singleH = outputMode === "extend-v" ? Math.round(H / extendCount) : H;
+  // Single-panel pixel dimensions within the canvas
+  const singleW = isGrid2x2 ? Math.round(W / 2)
+    : outputMode === "extend-h" ? Math.round(W / extendCount)
+    : W;
+  const singleH = isGrid2x2 ? Math.round(H / 2)
+    : outputMode === "extend-v" ? Math.round(H / extendCount)
+    : H;
+  // Panel bounding box helper (1-indexed n → {x,y,w,h} in canvas px)
+  const getPanelRect = (n: number) => {
+    if (isGrid2x2) {
+      const col = (n - 1) % 2;
+      const row = Math.floor((n - 1) / 2);
+      return { x: col * singleW, y: row * singleH, w: singleW, h: singleH };
+    }
+    if (outputMode === "extend-h") return { x: (n - 1) * singleW, y: 0, w: singleW, h: H };
+    if (outputMode === "extend-v") return { x: 0, y: (n - 1) * singleH, w: W, h: singleH };
+    return { x: 0, y: 0, w: W, h: H };
+  };
+  const totalPanels = isGrid2x2 ? 4 : extendCount;
 
   // Auto-clamp overlays when canvas size shrinks so they remain visible/operable
   useEffect(() => {
@@ -5884,7 +5901,7 @@ export default function ContentStudioPage() {
     setProjectTransition(normalizePageTransition(metaEntry?.pageTransition));
     // Restore output settings
     const savedOutputMode = metaEntry?.outputMode;
-    if (savedOutputMode === "mirror" || savedOutputMode === "independent" || savedOutputMode === "extend-h" || savedOutputMode === "extend-v") {
+    if (savedOutputMode === "mirror" || savedOutputMode === "independent" || savedOutputMode === "extend-h" || savedOutputMode === "extend-v" || savedOutputMode === "grid-2x2-h" || savedOutputMode === "grid-2x2-v") {
       setOutputMode(savedOutputMode);
     } else {
       setOutputMode("mirror");
@@ -7468,15 +7485,21 @@ export default function ContentStudioPage() {
                     <div className="px-3 pt-3 pb-1">
                       <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground mb-2">OUTPUT MODE</p>
                       {([
-                        { id: "independent", label: "Independent",       desc: "Each Output plays its own content" },
-                        { id: "mirror",      label: "Mirror",            desc: "All Outputs display the same picture" },
-                        { id: "extend-h",    label: "Extend Horizontal", desc: "Outputs extend horizontally into one canvas" },
-                        { id: "extend-v",    label: "Extend Vertical",   desc: "Outputs extend vertically into one canvas" },
+                        { id: "independent",  label: "Independent",          desc: "Each Output plays its own content",                fixedCount: null },
+                        { id: "mirror",       label: "Mirror",               desc: "All Outputs display the same picture",             fixedCount: null },
+                        { id: "extend-h",     label: "Extend Horizontal",    desc: "Outputs extend horizontally into one canvas",      fixedCount: null },
+                        { id: "extend-v",     label: "Extend Vertical",      desc: "Outputs extend vertically into one canvas",        fixedCount: null },
+                        { id: "grid-2x2-h",   label: "2×2 Extend Horizontal", desc: "4 landscape screens in a 2×2 grid (3840×2160)",  fixedCount: 4 },
+                        { id: "grid-2x2-v",   label: "2×2 Extend Vertical",   desc: "4 portrait screens in a 2×2 grid (2160×3840)",   fixedCount: 4 },
                       ] as const).map((opt) => (
                         <button
                           key={opt.id}
                           type="button"
-                          onClick={() => { setOutputMode(opt.id); setOutputModeOpen(false); }}
+                          onClick={() => {
+                            setOutputMode(opt.id);
+                            if (opt.fixedCount) { setOutputCount(opt.fixedCount); setActiveOutput(1); }
+                            setOutputModeOpen(false);
+                          }}
                           className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-md text-left transition-colors ${outputMode === opt.id ? "bg-primary/10 text-primary" : "hover:bg-muted/60 text-foreground"}`}
                         >
                           <div className="mt-0.5 shrink-0">
@@ -7491,21 +7514,28 @@ export default function ContentStudioPage() {
                         </button>
                       ))}
                     </div>
-                    <div className="border-t border-border px-3 py-2.5">
-                      <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">輸出數量</p>
-                      <div className="flex gap-1">
-                        {[1, 2, 3, 4].map((n) => (
-                          <button
-                            key={n}
-                            type="button"
-                            onClick={() => { setOutputCount(n); setActiveOutput((prev) => Math.min(prev, n)); }}
-                            className={`flex-1 h-8 rounded-md border text-xs font-bold transition-colors ${outputCount === n ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/60 hover:bg-muted/60"}`}
-                          >
-                            {n}
-                          </button>
-                        ))}
+                    {isGrid2x2 ? (
+                      <div className="border-t border-border px-3 py-2.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <span className="bg-primary/10 text-primary font-bold px-2 py-0.5 rounded">4</span>
+                        <span>輸出數量固定為 4（2 列 × 2 行）</span>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="border-t border-border px-3 py-2.5">
+                        <p className="text-[11px] font-semibold text-muted-foreground mb-1.5">輸出數量</p>
+                        <div className="flex gap-1">
+                          {[1, 2, 3, 4].map((n) => (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => { setOutputCount(n); setActiveOutput((prev) => Math.min(prev, n)); }}
+                              className={`flex-1 h-8 rounded-md border text-xs font-bold transition-colors ${outputCount === n ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/60 hover:bg-muted/60"}`}
+                            >
+                              {n}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {(outputMode === "extend-h" || outputMode === "extend-v") && (
                       <div className="px-3 pb-2.5 text-[11px] text-amber-600 dark:text-amber-400 flex items-start gap-1.5">
                         <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
@@ -7664,7 +7694,22 @@ export default function ContentStudioPage() {
           {/* Floating resolution badge */}
           <div className="absolute bottom-3 right-3 z-20 px-2.5 py-1 rounded-md bg-background/80 backdrop-blur-sm border border-border shadow-sm text-[11px] font-medium text-foreground tabular-nums pointer-events-none flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-            {extendCount > 1 ? (
+            {isGrid2x2 ? (
+              <>
+                <span className="text-muted-foreground">
+                  {outputMode === "grid-2x2-v"
+                    ? `${resolution.height}×${resolution.width}`
+                    : `${resolution.width}×${resolution.height}`}
+                  {" ×4"}
+                </span>
+                <span className="text-border">|</span>
+                <span>
+                  {outputMode === "grid-2x2-v"
+                    ? `${resolution.height * 2}×${resolution.width * 2}`
+                    : `${resolution.width * 2}×${resolution.height * 2}`}
+                </span>
+              </>
+            ) : extendCount > 1 ? (
               <>
                 <span className="text-muted-foreground">{resolution.width}×{resolution.height}</span>
                 <span className="text-muted-foreground/60">×{extendCount}</span>
@@ -7803,46 +7848,45 @@ export default function ContentStudioPage() {
 
           <div ref={canvasRef} className={`relative bg-card rounded-lg shadow-lg border border-border overflow-hidden ${resizing ? "" : "transition-all duration-300"}`} style={{ width: W, height: H, maxWidth: "100%", maxHeight: "100%" }}
             onClick={() => { if (selectedOverlay) setSelectedOverlay(null); }}>
-            {/* Extend-mode: output panel labels + divider lines + active highlight */}
-            {extendCount > 1 && (() => {
-              const isH = outputMode === "extend-h";
+            {/* Multi-output overlays: panel labels + divider lines + active highlight */}
+            {totalPanels > 1 && (() => {
+              const DIVIDER = { background: "rgba(99,102,241,0.85)", boxShadow: "0 0 6px rgba(99,102,241,0.6)" };
               return (
                 <>
-                  {/* Per-output panel label (top-left of each panel) */}
-                  {Array.from({ length: extendCount }, (_, i) => {
+                  {/* Per-panel label */}
+                  {Array.from({ length: totalPanels }, (_, i) => {
                     const n = i + 1;
+                    const { x, y } = getPanelRect(n);
                     const isActive = activeOutput === n;
                     return (
-                      <div
-                        key={n}
-                        className="pointer-events-none absolute z-50"
-                        style={isH
-                          ? { left: singleW * i + 6, top: 6 }
-                          : { left: 6, top: singleH * i + 6 }}
-                      >
+                      <div key={n} className="pointer-events-none absolute z-50"
+                        style={{ left: x + 6, top: y + 6 }}>
                         <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isActive ? "bg-primary text-primary-foreground" : "bg-black/50 text-white/80"}`}>
                           OUT {n}
                         </span>
                       </div>
                     );
                   })}
-                  {/* Active output highlight ring */}
-                  <div
-                    className="pointer-events-none absolute z-40 ring-2 ring-primary/70"
-                    style={isH
-                      ? { top: 0, bottom: 0, left: singleW * (activeOutput - 1), width: singleW }
-                      : { left: 0, right: 0, top: singleH * (activeOutput - 1), height: singleH }}
-                  />
-                  {/* Divider lines */}
-                  {Array.from({ length: extendCount - 1 }, (_, i) => (
-                    <div
-                      key={i}
-                      className="pointer-events-none absolute z-50"
-                      style={isH
-                        ? { top: 0, bottom: 0, left: singleW * (i + 1) - 1, width: 2, background: "rgba(99,102,241,0.8)", boxShadow: "0 0 6px rgba(99,102,241,0.6)" }
-                        : { left: 0, right: 0, top: singleH * (i + 1) - 1, height: 2, background: "rgba(99,102,241,0.8)", boxShadow: "0 0 6px rgba(99,102,241,0.6)" }}
-                    />
-                  ))}
+                  {/* Active panel highlight */}
+                  {(() => {
+                    const { x, y, w, h } = getPanelRect(activeOutput);
+                    return (
+                      <div className="pointer-events-none absolute z-40 ring-2 ring-primary/70"
+                        style={{ left: x, top: y, width: w, height: h }} />
+                    );
+                  })()}
+                  {/* Divider lines — vertical */}
+                  {(outputMode === "extend-h" || outputMode === "grid-2x2-h" || outputMode === "grid-2x2-v") &&
+                    Array.from({ length: isGrid2x2 ? 1 : extendCount - 1 }, (_, i) => (
+                      <div key={`v${i}`} className="pointer-events-none absolute z-50"
+                        style={{ top: 0, bottom: 0, left: singleW * (i + 1) - 1, width: 2, ...DIVIDER }} />
+                    ))}
+                  {/* Divider lines — horizontal */}
+                  {(outputMode === "extend-v" || outputMode === "grid-2x2-h" || outputMode === "grid-2x2-v") &&
+                    Array.from({ length: isGrid2x2 ? 1 : extendCount - 1 }, (_, i) => (
+                      <div key={`h${i}`} className="pointer-events-none absolute z-50"
+                        style={{ left: 0, right: 0, top: singleH * (i + 1) - 1, height: 2, ...DIVIDER }} />
+                    ))}
                 </>
               );
             })()}
