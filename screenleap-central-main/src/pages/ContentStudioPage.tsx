@@ -115,6 +115,7 @@ interface WidgetConfig {
   youtubeMuted?: boolean;
   youtubeMuteBgm?: boolean;
   youtubeVolume?: number;
+  youtubeFit?: string; // "cover" | "contain" | "stretch"
   streamUrl?: string;
   streamMuted?: boolean;
   streamFit?: string;
@@ -388,6 +389,8 @@ interface MediaItem {
   volume?: number;
   /** Mute the item's own audio. For videos: silences the video. When true the BGM track plays. */
   muted?: boolean;
+  /** Per-item fill mode. Falls back to zone-level ZoneContent.fitMode if undefined. */
+  fitMode?: "cover-x" | "cover-y" | "contain" | "stretch";
 }
 
 type CarouselTransition = "fade" | "slide" | "zoom" | "none";
@@ -613,31 +616,27 @@ function CarouselPreview({ items, transition = "fade", fitMode = "cover-x", unmu
     return () => clearTimeout(timer);
   }, [playing, items.length, idx, items]);
 
-  const videoStyle: React.CSSProperties = {
-    width: "100%",
-    height: "100%",
-    objectFit: fitMode === "contain" ? "contain" : fitMode === "stretch" ? "fill" : "cover",
-  };
-
   if (items.length === 0) return null;
 
-  // fitMode → 圖片樣式（container has overflow:hidden so auto-size dims get clipped）
-  const imgStyle: React.CSSProperties =
-    fitMode === "cover-y" ? { width: "auto", height: "100%", maxWidth: "none" } :
-    fitMode === "contain" ? { width: "100%", height: "100%", objectFit: "contain" } :
-    fitMode === "stretch" ? { width: "100%", height: "100%", objectFit: "fill" } :
-    /* cover-x */            { width: "100%", height: "auto", maxHeight: "none" };
-
   const renderItem = (item: MediaItem, isCurrent: boolean) => {
+    const eff = item.fitMode ?? fitMode; // per-item override, or zone default
+    const itemVideoStyle: React.CSSProperties = {
+      width: "100%", height: "100%",
+      objectFit: eff === "contain" ? "contain" : eff === "stretch" ? "fill" : "cover",
+    };
+    const itemImgStyle: React.CSSProperties =
+      eff === "cover-y" ? { width: "auto", height: "100%", maxWidth: "none" } :
+      eff === "contain" ? { width: "100%", height: "100%", objectFit: "contain" } :
+      eff === "stretch" ? { width: "100%", height: "100%", objectFit: "fill" } :
+      /* cover-x */ { width: "100%", height: "auto", maxHeight: "none" };
+
     if (item.type === "widget" && item.widgetConfig) {
       return <WidgetZonePreview config={item.widgetConfig} />;
     }
     if (item.type === "image" && (item.url.startsWith("data:") || item.url.startsWith("http"))) {
-      return <img src={item.url} alt={item.name} style={imgStyle} />;
+      return <img src={item.url} alt={item.name} style={itemImgStyle} />;
     }
     if (item.type === "video" && (item.url.startsWith("data:") || item.url.startsWith("http") || item.url.startsWith("blob:"))) {
-      // Only mount + autoplay the video for the currently visible slide so off-screen
-      // videos don't play audio in the background (which would duck the BGM).
       if (!isCurrent) return null;
       const isMuted = !unmuteVideo || !!item.muted;
       const volFraction = Math.max(0, Math.min(1, (item.volume ?? 100) / 100));
@@ -646,7 +645,7 @@ function CarouselPreview({ items, transition = "fade", fitMode = "cover-x", unmu
           key={`${item.id}-${isMuted}`}
           ref={(el) => { if (el) el.volume = volFraction; }}
           src={item.url}
-          style={videoStyle}
+          style={itemVideoStyle}
           autoPlay
           muted={isMuted}
           data-natural-muted={isMuted ? "1" : "0"}
@@ -2750,36 +2749,76 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
                     setDragIdx(null);
                     setDragOverIdx(null);
                   }}
-                  className={`flex items-center gap-1.5 p-1.5 rounded-md text-xs transition-all ${
+                  className={`p-1.5 rounded-md text-xs transition-all ${
                     dragOverIdx === i && dragIdx !== null && dragIdx !== i
                       ? "bg-primary/15 ring-1 ring-primary/40"
                       : "bg-muted/50"
                   } ${dragIdx === i ? "opacity-40" : ""}`}
                 >
-                  <GripVertical className="w-3 h-3 text-muted-foreground/50 shrink-0 cursor-grab active:cursor-grabbing" />
-                  {m.type === "image" ? <ImageIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : m.type === "video" ? <Film className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <Code2 className="w-3.5 h-3.5 text-accent-foreground shrink-0" />}
-                  <span className="truncate flex-1 text-foreground">{m.name}</span>
-                  <Badge variant="outline" className="text-[9px] h-4 px-1 shrink-0">{m.type === "image" ? "IMG" : m.type === "video" ? "VID" : "Widget"}</Badge>
-                  <div className="flex items-center gap-1 shrink-0">
-                    {m.type === "video" ? (
-                      <span className="text-[10px] text-muted-foreground">{m.duration || 10}s</span>
-                    ) : (
-                      <>
-                        <Button variant="ghost" size="icon" className="h-4 w-4" onClick={() => {
-                          const updated = [...mediaItems];
-                          updated[i] = { ...m, duration: Math.max(1, (m.duration || 5) - 1) };
-                          onUpdate({ ...content, type: "media", mediaItems: updated });
-                        }}><Minus className="w-2.5 h-2.5" /></Button>
-                        <span className="text-[10px] font-medium text-foreground w-5 text-center">{m.duration || 5}s</span>
-                        <Button variant="ghost" size="icon" className="h-4 w-4" onClick={() => {
-                          const updated = [...mediaItems];
-                          updated[i] = { ...m, duration: Math.min(60, (m.duration || 5) + 1) };
-                          onUpdate({ ...content, type: "media", mediaItems: updated });
-                        }}><Plus className="w-2.5 h-2.5" /></Button>
-                      </>
-                    )}
+                  {/* Main row */}
+                  <div className="flex items-center gap-1.5">
+                    <GripVertical className="w-3 h-3 text-muted-foreground/50 shrink-0 cursor-grab active:cursor-grabbing" />
+                    {m.type === "image" ? <ImageIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : m.type === "video" ? <Film className="w-3.5 h-3.5 text-muted-foreground shrink-0" /> : <Code2 className="w-3.5 h-3.5 text-accent-foreground shrink-0" />}
+                    <span className="truncate flex-1 text-foreground">{m.name}</span>
+                    <Badge variant="outline" className="text-[9px] h-4 px-1 shrink-0">{m.type === "image" ? "IMG" : m.type === "video" ? "VID" : "Widget"}</Badge>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {m.type === "video" ? (
+                        <span className="text-[10px] text-muted-foreground">{m.duration || 10}s</span>
+                      ) : (
+                        <>
+                          <Button variant="ghost" size="icon" className="h-4 w-4" onClick={() => {
+                            const updated = [...mediaItems];
+                            updated[i] = { ...m, duration: Math.max(1, (m.duration || 5) - 1) };
+                            onUpdate({ ...content, type: "media", mediaItems: updated });
+                          }}><Minus className="w-2.5 h-2.5" /></Button>
+                          <span className="text-[10px] font-medium text-foreground w-5 text-center">{m.duration || 5}s</span>
+                          <Button variant="ghost" size="icon" className="h-4 w-4" onClick={() => {
+                            const updated = [...mediaItems];
+                            updated[i] = { ...m, duration: Math.min(60, (m.duration || 5) + 1) };
+                            onUpdate({ ...content, type: "media", mediaItems: updated });
+                          }}><Plus className="w-2.5 h-2.5" /></Button>
+                        </>
+                      )}
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => removeMedia(m.id, i)}><X className="w-3 h-3" /></Button>
                   </div>
-                  <Button variant="ghost" size="icon" className="h-5 w-5 shrink-0" onClick={() => removeMedia(m.id, i)}><X className="w-3 h-3" /></Button>
+                  {/* Per-item fitMode row (images and videos only) */}
+                  {(m.type === "image" || m.type === "video") && (
+                    <div className="flex items-center gap-1 mt-1 pl-5">
+                      <span className="text-[9px] text-muted-foreground">{t("studioFitMode")}:</span>
+                      {([
+                        { val: undefined as ("cover-x"|"cover-y"|"contain"|"stretch"|undefined), label: t("studioFitDefault"), icon: <span className="text-[8px] font-bold leading-none">—</span> },
+                        { val: "cover-x" as const, label: t("studioFitCoverX"), icon: <Maximize2 className="w-2.5 h-2.5 rotate-90" /> },
+                        { val: "cover-y" as const, label: t("studioFitCoverY"), icon: <Maximize2 className="w-2.5 h-2.5" /> },
+                        { val: "contain" as const, label: t("studioFitContain"), icon: <Square className="w-2.5 h-2.5" /> },
+                        { val: "stretch" as const, label: t("studioFitStretch"), icon: <Move className="w-2.5 h-2.5" /> },
+                      ]).map(({ val, label, icon }) => (
+                        <button
+                          key={String(val ?? "default")}
+                          type="button"
+                          title={label}
+                          onClick={() => {
+                            const updated = [...mediaItems];
+                            if (val === undefined) {
+                              // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                              const { fitMode: _fm, ...rest } = updated[i] as (MediaItem & { fitMode?: unknown });
+                              updated[i] = rest as MediaItem;
+                            } else {
+                              updated[i] = { ...updated[i], fitMode: val };
+                            }
+                            onUpdate({ ...content, type: "media", mediaItems: updated });
+                          }}
+                          className={`h-5 min-w-[20px] px-1 flex items-center justify-center rounded text-[9px] transition-colors ${
+                            m.fitMode === val
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted/0 border border-border/60 hover:bg-accent text-muted-foreground"
+                          }`}
+                        >
+                          {icon}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -3950,6 +3989,17 @@ function WidgetItemSettings({ config, onChange, onItemPatch }: {
               />
             </div>
           )}
+          <div className="space-y-1">
+            <Label className="text-[10px] text-muted-foreground">{t("studioFitMode")}</Label>
+            <Select value={(config.youtubeFit as string) || "cover"} onValueChange={(v) => set({ youtubeFit: v })}>
+              <SelectTrigger className="h-7 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cover">{t("widgetYoutubeFitCover")}</SelectItem>
+                <SelectItem value="contain">{t("widgetYoutubeFitContain")}</SelectItem>
+                <SelectItem value="stretch">{t("widgetYoutubeFitStretch")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       )}
 
@@ -4469,7 +4519,7 @@ function StreamZonePreview({ url, muted = true, fitMode = "cover" }: { url?: str
 
 function extractYoutubeId(url: string): string | null { return parseYoutubeId(url); }
 
-function YoutubeZonePreview({ url, bg, muted = true, volume = 100 }: { url: string; bg: string; muted?: boolean; volume?: number }) {
+function YoutubeZonePreview({ url, bg, muted = true, volume = 100, fitMode = "cover" }: { url: string; bg: string; muted?: boolean; volume?: number; fitMode?: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [dims, setDims] = useState({ w: 0, h: 0 });
@@ -4526,18 +4576,37 @@ function YoutubeZonePreview({ url, bg, muted = true, volume = 100 }: { url: stri
   const muteParam = muted ? 1 : 0;
   const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=${muteParam}&loop=1&playlist=${videoId}&controls=0&modestbranding=1&rel=0&iv_load_policy=3&disablekb=1&enablejsapi=1`;
 
-  // Cover mode fills zone; scale(1.22) clips YouTube UI chrome at top/bottom edges
-  const baseStyle: React.CSSProperties = { border: 0, pointerEvents: 'none', transform: 'scale(1.22)', transformOrigin: 'center center' };
-  let iframeStyle: React.CSSProperties = { ...baseStyle, position: 'absolute', inset: 0, width: '100%', height: '100%' };
+  // Build iframe positioning based on fitMode
+  let iframeStyle: React.CSSProperties = { border: 0, pointerEvents: 'none', position: 'absolute', inset: 0, width: '100%', height: '100%' };
+
   if (dims.w > 0 && dims.h > 0) {
-    const zoneAspect = dims.w / dims.h;
     const videoAspect = 16 / 9;
-    if (zoneAspect > videoAspect) {
-      const iframeH = Math.ceil(dims.w / videoAspect);
-      iframeStyle = { ...baseStyle, position: 'absolute', width: `${dims.w}px`, height: `${iframeH}px`, top: `${Math.floor((dims.h - iframeH) / 2)}px`, left: 0 };
+    const zoneAspect = dims.w / dims.h;
+
+    if (fitMode === "contain") {
+      // Letterbox: fit video inside zone, maintain aspect
+      let w: number, h: number;
+      if (zoneAspect > videoAspect) {
+        h = dims.h;
+        w = Math.round(dims.h * videoAspect);
+      } else {
+        w = dims.w;
+        h = Math.round(dims.w / videoAspect);
+      }
+      iframeStyle = { border: 0, pointerEvents: 'none', position: 'absolute', width: `${w}px`, height: `${h}px`, top: `${Math.round((dims.h - h) / 2)}px`, left: `${Math.round((dims.w - w) / 2)}px` };
+    } else if (fitMode === "stretch") {
+      // Fill zone completely, ignore aspect ratio
+      iframeStyle = { border: 0, pointerEvents: 'none', position: 'absolute', inset: 0, width: '100%', height: '100%' };
     } else {
-      const iframeW = Math.ceil(dims.h * videoAspect);
-      iframeStyle = { ...baseStyle, position: 'absolute', height: `${dims.h}px`, width: `${iframeW}px`, left: `${Math.floor((dims.w - iframeW) / 2)}px`, top: 0 };
+      // Cover: fill zone, crop if needed (with scale(1.22) for chrome removal)
+      const baseStyle: React.CSSProperties = { border: 0, pointerEvents: 'none', transform: 'scale(1.22)', transformOrigin: 'center center' };
+      if (zoneAspect > videoAspect) {
+        const iframeH = Math.ceil(dims.w / videoAspect);
+        iframeStyle = { ...baseStyle, position: 'absolute', width: `${dims.w}px`, height: `${iframeH}px`, top: `${Math.floor((dims.h - iframeH) / 2)}px`, left: 0 };
+      } else {
+        const iframeW = Math.ceil(dims.h * videoAspect);
+        iframeStyle = { ...baseStyle, position: 'absolute', height: `${dims.h}px`, width: `${iframeW}px`, left: `${Math.floor((dims.w - iframeW) / 2)}px`, top: 0 };
+      }
     }
   }
 
@@ -4632,7 +4701,7 @@ function WidgetZonePreviewBody({ config, now }: { config: WidgetConfig; now: Dat
   }
 
   if (config.widgetType === "youtube") {
-    return <YoutubeZonePreview url={config.youtubeUrl || ""} bg={bg} muted={config.youtubeMuted !== false} volume={config.youtubeVolume ?? 100} />;
+    return <YoutubeZonePreview url={config.youtubeUrl || ""} bg={bg} muted={config.youtubeMuted !== false} volume={config.youtubeVolume ?? 100} fitMode={(config.youtubeFit as string) || "cover"} />;
   }
 
   if (config.widgetType === "stream") {
@@ -7941,7 +8010,11 @@ export default function ContentStudioPage() {
             const setFit = (mode: "cover-x" | "cover-y" | "contain" | "stretch") => {
               if (!z) return;
               const base: ZoneContent = z.content || { type: "color", value: "", bgColor: "hsl(var(--muted))" };
-              updateZoneContent(z.id, { ...base, fitMode: mode });
+              // Apply to each image/video item so per-item fitMode is updated
+              const updatedItems = (base.mediaItems || []).map((item) =>
+                (item.type === "image" || item.type === "video") ? { ...item, fitMode: mode } : item
+              );
+              updateZoneContent(z.id, { ...base, fitMode: mode, mediaItems: updatedItems });
             };
             return (
             <div className={`absolute z-30 flex flex-col gap-1.5 px-2 py-1.5 rounded-lg bg-background/90 backdrop-blur-sm border border-border shadow-md transition-[box-shadow,border-color,transform,top,left,right] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:shadow-lg hover:border-primary/30 ${zoneToolbarCollapsed ? "top-3 right-3" : "top-3 left-1/2 -translate-x-1/2"}`}>
@@ -7983,7 +8056,7 @@ export default function ContentStudioPage() {
               </div>
               {!zoneToolbarCollapsed && isSingle && z && (
                 <div className="flex items-center gap-1 border-t border-border pt-1.5 animate-studio-toolbar-expand origin-top">
-                  <span className="text-[11px] text-muted-foreground px-1.5">{t("studioFitMode")}</span>
+                  <span className="text-[11px] text-muted-foreground px-1.5">{t("studioFitModeDefault")}</span>
                   <Button size="sm" variant={fit === "cover-x" ? "default" : "ghost"} className="h-7 px-2 text-xs gap-1" onClick={() => setFit("cover-x")} title={t("studioFitCoverXTip")}>
                     <Maximize2 className="w-3.5 h-3.5" /> {t("studioFitCoverX")}
                   </Button>
