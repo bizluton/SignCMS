@@ -5006,10 +5006,8 @@ export default function ContentStudioPage() {
   // the current derived `layoutPanelCollapsed` without a stale closure.
   const layoutPanelCollapsedRef = useRef<boolean>(false);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
-  const [sidebarTab, setSidebarTab] = useState<string>(() => {
-    const saved = persistedSessionRef.current?.sidebarTab ?? "my";
-    return ["new", "my"].includes(saved) ? saved : "my";
-  });
+  // Always start on "我的專案" regardless of persisted session — rule 1 of the panel UX
+  const [sidebarTab, setSidebarTab] = useState<string>("my");
   const [innerSidebarTab, setInnerSidebarTab] = useState<string>("layouts");
   const isMobile = useIsMobile();
   const [mobileEditMode, setMobileEditMode] = useState(false);
@@ -5018,16 +5016,10 @@ export default function ContentStudioPage() {
   const [mobileEditorOpen, setMobileEditorOpen] = useState(false);
   const [mobileMediaOpen, setMobileMediaOpen] = useState(false);
   const [mobileTimelineOpen, setMobileTimelineOpen] = useState(false);
-  const [layoutPanelOpen, setLayoutPanelOpen] = useState<boolean>(
-    typeof persistedSessionRef.current?.layoutPanelOpen === "boolean"
-      ? (persistedSessionRef.current!.layoutPanelOpen as boolean)
-      : true
-  );
-  const [mediaLibraryOpen, setMediaLibraryOpen] = useState<boolean>(
-    typeof persistedSessionRef.current?.mediaLibraryOpen === "boolean"
-      ? (persistedSessionRef.current!.mediaLibraryOpen as boolean)
-      : false
-  );
+  // Always start with layout panel open (true) so the left sidebar is visible on entry
+  const [layoutPanelOpen, setLayoutPanelOpen] = useState<boolean>(true);
+  // Always start with media panel closed regardless of persisted session — rule 1 of the panel UX
+  const [mediaLibraryOpen, setMediaLibraryOpen] = useState<boolean>(false);
   const enforceInitialPanelState = useCallback(() => {
     setSidebarTab("my");
     setInnerSidebarTab("layouts");
