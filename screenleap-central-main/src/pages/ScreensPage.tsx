@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Monitor, Plus, Pencil, Trash2, Search, MapPin, Loader2, FolderPlus, Layers, MoreHorizontal, Settings, RotateCw, Power, RefreshCw, Eye, Moon, Play, Brush, FileText, Radio, Wifi, Cable, ArrowUpDown, SlidersHorizontal, X, WifiOff, Zap, TerminalSquare, ShieldOff } from "lucide-react";
+import { Monitor, Plus, Pencil, Trash2, Search, MapPin, Loader2, FolderPlus, Layers, MoreHorizontal, Settings, RotateCw, Power, RefreshCw, Eye, Moon, Play, Brush, FileText, Radio, Wifi, Cable, ArrowUpDown, SlidersHorizontal, X, WifiOff, Zap, TerminalSquare, ShieldOff, LayoutGrid } from "lucide-react";
 import { Tv } from "lucide-react";
 import type { ScreenDetailScreen } from "@/components/screens/ScreenDetailDrawer";
 import { ScreenChannelDialog } from "@/components/screens/ScreenChannelDialog";
@@ -336,8 +336,9 @@ export default function ScreensPage() {
     };
   }, [screens.map((s) => s.id).join(","), refreshLicenseStatuses]);
 
-  // Connected player (default channel) per screen
-  const [playerByScreen, setPlayerByScreen] = useState<Record<string, string>>({});
+  // Connected player (default channel + active project) per screen
+  interface PlayerInfo { channel: string; project: string | null; }
+  const [playerByScreen, setPlayerByScreen] = useState<Record<string, PlayerInfo>>({});
   useEffect(() => {
     if (screens.length === 0) { setPlayerByScreen({}); return; }
     let cancelled = false;
@@ -345,22 +346,25 @@ export default function ScreensPage() {
       const ids = screens.map((s) => s.id);
       const { data } = await supabase
         .from("screen_channel_subscriptions")
-        .select("screen_id, is_default, channels:channel_id(name)")
+        .select("screen_id, is_default, channels:channel_id(name, project:default_design_project_id(name))")
         .in("screen_id", ids);
       if (cancelled || !data) return;
-      const map: Record<string, string> = {};
+      const map: Record<string, PlayerInfo> = {};
       // Prefer default subscription; otherwise first available
       data.forEach((row) => {
-        const name = (row.channels as { name: string } | null)?.name;
-        if (!name) return;
+        const ch = row.channels as { name: string; project: { name: string } | null } | null;
+        if (!ch?.name) return;
         if (row.is_default || !map[row.screen_id]) {
-          map[row.screen_id] = name;
+          map[row.screen_id] = {
+            channel: ch.name,
+            project: ch.project?.name ?? null,
+          };
         }
       });
       setPlayerByScreen(map);
     })();
     return () => { cancelled = true; };
-  }, [screens.map((s) => s.id).join(",")]);
+  }, [screens.map((s) => s.id).join(",")]);  // eslint-disable-line
 
   // Fetch teams (all visible) for team selector
   useEffect(() => {
@@ -805,7 +809,8 @@ export default function ScreensPage() {
             (() => {
               const ls = licenseStatusByScreen[screen.id];
               const unlicensed = isScreenUnlicensed(ls);
-              const hasPlayer = !!playerByScreen[screen.id];
+              const playerInfo = playerByScreen[screen.id];
+              const hasPlayer = !!playerInfo;
               // Status: unlicensed (gray) > offline (red) > playing (green) > sleeping (orange)
               const cardState: "unlicensed" | "offline" | "playing" | "sleeping" = unlicensed
                 ? "unlicensed"
@@ -900,7 +905,7 @@ export default function ScreensPage() {
                             <Tv className="w-3 h-3 text-muted-foreground shrink-0" />
                             <span className="text-muted-foreground">{t("screenStatusPlayer")}:</span>
                             <span className="truncate">
-                              {playerByScreen[screen.id] || t("screenStatusNoPlayer")}
+                              {playerByScreen[screen.id]?.channel || t("screenStatusNoPlayer")}
                             </span>
                           </div>
                         </div>
@@ -992,6 +997,25 @@ export default function ScreensPage() {
                   })()}
                   </ConnectionInfo>
                 </div>
+
+                {/* ── Now-playing row ── */}
+                {playerInfo && screen.online && (
+                  <div className="mt-1.5 flex items-center gap-1.5 text-xs flex-wrap">
+                    <span className="inline-flex items-center gap-1 text-success font-medium">
+                      <Play className="w-3 h-3" />
+                      {playerInfo.channel}
+                    </span>
+                    {playerInfo.project && (
+                      <>
+                        <span className="text-muted-foreground/40 select-none">›</span>
+                        <span className="inline-flex items-center gap-1 text-muted-foreground">
+                          <LayoutGrid className="w-3 h-3" />
+                          {playerInfo.project}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
               {isAdmin && (() => {
                 const ls = licenseStatusByScreen[screen.id];
