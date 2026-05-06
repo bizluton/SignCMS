@@ -746,7 +746,7 @@ export function SmartTriggerPanel() {
                     <Pencil className="w-3.5 h-3.5" />{T.edit}
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => setDeleting(r)} className="gap-1 h-8 text-destructive hover:text-destructive">
-                    <Trash2 className="w-3.5 h-3.5" />{T.delete}
+                    <Trash2 className="w-3.5 h-3.5 text-destructive" />{T.delete}
                   </Button>
                 </div>
               </Card>

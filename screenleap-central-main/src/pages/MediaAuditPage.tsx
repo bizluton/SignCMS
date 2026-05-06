@@ -138,7 +138,7 @@ export default function MediaAuditPage() {
     if (row.action_code === ACTION_CODES.soft) {
       return (
         <Badge variant="outline" className="gap-1">
-          <Trash2 className="w-3 h-3" />
+          <Trash2 className="w-3 h-3 text-destructive" />
           {t("mediaAuditActionSoftDelete")}
         </Badge>
       );

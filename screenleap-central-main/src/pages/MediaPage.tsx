@@ -1678,7 +1678,7 @@ const MediaPage = () => {
         <div className="flex flex-wrap items-center gap-2">
           {canManageMedia && <input ref={fileInputRef} type="file" className="hidden" accept="image/jpeg,image/png,.jpg,.jpeg,.png,video/mp4,.mp4,audio/*,.mp3,.wav,.ogg,.m4a,.aac" onChange={handleUpload} />}
           <Button variant="outline" className="gap-2" onClick={() => setTrashOpen(true)}>
-            <Trash className="w-4 h-4" />
+            <Trash className="w-4 h-4 text-destructive" />
             {t("mediaTrashView")}
           </Button>
           {canManageMedia && (isAdmin || isOrgAdmin) && (
@@ -1869,7 +1869,7 @@ const MediaPage = () => {
               {t("bulkDownload")}
             </Button>
             <Button size="sm" variant="destructive" disabled={selectedIds.size === 0 || bulkBusy} onClick={() => setBulkDeleteOpen(true)} className="gap-2">
-              <Trash2 className="w-4 h-4" />{t("delete")}
+              <Trash2 className="w-4 h-4 text-destructive" />{t("delete")}
             </Button>
             <Button size="sm" variant="ghost" onClick={exitSelectMode} className="gap-1">
               <X className="w-4 h-4" />
@@ -2179,7 +2179,7 @@ const MediaPage = () => {
                   </Button>
                   {canManageMedia && (!item.is_system || (isAdmin && isCatalogWidgetId(item.id))) && (
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); requestDelete(item.id); }} title={t("mediaDeleteItem")}>
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-4 h-4 text-destructive" />
                     </Button>
                   )}
                 </div>
@@ -2194,7 +2194,7 @@ const MediaPage = () => {
         <AlertDialogContent className="sm:max-w-xl">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2 text-destructive">
-              <Trash2 className="w-5 h-5" />
+              <Trash2 className="w-5 h-5 text-destructive" />
               {t("bulkDeleteConfirmTitle")}
             </AlertDialogTitle>
             <AlertDialogDescription asChild>
@@ -2373,7 +2373,7 @@ const MediaPage = () => {
             {canManageMedia && previewItem && (!previewItem.is_system || (isAdmin && isCatalogWidgetId(previewItem.id))) && (
               <div className="flex justify-end">
                 <Button variant="destructive" size="sm" className="gap-2" onClick={() => { requestDelete(previewItem.id); setPreviewItem(null); }}>
-                  <Trash2 className="w-4 h-4" />
+                  <Trash2 className="w-4 h-4 text-destructive" />
                   {t("mediaDeleteItem")}
                 </Button>
               </div>
@@ -2643,13 +2643,13 @@ const MediaPage = () => {
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Trash className="w-5 h-5" />
+              <Trash className="w-5 h-5 text-destructive" />
               {t("mediaTrashView")}
             </DialogTitle>
             <DialogDescription>{t("mediaTrashHint")}</DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            <Trash className="w-3.5 h-3.5 shrink-0" />
+            <Trash className="w-3.5 h-3.5 shrink-0 text-destructive" />
             <span>{t("mediaTrashRetentionBanner").replace("{days}", String(trashRetentionDays))}</span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pb-2">
@@ -2764,7 +2764,7 @@ const MediaPage = () => {
                     disabled={trashBulkBusy}
                     onClick={() => setBulkPurgeConfirmOpen(true)}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3.5 h-3.5 text-destructive" />
                     {t("mediaTrashBulkPurge")}
                   </Button>
                   <Button
@@ -2986,7 +2986,7 @@ const MediaPage = () => {
                         {t("mediaTrashRestore")}
                       </Button>
                       <Button variant="destructive" size="sm" className="gap-1.5" disabled={trashBusyId === row.id} onClick={() => setPurgeConfirmId(row.id)}>
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
                         {t("mediaTrashPurge")}
                       </Button>
                     </div>
@@ -3056,7 +3056,7 @@ const MediaPage = () => {
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle className="flex items-center gap-2 text-destructive">
-                    <Trash2 className="w-5 h-5" />
+                    <Trash2 className="w-5 h-5 text-destructive" />
                     {t("mediaTrashPurgeConfirmTitle")}
                   </AlertDialogTitle>
                   <AlertDialogDescription asChild>
@@ -3094,7 +3094,7 @@ const MediaPage = () => {
                       if (purgeConfirmId) void handlePurgeNow(purgeConfirmId);
                     }}
                   >
-                    {trashBusyId === purgeConfirmId ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Trash2 className="w-4 h-4 mr-1" />}
+                    {trashBusyId === purgeConfirmId ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Trash2 className="w-4 h-4 mr-1 text-destructive" />}
                     {t("mediaTrashConfirmPurgeBtn")}
                   </AlertDialogAction>
                 </AlertDialogFooter>
@@ -3159,7 +3159,7 @@ const MediaPage = () => {
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle className="flex items-center gap-2 text-destructive">
-                    <Trash2 className="w-5 h-5" />
+                    <Trash2 className="w-5 h-5 text-destructive" />
                     {t("mediaTrashBulkPurgeConfirmTitle")}
                   </AlertDialogTitle>
                   <AlertDialogDescription asChild>
@@ -3222,7 +3222,7 @@ const MediaPage = () => {
                       void runBulkTrashAction("purge");
                     }}
                   >
-                    {trashBulkBusy ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Trash2 className="w-4 h-4 mr-1" />}
+                    {trashBulkBusy ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Trash2 className="w-4 h-4 mr-1 text-destructive" />}
                     {t("mediaTrashConfirmPurgeBtn")}
                   </AlertDialogAction>
                 </AlertDialogFooter>

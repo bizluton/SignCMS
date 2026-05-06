@@ -298,7 +298,7 @@ export default function CSAgentManagement() {
                       )}
                       {agent.user_id !== user?.id && (
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeleteTarget(agent)}>
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-4 h-4 text-destructive" />
                         </Button>
                       )}
                     </div>

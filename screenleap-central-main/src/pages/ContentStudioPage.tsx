@@ -1905,7 +1905,7 @@ function ZoneTimeline({
                                 <ChevronRight className="w-2.5 h-2.5" />
                               </Button>
                               <Button variant="ghost" size="icon" className="h-4 w-4 text-destructive hover:text-destructive" title={t("studioTimelineRemove")} onClick={() => removeBgm(idx)}>
-                                <Trash2 className="w-2.5 h-2.5" />
+                                <Trash2 className="w-2.5 h-2.5 text-destructive" />
                               </Button>
                             </div>
                           </div>
@@ -2350,7 +2350,7 @@ function ZoneTimeline({
                                     </PopoverContent>
                                   </Popover>
                                   <Button variant="ghost" size="icon" className="h-4 w-4 text-destructive hover:text-destructive" title={t("studioTimelineRemove")} onClick={() => removeItem(idx)}>
-                                    <Trash2 className="w-2.5 h-2.5" />
+                                    <Trash2 className="w-2.5 h-2.5 text-destructive" />
                                   </Button>
                                 </div>
                               </div>
@@ -5115,6 +5115,8 @@ export default function ContentStudioPage() {
   const [quickPublishOpen, setQuickPublishOpen] = useState(false);
   // "qp" = quick-publish validation block reason shown in AlertDialog
   const [qpBlockReason, setQpBlockReason] = useState<"unsaved" | "no_zones" | "empty_zones" | null>(null);
+  // "save" = save validation block reason (incomplete design)
+  const [saveBlockReason, setSaveBlockReason] = useState<"no_zones" | "empty_zones" | null>(null);
   const [projectName, setProjectName] = useState("");
   // Inline project-name editing (badge in canvas header)
   const [projectNameEditing, setProjectNameEditing] = useState(false);
@@ -5122,7 +5124,7 @@ export default function ContentStudioPage() {
   const [saving, setSaving] = useState(false);
   const [projectTeamId, setProjectTeamId] = useState<string>("none");
   const [teams, setTeams] = useState<Array<{ id: string; name: string; org_id: string }>>([]);
-  const [projectCollab, setProjectCollab] = useState<"creator" | "team" | "org">("creator");
+  const [projectCollab, setProjectCollab] = useState<"creator" | "team" | "org">("org");
   const { ensureProfiles, getDisplayName, profilesVersion } = useProfiles();
   // Unsaved-changes tracking
   const [isDirty, setIsDirty] = useState(false);
@@ -6698,7 +6700,7 @@ export default function ContentStudioPage() {
           zones: remapIds(proj.zones),
           org_id: activeOrgId,
           created_by: user?.id,
-          collab_scope: "creator",
+          collab_scope: "org",
         })
         .select()
         .single() as { data: { id: string; name: string; aspect: string; zones: unknown; org_id: string; created_by: string | null; updated_at: string; created_at: string; team_id: string | null; collab_scope: string | null } | null; error: unknown };
@@ -6779,7 +6781,7 @@ export default function ContentStudioPage() {
   const openSaveDialogForNew = useCallback(() => {
     setProjectName(generateProjectName(projects.map((p) => p.name || "")));
     setProjectTeamId("none");
-    setProjectCollab("creator");
+    setProjectCollab("org");
     setShowSaveDialog(true);
   }, [projects]);
 
@@ -6889,6 +6891,24 @@ export default function ContentStudioPage() {
 
     setQuickPublishOpen(true);
   }, [currentProject, isDirty, zones]);
+
+  /**
+   * handleSaveClick — pre-flight validation before saving.
+   * Blocks save when the design is structurally incomplete:
+   *  1. zones.length === 0  → no layout template applied yet
+   *  2. Any media zone with 0 mediaItems → content not placed in every zone
+   */
+  const handleSaveClick = useCallback(() => {
+    if (zones.length === 0) { setSaveBlockReason("no_zones"); return; }
+    const emptyZones = zones.filter((z) => {
+      if (!z.content) return true;
+      if (z.content.type === "media") return !z.content.mediaItems || z.content.mediaItems.length === 0;
+      return false;
+    });
+    if (emptyZones.length > 0) { setSaveBlockReason("empty_zones"); return; }
+    if (currentProject) handleSave();
+    else openSaveDialogForNew();
+  }, [zones, currentProject, handleSave, openSaveDialogForNew]);
 
   // Layout panel manual collapse (persisted) — independent from auto-collapse on zone selection
   const [layoutPanelManuallyCollapsed, setLayoutPanelManuallyCollapsed] = useState<boolean>(() => {
@@ -7214,7 +7234,7 @@ export default function ContentStudioPage() {
           <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={requestNew}><FilePlus className="w-3.5 h-3.5" /> {t("studioNew")}</Button>
           <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={requestOpen}><FolderOpen className="w-3.5 h-3.5" /> {t("studioOpen")}</Button>
           <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={requestPreview}><Eye className="w-3.5 h-3.5" /> {t("studioPreview")}</Button>
-          <Button variant="default" size="sm" className="gap-1.5 text-xs h-8" onClick={() => { if (currentProject) handleSave(); else openSaveDialogForNew(); }} disabled={saving}>
+          <Button variant="default" size="sm" className="gap-1.5 text-xs h-8" onClick={handleSaveClick} disabled={saving}>
             <Save className="w-3.5 h-3.5" /> {t("save")}
           </Button>
           <Button
@@ -7686,7 +7706,7 @@ export default function ContentStudioPage() {
                                   className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-left"
                                   onClick={() => setSceneDeleteConfirm({ id: tpl.id, name: t(tpl.nameKey as TranslationKey) || tpl.nameKey })}
                                 >
-                                  <Trash2 className="w-3 h-3 shrink-0" /> {t("studioDeleteScene")}
+                                  <Trash2 className="w-3 h-3 shrink-0 text-destructive" /> {t("studioDeleteScene")}
                                 </button>
                               </PopoverContent>
                             </Popover>
@@ -8038,7 +8058,7 @@ export default function ContentStudioPage() {
                                 className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-left"
                                 onClick={(e) => { e.stopPropagation(); deletePage(p.id); }}
                               >
-                                <Trash2 className="w-3 h-3 shrink-0" /> {t("studioDeletePage")}
+                                <Trash2 className="w-3 h-3 shrink-0 text-destructive" /> {t("studioDeletePage")}
                               </button>
                             )}
                           </PopoverContent>
@@ -8518,7 +8538,7 @@ export default function ContentStudioPage() {
                   {/* Delete button */}
                   {isSelected && (
                     <Button variant="destructive" size="icon" className="absolute top-1 right-1 h-5 w-5 z-50" onClick={(e) => { e.stopPropagation(); deleteOverlay(overlay.id); }}>
-                      <Trash2 className="w-3 h-3" />
+                      <Trash2 className="w-3 h-3 text-destructive" />
                     </Button>
                   )}
 
@@ -8747,7 +8767,7 @@ export default function ContentStudioPage() {
                                     className="w-full flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-destructive/10 hover:text-destructive transition-colors text-left"
                                     onClick={() => setSceneDeleteConfirm({ id: tpl.id, name: t(tpl.nameKey as TranslationKey) || tpl.nameKey })}
                                   >
-                                    <Trash2 className="w-3 h-3 shrink-0" /> {t("studioDeleteScene")}
+                                    <Trash2 className="w-3 h-3 shrink-0 text-destructive" /> {t("studioDeleteScene")}
                                   </button>
                                 </PopoverContent>
                               </Popover>
@@ -8822,7 +8842,7 @@ export default function ContentStudioPage() {
                   <FolderOpen className="w-3.5 h-3.5" /> {t("studioOpen")}
                 </Button>
                 <Button variant="default" size="sm" className="gap-1.5 text-xs h-10" disabled={saving || !mobileEditMode} title={!mobileEditMode ? t("studioMobileEditDisabledTip") : undefined}
-                  onClick={() => { if (currentProject) handleSave(); else openSaveDialogForNew(); setMobileToolsOpen(false); }}>
+                  onClick={() => { handleSaveClick(); setMobileToolsOpen(false); }}>
                   <Save className="w-3.5 h-3.5" /> {t("save")}
                 </Button>
               </div>
@@ -8990,7 +9010,7 @@ export default function ContentStudioPage() {
                   )}
                   <Button variant="destructive" size="sm" className="w-full h-9 text-xs gap-1.5"
                     onClick={() => { deleteOverlay(activeOverlay.id); }}>
-                    <Trash2 className="w-3.5 h-3.5" /> {t("studioDeleteOverlay")}
+                    <Trash2 className="w-3.5 h-3.5 text-destructive" /> {t("studioDeleteOverlay")}
                   </Button>
                   <div className="pt-2 border-t border-border">
                     <ZoneEditor zone={{ id: activeOverlay.id, x: 0, y: 0, w: 100, h: 100, label: activeOverlay.label, content: activeOverlay.content }}
@@ -9186,6 +9206,25 @@ export default function ContentStudioPage() {
                 <Save className="w-3.5 h-3.5 mr-1.5" /> {t("save")}
               </AlertDialogAction>
             )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Save pre-flight: design not complete */}
+      <AlertDialog open={saveBlockReason !== null} onOpenChange={(o) => { if (!o) setSaveBlockReason(null); }}>
+        <AlertDialogContent className="max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Save className="w-4 h-4 shrink-0" />
+              {t("saveBlockTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="pt-1">
+              {saveBlockReason === "no_zones" && t("saveBlockNoZones")}
+              {saveBlockReason === "empty_zones" && t("saveBlockEmptyZones")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

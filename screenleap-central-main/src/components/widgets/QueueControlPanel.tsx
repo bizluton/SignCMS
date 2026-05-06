@@ -556,7 +556,7 @@ export default function QueueControlPanel() {
                       <AlertDialogTrigger asChild>
                         <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
                           title={t("刪除隊列", "Delete queue", "キューを削除")}
-                        >{deletingQueue ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}</Button>
+                        >{deletingQueue ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5 text-destructive" />}</Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
@@ -662,7 +662,7 @@ export default function QueueControlPanel() {
                 <Button size="icon" variant="ghost" className="h-9 w-9 shrink-0 text-muted-foreground hover:text-destructive"
                   onClick={() => void handleRemoveCounterPreset(counter)}
                   title={t("刪除", "Delete", "削除")}
-                ><Trash2 className="h-3.5 w-3.5" /></Button>
+                ><Trash2 className="h-3.5 w-3.5 text-destructive" /></Button>
               </>
             )}
           </div>

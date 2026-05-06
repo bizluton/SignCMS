@@ -408,7 +408,7 @@ const SystemSettingsPage = () => {
             <TabsTrigger value="email"><Mail className="w-4 h-4 mr-1" />{L("emailTab")}</TabsTrigger>
             <TabsTrigger value="notif"><Bell className="w-4 h-4 mr-1" />{L("notifTab")}</TabsTrigger>
             <TabsTrigger value="db"><Database className="w-4 h-4 mr-1" />{L("dbTab")}</TabsTrigger>
-            <TabsTrigger value="cleanup"><Trash2 className="w-4 h-4 mr-1" />{L("cleanupTab")}</TabsTrigger>
+            <TabsTrigger value="cleanup"><Trash2 className="w-4 h-4 mr-1 text-destructive" />{L("cleanupTab")}</TabsTrigger>
             <TabsTrigger value="mcp"><Key className="w-4 h-4 mr-1" />{L("mcpTab")}</TabsTrigger>
           </TabsList>
 
@@ -877,7 +877,7 @@ const SystemSettingsPage = () => {
                                 className="text-destructive hover:text-destructive"
                                 onClick={() => setRevokeTarget(tok)}
                               >
-                                <Trash2 className="w-4 h-4" />
+                                <Trash2 className="w-4 h-4 text-destructive" />
                               </Button>
                             </TableCell>
                           </TableRow>

@@ -216,7 +216,7 @@ export function ScreenSmartTriggerDialog({ open, onOpenChange, screenId, screenN
                 <Pencil className="w-3.5 h-3.5" />
               </Button>
               <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeScreenRule(rule.id)} title={t.remove}>
-                <Trash2 className="w-3.5 h-3.5" />
+                <Trash2 className="w-3.5 h-3.5 text-destructive" />
               </Button>
             </>
           )}

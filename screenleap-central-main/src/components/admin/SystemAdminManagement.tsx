@@ -252,7 +252,7 @@ export default function SystemAdminManagement() {
                     title={a.is_root ? t("sysAdminCannotRemoveRoot") : isSelf ? t("sysAdminCannotRemoveSelf") : t("delete")}
                     className="text-destructive hover:text-destructive"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
               );

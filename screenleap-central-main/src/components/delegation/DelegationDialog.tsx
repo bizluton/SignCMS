@@ -306,7 +306,7 @@ export function DelegationDialog({ open, onOpenChange }: Props) {
                       </p>
                     </div>
                     <Button variant="ghost" size="sm" onClick={() => handleRevoke(g.id, g.grantee_name)}>
-                      <Trash2 className="w-4 h-4 mr-1" />
+                      <Trash2 className="w-4 h-4 mr-1 text-destructive" />
                       {t("delegationRevoke")}
                     </Button>
                   </Card>

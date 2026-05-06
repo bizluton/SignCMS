@@ -754,7 +754,7 @@ export default function ScreensPage() {
                       {t("screensRenameGroup")}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setDeleteGroupTarget(g)} className="gap-2 text-xs text-destructive focus:text-destructive">
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-3.5 h-3.5 text-destructive" />
                       {t("screensDeleteGroup")}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -980,7 +980,7 @@ export default function ScreensPage() {
                     <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => setSmartTriggerScreen(screen)} title={locked ? lockedTitle : { zh: "智能觸發", en: "Smart Triggers", ja: "スマートトリガー" }[language]}><Zap className="w-4 h-4" /></Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => setSettingsScreen(screen)} title={locked ? lockedTitle : t("screenSettings")}><Settings className="w-4 h-4" /></Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => openEdit(screen)} title={locked ? lockedTitle : t("tipEditScreen")}><Pencil className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(screen.id)} title={t("tipDeleteScreen")}><Trash2 className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(screen.id)} title={t("tipDeleteScreen")}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                   </div>
                 );
               })()}
@@ -1643,7 +1643,7 @@ export default function ScreensPage() {
                             setIotDevices((prev) => prev.filter((d) => d.id !== device.id));
                             toast.success(t("iotDeviceRemoved"));
                           }}>
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-3.5 h-3.5 text-destructive" />
                           </Button>
                         </div>
                       );

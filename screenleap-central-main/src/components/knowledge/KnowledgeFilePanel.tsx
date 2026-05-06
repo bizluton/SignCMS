@@ -148,7 +148,7 @@ export function KnowledgeFilePanel({ knowledgeItemId, itemTitle }: Props) {
                         title={t("delete")}
                         onClick={() => deleteFile(file)}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-3.5 w-3.5 text-destructive" />
                       </Button>
                     </div>
                   </div>

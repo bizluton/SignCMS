@@ -538,7 +538,7 @@ export default function SchedulesPage() {
               <Pencil className="h-4 w-4 mr-1" /> {t("edit")}
             </Button>
             <Button variant="outline" size="sm" onClick={() => requestDeleteChannel(selectedChannel)}>
-              <Trash2 className="h-4 w-4 mr-1" /> {t("delete")}
+              <Trash2 className="h-4 w-4 mr-1 text-destructive" /> {t("delete")}
             </Button>
           </div>
         </div>
@@ -605,7 +605,7 @@ export default function SchedulesPage() {
                     <Pencil className="h-4 w-4" />
                   </Button>
                   <Button variant="ghost" size="icon" onClick={() => setDeletingBlock(b)}>
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
               ))}
@@ -672,7 +672,7 @@ export default function SchedulesPage() {
                     <Pencil className="h-4 w-4" />
                   </Button>
                   <Button variant="ghost" size="icon" onClick={() => setDeletingProjectSchedule(s)}>
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>
               ))}

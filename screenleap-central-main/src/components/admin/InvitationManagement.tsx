@@ -255,7 +255,7 @@ export default function InvitationManagement() {
                     )}
                     {inv.status === "pending" && (
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(inv)}>
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
                       </Button>
                     )}
                   </div>

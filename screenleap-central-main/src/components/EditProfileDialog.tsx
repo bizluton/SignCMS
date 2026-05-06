@@ -268,7 +268,7 @@ export function EditProfileDialog({ open, onOpenChange }: Props) {
                         onClick={handleRemoveAvatar}
                         disabled={busy}
                       >
-                        <Trash2 className="w-4 h-4 mr-2" />
+                        <Trash2 className="w-4 h-4 mr-2 text-destructive" />
                         {t("removeAvatar")}
                       </Button>
                     )}

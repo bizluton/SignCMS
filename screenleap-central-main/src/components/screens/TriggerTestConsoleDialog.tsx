@@ -804,7 +804,7 @@ export function TriggerTestConsoleDialog({ open, onOpenChange, defaultOrgId, def
                         載入
                       </Button>
                       <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-destructive" onClick={() => handleDeletePreset(p.id)}>
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className="w-3 h-3 text-destructive" />
                       </Button>
                     </div>
                   );

@@ -490,7 +490,7 @@ const AnnouncementPage = () => {
                       <img src={imageUrl} alt="preview" className="h-full w-full object-contain rounded-lg p-2" />
                       <button onClick={(e) => { e.stopPropagation(); setImageUrl(null); }}
                         className="absolute top-2 right-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:opacity-80">
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-4 w-4 text-destructive" />
                       </button>
                     </>
                   ) : (
@@ -655,7 +655,7 @@ const AnnouncementPage = () => {
                             <Pencil className="h-4 w-4" />
                           </Button>
                           <Button size="sm" variant="ghost" onClick={() => handleDelete(a.id)} className="text-destructive hover:text-destructive">
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -741,7 +741,7 @@ const AnnouncementPage = () => {
                     <img src={editImageUrl} alt="preview" className="h-full w-full object-contain rounded-lg p-2" />
                     <button onClick={(e) => { e.stopPropagation(); setEditImageUrl(null); }}
                       className="absolute top-2 right-2 bg-destructive text-destructive-foreground rounded-full p-1 hover:opacity-80">
-                      <Trash2 className="h-3 w-3" />
+                      <Trash2 className="h-3 w-3 text-destructive" />
                     </button>
                   </>
                 ) : (

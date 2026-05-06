@@ -143,7 +143,7 @@ const AnnouncementSettings = ({
                       <TableCell className="text-right">
                         <Button size="sm" variant="ghost" onClick={() => handleDeleteDept(d.value)}
                           className="text-destructive hover:text-destructive h-8 w-8 p-0">
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -190,7 +190,7 @@ const AnnouncementSettings = ({
                       <TableCell className="text-right">
                         <Button size="sm" variant="ghost" onClick={() => handleDeleteCat(c.id)}
                           className="text-destructive hover:text-destructive h-8 w-8 p-0">
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="h-3.5 w-3.5 text-destructive" />
                         </Button>
                       </TableCell>
                     </TableRow>

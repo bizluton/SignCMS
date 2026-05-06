@@ -221,7 +221,7 @@ export default function TeamManagement() {
                     title={t("confirmDelete")}
                     disabled={team.name === "Default"}
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-3.5 h-3.5 text-destructive" />
                   </Button>
                 </div>
               </div>

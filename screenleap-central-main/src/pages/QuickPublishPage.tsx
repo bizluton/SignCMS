@@ -361,7 +361,7 @@ function SortableZoneMediaItem({
             <Eye className="h-4 w-4" />
           </button>
           <button type="button" className="shrink-0 rounded-md p-1 text-destructive hover:bg-destructive/10" onClick={(event) => { event.stopPropagation(); onRemove(); }}>
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="h-4 w-4 text-destructive" />
           </button>
         </span>
       </span>

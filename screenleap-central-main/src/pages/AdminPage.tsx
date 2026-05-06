@@ -369,7 +369,7 @@ export default function AdminPage() {
                           )}
                           {canDelete && (
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeleteDialog(u)} title={t("adminDeleteUser")}>
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4 text-destructive" />
                             </Button>
                           )}
                         </div>

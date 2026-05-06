@@ -272,7 +272,7 @@ export function ScreenChannelDialog({ open, onOpenChange, screenId, screenName, 
                           </div>
                           <div className="col-span-1 flex items-end">
                             <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => removeTrigger(i)}>
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4 text-destructive" />
                             </Button>
                           </div>
                         </div>

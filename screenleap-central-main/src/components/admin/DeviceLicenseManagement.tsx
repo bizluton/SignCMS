@@ -214,7 +214,7 @@ export default function DeviceLicenseManagement() {
                         </Button>
                       )}
                       <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => remove(r.id, `${r.device_model}/${r.device_serial}`)} title="刪除">
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
                       </Button>
                     </div>
                   </TableCell>
@@ -568,7 +568,7 @@ function SortableModelRow({
               <Pencil className="w-3.5 h-3.5" />
             </Button>
             <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={onRemove} title="刪除">
-              <Trash2 className="w-3.5 h-3.5" />
+              <Trash2 className="w-3.5 h-3.5 text-destructive" />
             </Button>
           </div>
         )}
