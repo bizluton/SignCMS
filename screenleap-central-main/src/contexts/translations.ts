@@ -1197,6 +1197,12 @@ const translations = {
   studioOpen: { zh: "開啟", en: "Open", ja: "開く" },
   studioPreview: { zh: "預覽", en: "Preview", ja: "プレビュー" },
   studioQuickPublish: { zh: "快速發佈", en: "Quick Publish", ja: "クイック公開" },
+  // Quick Publish pre-flight validation
+  qpNeedProject:    { zh: "請先開啟或儲存專案", en: "Open or save a project first", ja: "プロジェクトを開くか保存してください" },
+  qpBlockTitle:     { zh: "快速發佈前請先完成設計", en: "Complete your design before publishing", ja: "発佈前にデザインを完成させてください" },
+  qpBlockUnsaved:   { zh: "目前的專案尚有未儲存的變更，快速發佈需要已儲存的專案，請先儲存再繼續。", en: "You have unsaved changes. Quick Publish requires a saved project — please save first.", ja: "未保存の変更があります。クイック公開には保存済みのプロジェクトが必要です。先に保存してください。" },
+  qpBlockNoZones:   { zh: "畫布中尚未套用版型，請先在左側版型庫選擇一個版型後再快速發佈。", en: "No layout has been applied to the canvas yet. Please select a layout from the left panel first.", ja: "キャンバスにレイアウトが適用されていません。先に左パネルからレイアウトを選択してください。" },
+  qpBlockEmptyZones:{ zh: "畫布中有尚未安置素材的區塊（Zone），請將圖片或影片放入所有 Zone 後再快速發佈。", en: "Some zones have no media content yet. Please add images or videos to all zones before publishing.", ja: "素材が配置されていないゾーンがあります。すべてのゾーンに画像または動画を追加してから発佈してください。" },
   studioPreviewTitle: { zh: "整體播放預覽", en: "Project Playback Preview", ja: "全体再生プレビュー" },
   studioPreviewPlay: { zh: "播放", en: "Play", ja: "再生" },
   studioPreviewPause: { zh: "暫停", en: "Pause", ja: "一時停止" },

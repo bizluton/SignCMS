@@ -5113,6 +5113,8 @@ export default function ContentStudioPage() {
   const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
   const [quickPublishOpen, setQuickPublishOpen] = useState(false);
+  // "qp" = quick-publish validation block reason shown in AlertDialog
+  const [qpBlockReason, setQpBlockReason] = useState<"unsaved" | "no_zones" | "empty_zones" | null>(null);
   const [projectName, setProjectName] = useState("");
   // Inline project-name editing (badge in canvas header)
   const [projectNameEditing, setProjectNameEditing] = useState(false);
@@ -6828,6 +6830,46 @@ export default function ContentStudioPage() {
     }, 30000);
   }, []);
 
+  /**
+   * handleQuickPublishClick — pre-flight validation before opening the Quick Publish dialog.
+   *
+   * Conditions that BLOCK publish (in priority order):
+   *  1. No saved project → button is disabled; should never reach here
+   *  2. isDirty          → project has unsaved changes
+   *  3. zones.length===0 → no layout template applied yet
+   *  4. empty zones      → at least one zone has no content (media type with 0 items, or no content at all)
+   */
+  const handleQuickPublishClick = useCallback(() => {
+    if (!currentProject) return; // guarded by button disabled state
+
+    if (isDirty) {
+      setQpBlockReason("unsaved");
+      return;
+    }
+
+    // Check current canvas (zones on the active page)
+    if (zones.length === 0) {
+      setQpBlockReason("no_zones");
+      return;
+    }
+
+    const emptyZones = zones.filter((z) => {
+      if (!z.content) return true; // no content object at all
+      if (z.content.type === "media") {
+        return !z.content.mediaItems || z.content.mediaItems.length === 0;
+      }
+      // "widget" / "text" / "color" zones are considered configured
+      return false;
+    });
+
+    if (emptyZones.length > 0) {
+      setQpBlockReason("empty_zones");
+      return;
+    }
+
+    setQuickPublishOpen(true);
+  }, [currentProject, isDirty, zones]);
+
   // Layout panel manual collapse (persisted) — independent from auto-collapse on zone selection
   const [layoutPanelManuallyCollapsed, setLayoutPanelManuallyCollapsed] = useState<boolean>(() => {
     try { return localStorage.getItem("studio:layoutPanelManuallyCollapsed") === "1"; } catch { return false; }
@@ -7159,9 +7201,9 @@ export default function ContentStudioPage() {
             variant="default"
             size="sm"
             className="gap-1.5 text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white border-0"
-            onClick={() => setQuickPublishOpen(true)}
-            disabled={!currentProject && zones.length === 0}
-            title={!currentProject ? "請先儲存專案再快速發佈" : "快速發佈"}
+            onClick={handleQuickPublishClick}
+            disabled={!currentProject}
+            title={!currentProject ? t("qpNeedProject") : t("studioQuickPublish")}
           >
             <Rocket className="w-3.5 h-3.5" /> {t("studioQuickPublish")}
           </Button>
@@ -9096,6 +9138,37 @@ export default function ContentStudioPage() {
         activeOrgId={activeOrgId}
         userId={user?.id}
       />
+
+      {/* Quick Publish — pre-flight validation block dialog */}
+      <AlertDialog open={qpBlockReason !== null} onOpenChange={(o) => { if (!o) setQpBlockReason(null); }}>
+        <AlertDialogContent className="max-w-sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Rocket className="w-4 h-4 text-emerald-600 shrink-0" />
+              {t("qpBlockTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="pt-1">
+              {qpBlockReason === "unsaved" && t("qpBlockUnsaved")}
+              {qpBlockReason === "no_zones" && t("qpBlockNoZones")}
+              {qpBlockReason === "empty_zones" && t("qpBlockEmptyZones")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:gap-2">
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            {qpBlockReason === "unsaved" && (
+              <AlertDialogAction
+                onClick={() => {
+                  setQpBlockReason(null);
+                  if (currentProject) handleSave();
+                  else openSaveDialogForNew();
+                }}
+              >
+                <Save className="w-3.5 h-3.5 mr-1.5" /> {t("save")}
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Unsaved-changes confirmation */}
       <AlertDialog open={pendingDestructiveAction !== null} onOpenChange={(o) => { if (!o) setPendingDestructiveAction(null); }}>
