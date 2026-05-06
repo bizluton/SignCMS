@@ -406,29 +406,42 @@ class MediaZoneEngine {
     this._scheduleNext(0);
   }
 
-  /** Build an iframe for a widget mediaItem */
+  /** Build an iframe for a widget mediaItem.
+   *  Uses srcdoc to bypass Supabase Storage's CSP (default-src 'none'; sandbox)
+   *  which blocks all scripts and external resources. */
   _createWidgetFrame(item) {
-    const wc     = item.widgetConfig || {};
-    console.log("[DBG] _createWidgetFrame url:", wc.url, "params:", JSON.stringify(wc.params));
-    const params = new URLSearchParams(wc.params || {});
-    if (wc.bgColor)     params.set("bgColor",     wc.bgColor);
-    if (wc.textColor)   params.set("textColor",   wc.textColor);
-    if (wc.accentColor) params.set("accentColor", wc.accentColor);
-    if (wc.animation)   params.set("animation",   wc.animation);
+    const wc = item.widgetConfig || {};
+    // Collect params into plain object for window.__widgetParams injection
+    const params = Object.assign({}, wc.params || {});
+    if (wc.bgColor)     params.bgColor     = wc.bgColor;
+    if (wc.textColor)   params.textColor   = wc.textColor;
+    if (wc.accentColor) params.accentColor = wc.accentColor;
+    if (wc.animation)   params.animation   = wc.animation;
 
     const frame = el("iframe", "media-item");
-    frame.src = wc.url ? `${wc.url}?${params}` : "";
-    // Explicit sizing so it fills the zone even outside .zone-media context
     frame.style.cssText = [
-      "border:none",
-      "position:absolute",
-      "inset:0",
-      "width:100%",
-      "height:100%",
+      "border:none", "position:absolute", "inset:0",
+      "width:100%", "height:100%",
       `background:${wc.bgColor || "#000"}`,
     ].join(";");
-    // Do NOT set sandbox — Electron has webSecurity:false and sandbox would
-    // override main.js CSP-header removal, blocking widget scripts anyway.
+
+    if (wc.url) {
+      console.log("[DBG] widget fetch:", wc.url, JSON.stringify(params));
+      fetch(wc.url)
+        .then((r) => r.text())
+        .then((html) => {
+          // Inject <base> for relative paths + __widgetParams before widget's own script
+          const inject = `<base href="${wc.url}"><script>window.__widgetParams=${JSON.stringify(params)};\x3C/script>`;
+          const patched = /<head/i.test(html)
+            ? html.replace(/(<head[^>]*>)/i, `$1${inject}`)
+            : inject + html;
+          frame.srcdoc = patched;
+        })
+        .catch((e) => {
+          console.error("[Player] widget fetch failed:", e);
+          frame.src = `${wc.url}?${new URLSearchParams(params)}`;
+        });
+    }
     return frame;
   }
 
@@ -542,18 +555,29 @@ function renderUrlZone(container, content) {
 }
 
 /** Render a type:"widget" zone (single widgetConfig, no carousel). */
-function renderWidgetZone(container, wc, zoneId) {
-  const params = new URLSearchParams(wc.params || {});
-  if (wc.bgColor)     params.set("bgColor",     wc.bgColor);
-  if (wc.textColor)   params.set("textColor",   wc.textColor);
-  if (wc.accentColor) params.set("accentColor", wc.accentColor);
-  if (wc.animation)   params.set("animation",   wc.animation);
+function renderWidgetZone(container, wc) {
+  const params = Object.assign({}, wc.params || {});
+  if (wc.bgColor)     params.bgColor     = wc.bgColor;
+  if (wc.textColor)   params.textColor   = wc.textColor;
+  if (wc.accentColor) params.accentColor = wc.accentColor;
+  if (wc.animation)   params.animation   = wc.animation;
 
   const frame = el("iframe");
-  frame.src        = wc.url ? `${wc.url}?${params}` : "";
-  frame.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:none";
-  if (wc.bgColor) frame.style.background = wc.bgColor;
+  frame.style.cssText = `position:absolute;inset:0;width:100%;height:100%;border:none;background:${wc.bgColor || "#000"}`;
   container.appendChild(frame);
+
+  if (wc.url) {
+    fetch(wc.url)
+      .then((r) => r.text())
+      .then((html) => {
+        const inject = `<base href="${wc.url}"><script>window.__widgetParams=${JSON.stringify(params)};\x3C/script>`;
+        const patched = /<head/i.test(html)
+          ? html.replace(/(<head[^>]*>)/i, `$1${inject}`)
+          : inject + html;
+        frame.srcdoc = patched;
+      })
+      .catch(() => { frame.src = `${wc.url}?${new URLSearchParams(params)}`; });
+  }
 }
 
 function renderClockZone(container, content) {
