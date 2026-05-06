@@ -17,11 +17,12 @@ let pageTimer   = null;
 let zoneEngines = {};        // { zoneId: ZoneEngine }
 let bgmMeta     = null;
 let bgmIdx      = 0;
-let annQueue    = [];        // active announcements
-let annTimer    = null;
-let pinnedAnn   = null;
-let pinnedTimer = null;
-let projectId   = null;      // track to detect content changes
+let annQueue         = [];   // active announcements
+let annTimer         = null;
+let pinnedAnn        = null;
+let pinnedTimer      = null;
+let projectId        = null; // track to detect content changes
+let annZoneContainers = [];  // DOM containers for announcement zones in current page
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UTILITIES
@@ -271,7 +272,8 @@ function renderPage(page) {
   if (!page) return;
   const wrap = $("canvas-wrap");
   wrap.innerHTML = "";
-  zoneEngines    = {};
+  zoneEngines       = {};
+  annZoneContainers = []; // reset per page
 
   (page.zones || []).forEach((z) => {
     const div = el("div", "zone");
@@ -293,10 +295,14 @@ function renderPage(page) {
     } else if (z.content?.type === "clock") {
       renderClockZone(div, z.content);
     } else if (z.content?.type === "announcement") {
-      renderAnnouncementZone(div);
+      renderAnnouncementZone(div, z.content);
+      annZoneContainers.push({ el: div, cfg: z.content });
     }
     wrap.appendChild(div);
   });
+
+  // After page renders, refresh announcements into zones (or hide bar if no zone)
+  updateAnnouncements(annQueue);
 
   $("h-page").textContent = `${page.name || pageIdx + 1}`;
 }
@@ -466,11 +472,50 @@ function renderClockZone(container, content) {
   container._clockId = id;
 }
 
-function renderAnnouncementZone(container) {
-  const div       = el("div", "zone-text");
-  div.id          = `ann-zone-${Date.now()}`;
-  div.style.cssText = "font-size:16px;color:#fbbf24;text-align:left;align-items:flex-start;overflow:hidden";
-  container.appendChild(div);
+function renderAnnouncementZone(container, content) {
+  // Build inline ticker structure — styled from zone content config
+  const cfg       = content?.config || {};
+  const textColor = cfg.textColor  || "#ffffff";
+  const badgeColor= cfg.badgeColor || "#ef4444";
+  const badgeText = cfg.badgeText  || "公告";
+  const fontSize  = cfg.fontSize   || 15;
+  const showBadge = cfg.showBadge  !== false;
+
+  container.style.display    = "flex";
+  container.style.alignItems = "center";
+  container.style.overflow   = "hidden";
+  container.style.background = container.style.background || "rgba(0,0,0,.85)";
+
+  if (showBadge) {
+    const badge = el("div");
+    badge.className = "ann-zone-badge";
+    badge.textContent = badgeText;
+    badge.style.cssText = [
+      `background:${badgeColor}`, `color:#fff`,
+      `font-size:${Math.max(10, fontSize - 3)}px`, `font-weight:700`,
+      `flex-shrink:0`, `height:100%`, `padding:0 12px`,
+      `display:flex`, `align-items:center`,
+      `letter-spacing:.5px`, `text-transform:uppercase`, `white-space:nowrap`,
+    ].join(";");
+    container.appendChild(badge);
+  }
+
+  const track = el("div");
+  track.style.cssText = "flex:1;overflow:hidden;height:100%;display:flex;align-items:center";
+
+  const ticker = el("div");
+  ticker.id    = `ann-zone-ticker-${Date.now()}`;
+  ticker.style.cssText = [
+    `white-space:nowrap`, `font-size:${fontSize}px`,
+    `color:${textColor}`, `padding-left:16px`,
+    `animation:ticker linear infinite`, `animation-play-state:paused`,
+  ].join(";");
+
+  track.appendChild(ticker);
+  container.appendChild(track);
+  // Store ticker ref on container for later updates
+  container._annTicker = ticker;
+  container._annConfig = cfg;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -510,13 +555,8 @@ function stopBgm() {
 // ─────────────────────────────────────────────────────────────────────────────
 function updateAnnouncements(list) {
   annQueue = list;
-  if (!list.length) {
-    $("announcement-bar").classList.remove("visible");
-    hidePinnedAnn();
-    return;
-  }
 
-  // Handle pinned (full-screen overlay) first
+  // Pinned announcement: always show as full-screen overlay regardless of zones
   const pinned = list.find((a) => a.pinned);
   if (pinned && pinnedAnn?.id !== pinned.id) {
     showPinnedAnn(pinned);
@@ -524,35 +564,51 @@ function updateAnnouncements(list) {
     hidePinnedAnn();
   }
 
-  // Ticker bar for non-pinned
+  // Ticker: ONLY render if current page has an announcement zone
   const normal = list.filter((a) => !a.pinned);
-  if (normal.length) {
-    updateTicker(normal);
+
+  if (annZoneContainers.length > 0) {
+    // Zone-controlled mode — render inside each announcement zone, hide global bar
+    $("announcement-bar").classList.remove("visible");
+    if (normal.length > 0) {
+      annZoneContainers.forEach(({ el: container }) => {
+        renderZoneTicker(container, normal);
+      });
+    } else {
+      // No non-pinned announcements — blank the zone ticker
+      annZoneContainers.forEach(({ el: container }) => {
+        if (container._annTicker) {
+          container._annTicker.textContent = "";
+          container._annTicker.style.animationPlayState = "paused";
+        }
+      });
+    }
   } else {
+    // No announcement zone in current project — hide global bar entirely
     $("announcement-bar").classList.remove("visible");
   }
 }
 
-function updateTicker(items) {
-  const bar    = $("announcement-bar");
-  const ticker = $("ann-ticker");
-  const badge  = $("ann-badge");
+/** Render announcement text into a zone's built-in ticker element */
+function renderZoneTicker(container, items) {
+  const ticker = container._annTicker;
+  if (!ticker) return;
 
-  badge.textContent = "公告";
-  badge.className   = "ann-badge";
+  const cfg      = container._annConfig || {};
+  const speed    = cfg.speed || 80; // px/s
 
-  // Duplicate for seamless loop
-  const texts = items.map((a) => `【${a.subject}】${stripHtml(a.content)}`).join("　　　　");
-  const full  = texts + "　　　　" + texts;
+  const texts = items.map((a) => `【${a.subject}】 ${stripHtml(a.content)}`).join("　　　　");
+  const full  = texts + "　　　　" + texts; // duplicate for seamless loop
+
   ticker.textContent = full;
 
-  // Adjust animation speed (≈100px/s)
-  const charPx   = ticker.scrollWidth / 2;
-  const duration = Math.max(10, charPx / 100);
-  ticker.style.animationDuration = `${duration}s`;
-  ticker.style.animationPlayState = "running";
-
-  bar.classList.add("visible");
+  // Calculate duration from content width
+  requestAnimationFrame(() => {
+    const w = ticker.scrollWidth / 2 || 1000;
+    const dur = Math.max(8, w / speed);
+    ticker.style.animationDuration    = `${dur}s`;
+    ticker.style.animationPlayState   = "running";
+  });
 }
 
 function showPinnedAnn(ann) {
@@ -597,7 +653,8 @@ function showNoContent(show) {
 function stopAllEngines() {
   clearTimeout(pageTimer);
   Object.values(zoneEngines).forEach((e) => e.stop?.());
-  zoneEngines = {};
+  zoneEngines       = {};
+  annZoneContainers = [];
   // Clear clock intervals
   document.querySelectorAll("[data-clock-id]").forEach((e) => clearInterval(e._clockId));
 }
