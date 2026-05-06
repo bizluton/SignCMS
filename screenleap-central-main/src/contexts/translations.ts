@@ -1196,6 +1196,7 @@ const translations = {
   studioPageTransitionDone: { zh: "完成", en: "Done", ja: "完了" },
   studioOpen: { zh: "開啟", en: "Open", ja: "開く" },
   studioPreview: { zh: "預覽", en: "Preview", ja: "プレビュー" },
+  studioQuickPublish: { zh: "快速發佈", en: "Quick Publish", ja: "クイック公開" },
   studioPreviewTitle: { zh: "整體播放預覽", en: "Project Playback Preview", ja: "全体再生プレビュー" },
   studioPreviewPlay: { zh: "播放", en: "Play", ja: "再生" },
   studioPreviewPause: { zh: "暫停", en: "Pause", ja: "一時停止" },

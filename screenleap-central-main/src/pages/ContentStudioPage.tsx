@@ -44,7 +44,7 @@ import {
   Layers, Code2, Clock, Calendar, Globe, CloudSun, QrCode, Timer, Youtube, Move, Maximize2, Lock, Unlock, Check,
   Search, ArrowUpDown, ArrowDownAZ, ArrowUpAZ, GripVertical, MoreHorizontal, PanelLeft, PanelRight, Edit3, Eye, EyeOff, List, ChevronUp, ChevronDown,
   Music, Volume2, Settings2, VolumeX,
-  Download, Loader2, Radio, Megaphone,
+  Download, Loader2, Radio, Megaphone, Rocket,
   SlidersHorizontal, CheckCircle2, AlertTriangle,
 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -59,6 +59,7 @@ import { WidgetPreviewCard } from "@/components/widgets/WidgetPreviewCard";
 import QueueDisplayWidget from "@/components/widgets/QueueDisplayWidget";
 import MeetingRoomWidget from "@/components/widgets/MeetingRoomWidget";
 import { StudioPreviewDialog } from "@/components/studio/StudioPreviewDialog";
+import { QuickPublishDialog } from "@/components/studio/QuickPublishDialog";
 import {
   STUDIO_DATA_VERSION,
   getStudioSourceCacheStatus,
@@ -5116,6 +5117,7 @@ export default function ContentStudioPage() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [quickPublishOpen, setQuickPublishOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
   // Inline project-name editing (badge in canvas header)
   const [projectNameEditing, setProjectNameEditing] = useState(false);
@@ -7192,6 +7194,16 @@ export default function ContentStudioPage() {
           <Button variant="default" size="sm" className="gap-1.5 text-xs h-8" onClick={() => { if (currentProject) handleSave(); else openSaveDialogForNew(); }} disabled={saving}>
             <Save className="w-3.5 h-3.5" /> {t("save")}
           </Button>
+          <Button
+            variant="default"
+            size="sm"
+            className="gap-1.5 text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white border-0"
+            onClick={() => setQuickPublishOpen(true)}
+            disabled={!currentProject && zones.length === 0}
+            title={!currentProject ? "請先儲存專案再快速發佈" : "快速發佈"}
+          >
+            <Rocket className="w-3.5 h-3.5" /> {t("studioQuickPublish")}
+          </Button>
           {currentProject && (
             <Button
               variant="outline"
@@ -9102,6 +9114,17 @@ export default function ContentStudioPage() {
             })}
           </div>
         )}
+      />
+
+      {/* Quick Publish Dialog */}
+      <QuickPublishDialog
+        open={quickPublishOpen}
+        onClose={() => setQuickPublishOpen(false)}
+        project={currentProject}
+        isDirty={isDirty}
+        onSaveFirst={async () => { await handleSave(); }}
+        activeOrgId={activeOrgId}
+        userId={user?.id}
       />
 
       {/* Unsaved-changes confirmation */}
