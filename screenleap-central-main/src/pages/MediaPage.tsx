@@ -455,6 +455,20 @@ const MediaPage = () => {
   const [mediaScheduleMap, setMediaScheduleMap] = useState<Map<string, { id: string; name: string }[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+
+  // ── Guard: prevent accidental navigation while a file upload is in progress ──
+  const uploadingRef = useRef(false);
+  uploadingRef.current = uploading;
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!uploadingRef.current) return;
+      e.preventDefault();
+      e.returnValue = ""; // triggers native browser dialog
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
   // Filters are persisted in the URL (so refresh + share-link work) and mirrored to
   // localStorage as a fallback for first visits.
   const FILTERS_KEY = "signcms_media_filters_v1";

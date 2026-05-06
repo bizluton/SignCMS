@@ -136,6 +136,8 @@ const AnnouncementPage = () => {
     teamPh:         { zh: "選擇團隊（留空 = 全組織）", en: "Select team (empty = org-wide)", ja: "チーム（空欄=組織全体）" },
     teamAll:        { zh: "全組織",             en: "Org-wide",                       ja: "組織全体" },
     colTeam:        { zh: "對象",               en: "Audience",                       ja: "配信対象" },
+    draftBanner:    { zh: "草稿已還原，請確認後發佈", en: "Draft restored — please review before publishing", ja: "ドラフトを復元しました。確認してから公開してください" },
+    draftDiscard:   { zh: "捨棄草稿", en: "Discard Draft", ja: "ドラフトを破棄" },
   };
   const t = (key: keyof typeof texts) => texts[key][language];
 
@@ -226,6 +228,66 @@ const AnnouncementPage = () => {
 
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // ── Draft auto-save / restore ─────────────────────────────────────────────
+  // Saves the new-announcement form to localStorage every 2 s while the user
+  // is typing, and restores it on page load after an unexpected reload.
+  // Note: imageUrl (base64) is intentionally excluded — too large for localStorage.
+  type AnnouncementDraft = {
+    v: 1; orgId: string | null; savedAt: string;
+    subject: string; teamId: string; department: string; categoryId: string;
+    pinned: boolean; content: string;
+    startDate: string | null; endDate: string | null; dwell: number;
+  };
+  const announcementDraftKey = (oid: string | null) => `announcement:draft:${oid ?? "noorg"}`;
+
+  // draftLoadKey increments to force TipTap editor remount with new content
+  const [draftLoadKey, setDraftLoadKey] = useState(0);
+  const [draftRestoredAt, setDraftRestoredAt] = useState<string | null>(null);
+
+  // Auto-save: debounced 2 s, only when there's meaningful content
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!activeOrgId || (!subject.trim() && !content)) return;
+    if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+    draftTimerRef.current = setTimeout(() => {
+      try {
+        const draft: AnnouncementDraft = {
+          v: 1, orgId: activeOrgId, savedAt: new Date().toISOString(),
+          subject, teamId, department, categoryId, pinned, content,
+          startDate: startDate?.toISOString() ?? null,
+          endDate:   endDate?.toISOString()   ?? null,
+          dwell,
+        };
+        localStorage.setItem(announcementDraftKey(activeOrgId), JSON.stringify(draft));
+      } catch { /* quota exceeded — ignore */ }
+    }, 2000);
+    return () => { if (draftTimerRef.current) clearTimeout(draftTimerRef.current); };
+  }, [activeOrgId, subject, teamId, department, categoryId, pinned, content, startDate, endDate, dwell]);
+
+  // Restore draft once per org session
+  const draftRestoredOrgRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeOrgId || draftRestoredOrgRef.current === activeOrgId) return;
+    draftRestoredOrgRef.current = activeOrgId;
+    try {
+      const raw = localStorage.getItem(announcementDraftKey(activeOrgId));
+      if (!raw) return;
+      const d = JSON.parse(raw) as AnnouncementDraft;
+      if (d.v !== 1 || (!d.subject && !d.content)) return;
+      setSubject(d.subject || "");
+      setTeamId(d.teamId || "");
+      setDepartment(d.department || "");
+      setCategoryId(d.categoryId || "");
+      setPinned(!!d.pinned);
+      setContent(d.content || "");
+      setStartDate(d.startDate ? new Date(d.startDate) : undefined);
+      setEndDate(d.endDate   ? new Date(d.endDate)   : undefined);
+      setDwell(typeof d.dwell === "number" ? d.dwell : 10);
+      setDraftLoadKey((k) => k + 1); // force RichTextEditor remount with new content
+      setDraftRestoredAt(d.savedAt);
+    } catch { /* corrupt data — ignore */ }
+  }, [activeOrgId]);
+
   const handleImageSelect = (file: File) => {
     if (!file.type.startsWith("image/")) return;
     const reader = new FileReader();
@@ -263,6 +325,9 @@ const AnnouncementPage = () => {
       setSubject(""); setTeamId(""); setDepartment(""); setCategoryId("");
       setPinned(false); setContent(""); setImageUrl(null);
       setStartDate(undefined); setEndDate(undefined); setDwell(10);
+      setDraftRestoredAt(null);
+      setDraftLoadKey((k) => k + 1);
+      try { localStorage.removeItem(announcementDraftKey(activeOrgId)); } catch { /* ignore */ }
       await loadAnnouncements(activeOrgId);
     } finally {
       setPublishing(false);
@@ -409,6 +474,27 @@ const AnnouncementPage = () => {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
             {/* Left: Form */}
             <div className="space-y-5 bg-card border border-border rounded-2xl p-6">
+              {/* Draft-restored banner */}
+              {draftRestoredAt && (
+                <div className="flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700 px-4 py-2 text-sm text-amber-800 dark:text-amber-300">
+                  <span>{t("draftBanner")} · {new Date(draftRestoredAt).toLocaleTimeString()}</span>
+                  <button
+                    type="button"
+                    className="ml-4 text-xs underline underline-offset-2 hover:no-underline"
+                    onClick={() => {
+                      setSubject(""); setTeamId(""); setDepartment(""); setCategoryId("");
+                      setPinned(false); setContent(""); setImageUrl(null);
+                      setStartDate(undefined); setEndDate(undefined); setDwell(10);
+                      setDraftRestoredAt(null);
+                      setDraftLoadKey((k) => k + 1);
+                      try { localStorage.removeItem(announcementDraftKey(activeOrgId)); } catch { /* ignore */ }
+                    }}
+                  >
+                    {t("draftDiscard")}
+                  </button>
+                </div>
+              )}
+
               {/* Subject */}
               <div className="space-y-2">
                 <Label className="text-base font-semibold">{t("subject")}</Label>
@@ -472,7 +558,7 @@ const AnnouncementPage = () => {
               {/* Content */}
               <div className="space-y-2">
                 <Label className="text-base font-semibold">{t("contentLabel")}</Label>
-                <RichTextEditor content={content} onChange={setContent} placeholder={t("contentPh")} minHeight="160px" />
+                <RichTextEditor key={draftLoadKey} content={content} onChange={setContent} placeholder={t("contentPh")} minHeight="160px" />
               </div>
 
               {/* Image */}

@@ -169,7 +169,17 @@ export default function PublishingCenterPage() {
   // Emergency broadcast state
   const [emergencyOpen, setEmergencyOpen] = useState(false);
   const [emergencyConfirmOpen, setEmergencyConfirmOpen] = useState(false);
-  const [emergencyMessage, setEmergencyMessage] = useState("");
+  // Persist emergency message across unexpected reloads (ChunkLoadError, HMR, etc.)
+  const EMERGENCY_MSG_SESSION_KEY = "publishing:emergencyMsg";
+  const [emergencyMessage, setEmergencyMessage] = useState<string>(() => {
+    try { return sessionStorage.getItem(EMERGENCY_MSG_SESSION_KEY) ?? ""; } catch { return ""; }
+  });
+  useEffect(() => {
+    try {
+      if (emergencyMessage) sessionStorage.setItem(EMERGENCY_MSG_SESSION_KEY, emergencyMessage);
+      else sessionStorage.removeItem(EMERGENCY_MSG_SESSION_KEY);
+    } catch { /* ignore */ }
+  }, [emergencyMessage]);
   const [emergencyPublishing, setEmergencyPublishing] = useState(false);
   const [showEmergencySuccess, setShowEmergencySuccess] = useState(false);
 
@@ -667,6 +677,7 @@ export default function PublishingCenterPage() {
         .map((s) => ({ screenId: s.id, orgId: s.org_id as string, eventType: "system" as const, eventCode: "system.emergency_broadcast", eventParams: { message: emergencyMessage.trim() }, eventTitle: "🚨 緊急廣播", eventDetail: emergencyMessage.trim() }));
       logScreenEvents(events);
       setEmergencyMessage("");
+      try { sessionStorage.removeItem(EMERGENCY_MSG_SESSION_KEY); } catch { /* ignore */ }
       setEmergencyOpen(false);
       setEmergencyConfirmOpen(false);
       fetchData();

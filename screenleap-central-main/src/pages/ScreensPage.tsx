@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Monitor, Plus, Pencil, Trash2, Search, MapPin, Loader2, FolderPlus, Layers, MoreHorizontal, Settings, RotateCw, Power, RefreshCw, Eye, Moon, Play, Brush, FileText, Radio, Wifi, Cable, ArrowUpDown, SlidersHorizontal, X, WifiOff, Zap, TerminalSquare, ShieldOff } from "lucide-react";
 import { Tv } from "lucide-react";
@@ -98,6 +98,25 @@ export default function ScreensPage() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
 
+  // ── Guard: warn before reload when add/edit dialog has unsaved changes ────
+  const dialogOpenRef = useRef(false);
+  const formRef = useRef(emptyForm);
+  const licenseInfoRef = useRef<typeof licenseInfo | null>(null);
+  useEffect(() => { dialogOpenRef.current = dialogOpen; }, [dialogOpen]);
+  useEffect(() => { formRef.current = form; }, [form]);
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!dialogOpenRef.current) return;
+      const f = formRef.current;
+      const hasData = f.name.trim() || f.location.trim() || f.branch.trim() || licenseInfoRef.current;
+      if (!hasData) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
   // Device license verification (only used when adding a new screen)
   const [licenseCode, setLicenseCode] = useState("");
   const [licenseChecking, setLicenseChecking] = useState(false);
@@ -106,6 +125,7 @@ export default function ScreensPage() {
     | null
     | { device_model: string; device_serial: string; org_id: string; org_name?: string }
   >(null);
+  useEffect(() => { licenseInfoRef.current = licenseInfo; }, [licenseInfo]);
 
   // Dynamic groups
   const [groups, setGroups] = useState<string[]>([]);
