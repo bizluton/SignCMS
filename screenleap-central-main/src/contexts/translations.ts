@@ -437,6 +437,7 @@ const translations = {
   mediaInUseWarning: { zh: "此素材正在使用中，無法刪除。請先從以下位置移除後再刪除。", en: "This media is in use and cannot be deleted. Remove it from the following first.", ja: "このメディアは使用中のため削除できません。先に以下から削除してください。" },
   mediaUsedInProjects: { zh: "設計專案", en: "Design Projects", ja: "デザインプロジェクト" },
   mediaUsedInSchedules: { zh: "播放清單排程", en: "Schedules", ja: "スケジュール" },
+  mediaUsedInChannels:  { zh: "頻道背景音樂", en: "Channel BGM", ja: "チャンネルBGM" },
   mediaInUseGoSchedules: { zh: "前往排程移除綁定", en: "Open Schedules to remove", ja: "スケジュールを開いて解除" },
   mediaInUseGoStudio: { zh: "前往設計工作室移除綁定", en: "Open Studio to remove", ja: "デザインスタジオで解除" },
   mediaType: { zh: "類型", en: "Type", ja: "タイプ" },
@@ -1269,6 +1270,16 @@ const translations = {
   studioDeleteCancelRequestBtn: { zh: "取消刪除佇列", en: "Cancel queued delete", ja: "削除待機を取消" },
   studioDeleteQueuedBadge: { zh: "待刪除", en: "Pending delete", ja: "削除待機" },
   studioDeleteAutoExecuted: { zh: "引用已清除，專案已自動刪除", en: "References cleared — project auto-deleted", ja: "参照が解除され、自動的に削除されました" },
+  // Idle assets reminder dialog
+  idleAssetsTitle:          { zh: "閒置素材提醒", en: "Idle Assets Reminder", ja: "アイドルアセットのリマインダー" },
+  idleAssetsDesc:           { zh: "以下素材或專案超過 90 天未被使用，建議清理以節省空間。", en: "The following items have not been used for over 90 days. Consider cleaning them up to free storage.", ja: "以下のアイテムが 90 日以上使用されていません。ストレージ節約のため整理を検討してください。" },
+  idleAssetsMediaSection:   { zh: "閒置媒體素材", en: "Idle Media Files", ja: "アイドルメディアファイル" },
+  idleAssetsProjectSection: { zh: "閒置設計專案", en: "Idle Design Projects", ja: "アイドルデザインプロジェクト" },
+  idleAssetsDismiss:        { zh: "暫時忽略", en: "Dismiss for now", ja: "今は無視する" },
+  idleAssetsGoMedia:        { zh: "前往媒體櫃", en: "Go to Media Library", ja: "メディアライブラリへ" },
+  idleAssetsGoStudio:       { zh: "前往設計工作室", en: "Go to Studio", ja: "スタジオへ" },
+  // Auto-deleted expired schedules
+  autoDeletedExpiredSchedules: { zh: "已自動刪除 {count} 個過期排程", en: "Auto-deleted {count} expired schedule(s)", ja: "{count} 件の期限切れスケジュールを自動削除しました" },
   // Channel reference check (pre-delete impact summary)
   channelDeleteImpactTitle: { zh: "刪除頻道前確認影響範圍", en: "Confirm channel delete impact", ja: "チャンネル削除の影響を確認" },
   channelDeleteImpactDesc: {

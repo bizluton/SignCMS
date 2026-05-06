@@ -115,6 +115,43 @@ export default function SchedulesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId, selectedChannelId]);
 
+  // Auto-delete project_schedules whose end date is more than 90 days in the past.
+  // Runs once per org change (not on every reload) via a ref guard.
+  const autoDeletedExpiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeOrgId) return;
+    if (autoDeletedExpiredRef.current === activeOrgId) return;
+    autoDeletedExpiredRef.current = activeOrgId;
+    void (async () => {
+      const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      // Fetch expired calendar-type schedules
+      const { data: calExpired } = await supabase
+        .from("project_schedules")
+        .select("id")
+        .eq("org_id", activeOrgId)
+        .eq("block_type", "calendar")
+        .not("end_at", "is", null)
+        .lt("end_at", cutoff);
+      // Fetch expired weekly-type schedules
+      const { data: weekExpired } = await supabase
+        .from("project_schedules")
+        .select("id")
+        .eq("org_id", activeOrgId)
+        .eq("block_type", "weekly")
+        .not("effective_to", "is", null)
+        .lt("effective_to", cutoff);
+      const expiredIds = [
+        ...((calExpired ?? []) as { id: string }[]).map((r) => r.id),
+        ...((weekExpired ?? []) as { id: string }[]).map((r) => r.id),
+      ];
+      if (expiredIds.length === 0) return;
+      await supabase.from("project_schedules").delete().in("id", expiredIds);
+      reloadProjectSchedules();
+      toast.info(t("autoDeletedExpiredSchedules").replace("{count}", String(expiredIds.length)));
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrgId]);
+
   const isBlockExpired = (b: ChannelBlock): boolean => {
     const now = new Date();
     if (b.block_type === "calendar") {

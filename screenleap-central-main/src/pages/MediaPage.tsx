@@ -14,6 +14,8 @@ import { translatePlanLimitError } from "@/lib/planLimitError";
 import {
   checkMediaReferences,
   checkMediaReferencesBatch,
+  checkIdleAssets,
+  type IdleAssets,
   type MediaProjectRef,
 } from "@/lib/referenceCheck";
 import { computeFileMd5, isAcceptableImage, isAcceptableVideo, isAcceptableAudio, validateVideoSpec, validateImageSpec, tryNormalizeImage, convertToWebP } from "@/lib/fileHash";
@@ -511,8 +513,10 @@ const MediaPage = () => {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkDeleteConfirmText, setBulkDeleteConfirmText] = useState("");
-  const [deleteUsage, setDeleteUsage] = useState<{ schedules: string[]; projects: string[] } | null>(null);
+  const [deleteUsage, setDeleteUsage] = useState<{ schedules: string[]; projects: string[]; channels: string[] } | null>(null);
   const [checkingUsage, setCheckingUsage] = useState(false);
+  const [idleAssets, setIdleAssets] = useState<IdleAssets | null>(null);
+  const [idleDialogDismissed, setIdleDialogDismissed] = useState(false);
   const [widgetDialogOpen, setWidgetDialogOpen] = useState(false);
   const [widgetDialogMode, setWidgetDialogMode] = useState<"catalog" | "custom">("catalog");
   const [selectedCatalogWidgetId, setSelectedCatalogWidgetId] = useState<string | null>(null);
@@ -941,6 +945,21 @@ const MediaPage = () => {
     fetchAllRef.current = fetchAll;
   }, [fetchAll]);
 
+  // Idle assets reminder: check once per mount (when org is known)
+  useEffect(() => {
+    if (!activeOrgId) return;
+    let cancelled = false;
+    checkIdleAssets(activeOrgId).then((result) => {
+      if (cancelled) return;
+      if (result.media.length > 0 || result.projects.length > 0) {
+        setIdleAssets(result);
+        setIdleDialogDismissed(false);
+      }
+    }).catch(() => { /* ignore idle check errors */ });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeOrgId]);
+
   const filteredMedia = useMemo(() => {
     return media.filter((item) => {
       const displayName = getDisplayName(item).toLowerCase();
@@ -1338,9 +1357,10 @@ const MediaPage = () => {
     }
 
     const report = await checkMediaReferences(mediaId, projectRefs);
-    const projects = report.groups.find((g) => g.kind === "project")?.names ?? [];
+    const projects  = report.groups.find((g) => g.kind === "project")?.names  ?? [];
     const schedules = report.groups.find((g) => g.kind === "schedule")?.names ?? [];
-    setDeleteUsage({ schedules, projects });
+    const channels  = report.groups.find((g) => g.kind === "channel")?.names  ?? [];
+    setDeleteUsage({ schedules, projects, channels });
     setCheckingUsage(false);
   };
 
@@ -1399,7 +1419,7 @@ const MediaPage = () => {
   const handleDelete = async () => {
     if (!deleteId) return;
     // Block delete if in use
-    if (deleteUsage && (deleteUsage.schedules.length > 0 || deleteUsage.projects.length > 0)) return;
+    if (deleteUsage && (deleteUsage.schedules.length > 0 || deleteUsage.projects.length > 0 || deleteUsage.channels.length > 0)) return;
 
     const item = media.find((entry) => entry.id === deleteId);
 
@@ -2396,7 +2416,7 @@ const MediaPage = () => {
                 <AlertDialogDescription>
                   {checkingUsage ? (
                     <span className="flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />{t("mediaCheckingUsage")}</span>
-                  ) : deleteUsage && (deleteUsage.schedules.length > 0 || deleteUsage.projects.length > 0) ? (
+                  ) : deleteUsage && (deleteUsage.schedules.length > 0 || deleteUsage.projects.length > 0 || deleteUsage.channels.length > 0) ? (
                     <div className="space-y-2">
                       <p className="text-destructive font-medium">{t("mediaInUseWarning")}</p>
                       {deleteUsage.projects.length > 0 && (
@@ -2413,6 +2433,13 @@ const MediaPage = () => {
                           <Link to="/schedules" className="inline-block mt-1 text-xs text-primary hover:underline">{t("mediaInUseGoSchedules")} →</Link>
                         </div>
                       )}
+                      {deleteUsage.channels.length > 0 && (
+                        <div>
+                          <p className="text-xs text-muted-foreground">{t("mediaUsedInChannels")}：</p>
+                          <ul className="list-disc list-inside text-sm">{deleteUsage.channels.map((n) => <li key={n}>{n}</li>)}</ul>
+                          <Link to="/schedules" className="inline-block mt-1 text-xs text-primary hover:underline">{t("mediaInUseGoSchedules")} →</Link>
+                        </div>
+                      )}
                     </div>
                   ) : hidingSystemWidget ? (
                     <span>{t("widgetHideForOrgDesc")}</span>
@@ -2423,7 +2450,7 @@ const MediaPage = () => {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
-                {(!deleteUsage || (deleteUsage.schedules.length === 0 && deleteUsage.projects.length === 0)) && !checkingUsage && (
+                {(!deleteUsage || (deleteUsage.schedules.length === 0 && deleteUsage.projects.length === 0 && deleteUsage.channels.length === 0)) && !checkingUsage && (
                   <AlertDialogAction onClick={handleDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                     {hidingSystemWidget ? t("widgetHideForOrgConfirm") : t("confirmDelete")}
                   </AlertDialogAction>
@@ -2433,6 +2460,55 @@ const MediaPage = () => {
           </AlertDialog>
         );
       })()}
+
+      {/* Idle assets reminder dialog */}
+      <AlertDialog
+        open={!!idleAssets && !idleDialogDismissed && ((idleAssets.media.length > 0) || (idleAssets.projects.length > 0))}
+        onOpenChange={(open) => { if (!open) setIdleDialogDismissed(true); }}
+      >
+        <AlertDialogContent className="max-w-lg">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("idleAssetsTitle")}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                <p>{t("idleAssetsDesc")}</p>
+                {idleAssets && idleAssets.media.length > 0 && (
+                  <div>
+                    <p className="font-medium text-foreground">{t("idleAssetsMediaSection")} ({idleAssets.media.length})</p>
+                    <ul className="mt-1 max-h-32 overflow-y-auto list-disc list-inside text-muted-foreground space-y-0.5">
+                      {idleAssets.media.map((m) => (
+                        <li key={m.id} className="truncate">{m.name || m.id}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {idleAssets && idleAssets.projects.length > 0 && (
+                  <div>
+                    <p className="font-medium text-foreground">{t("idleAssetsProjectSection")} ({idleAssets.projects.length})</p>
+                    <ul className="mt-1 max-h-32 overflow-y-auto list-disc list-inside text-muted-foreground space-y-0.5">
+                      {idleAssets.projects.map((p) => (
+                        <li key={p.id} className="truncate">{p.name || p.id}</li>
+                      ))}
+                    </ul>
+                    <Link
+                      to="/studio"
+                      className="inline-block mt-1 text-xs text-primary hover:underline"
+                      onClick={() => setIdleDialogDismissed(true)}
+                    >
+                      {t("idleAssetsGoStudio")} →
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setIdleDialogDismissed(true)}>
+              {t("idleAssetsDismiss")}
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Widget Creation Dialog */}
       <Dialog open={widgetDialogOpen} onOpenChange={(open) => {

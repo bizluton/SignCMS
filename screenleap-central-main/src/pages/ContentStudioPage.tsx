@@ -5106,6 +5106,7 @@ export default function ContentStudioPage() {
     name: string;
     channels: ReferenceItem[];
     media: ReferenceItem[];
+    schedules: ReferenceItem[];
     queued: boolean;
     busyKey: string | null;
   } | null>(null);
@@ -6288,13 +6289,15 @@ export default function ContentStudioPage() {
     const project = projects.find((p) => p.id === id);
     const projectName = project?.name || "";
     const report = await checkDesignProjectReferences(id);
-    const channels = report.groups.find((g) => g.kind === "channel")?.items ?? [];
-    const media = report.groups.find((g) => g.kind === "media")?.items ?? [];
+    const channels  = report.groups.find((g) => g.kind === "channel")?.items  ?? [];
+    const media     = report.groups.find((g) => g.kind === "media")?.items    ?? [];
+    const schedules = report.groups.find((g) => g.kind === "schedule")?.items ?? [];
     setDeleteConfirm({
       id,
       name: projectName,
       channels,
       media,
+      schedules,
       queued: pendingDeleteIds.has(id),
       busyKey: null,
     });
@@ -6313,11 +6316,12 @@ export default function ContentStudioPage() {
   // Re-run the reference check after an unassign, so the dialog updates live.
   const refreshDeleteConfirmRefs = useCallback(async (id: string) => {
     const report = await checkDesignProjectReferences(id);
-    const channels = report.groups.find((g) => g.kind === "channel")?.items ?? [];
-    const media = report.groups.find((g) => g.kind === "media")?.items ?? [];
-    setDeleteConfirm((prev) => (prev && prev.id === id ? { ...prev, channels, media, busyKey: null } : prev));
+    const channels  = report.groups.find((g) => g.kind === "channel")?.items  ?? [];
+    const media     = report.groups.find((g) => g.kind === "media")?.items    ?? [];
+    const schedules = report.groups.find((g) => g.kind === "schedule")?.items ?? [];
+    setDeleteConfirm((prev) => (prev && prev.id === id ? { ...prev, channels, media, schedules, busyKey: null } : prev));
     // If queued and references are now zero, the trigger will have deleted the project.
-    if (channels.length + media.length === 0) {
+    if (channels.length + media.length + schedules.length === 0) {
       // Reload to clear pending state and remove from grid.
       loadProjects();
     }
@@ -9382,7 +9386,7 @@ export default function ContentStudioPage() {
             <AlertDialogTitle>
               {deleteConfirm?.queued
                 ? t("studioDeleteRequestedTitle")
-                : deleteConfirm && (deleteConfirm.channels.length + deleteConfirm.media.length) > 0
+                : deleteConfirm && (deleteConfirm.channels.length + deleteConfirm.media.length + deleteConfirm.schedules.length) > 0
                   ? t("studioDeleteBlockedTitle")
                   : t("studioDeleteConfirmTitle")}
             </AlertDialogTitle>
@@ -9394,13 +9398,14 @@ export default function ContentStudioPage() {
                 {deleteConfirm?.queued && (
                   <div className="text-xs text-muted-foreground">{t("studioDeleteRequestedDesc")}</div>
                 )}
-                {deleteConfirm && (deleteConfirm.channels.length + deleteConfirm.media.length) > 0 ? (
+                {deleteConfirm && (deleteConfirm.channels.length + deleteConfirm.media.length + deleteConfirm.schedules.length) > 0 ? (
                   <>
                     <div>{t("studioDeleteRefSummary")}:</div>
                     <ul className="space-y-2 text-sm">
                       {([
-                        { items: deleteConfirm.channels, labelKey: "studioDeleteBoundChannel" as const },
-                        { items: deleteConfirm.media, labelKey: "studioDeleteBoundMedia" as const },
+                        { items: deleteConfirm.channels,  labelKey: "studioDeleteBoundChannel"  as const },
+                        { items: deleteConfirm.schedules, labelKey: "studioDeleteBoundSchedule" as const },
+                        { items: deleteConfirm.media,     labelKey: "studioDeleteBoundMedia"    as const },
                       ] as const).map(({ items, labelKey }) =>
                         items.length > 0 ? (
                           <li key={labelKey}>
@@ -9442,7 +9447,7 @@ export default function ContentStudioPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("studioDeleteCancelBtn")}</AlertDialogCancel>
-            {deleteConfirm && (deleteConfirm.channels.length + deleteConfirm.media.length) === 0 ? (
+            {deleteConfirm && (deleteConfirm.channels.length + deleteConfirm.media.length + deleteConfirm.schedules.length) === 0 ? (
               <AlertDialogAction
                 className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                 onClick={confirmDeleteProject}

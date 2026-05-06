@@ -29,7 +29,8 @@ export interface ReferenceItem {
     | { source: "media_items"; mediaId: string }
     | { source: "screen_channel_subscriptions"; rowId: string }
     | { source: "channel_bgm_items"; rowId: string }
-    | { source: "screen_channel_switch_triggers"; rowId: string };
+    | { source: "screen_channel_switch_triggers"; rowId: string }
+    | { source: "project_schedules"; rowId: string };
 }
 
 export interface ReferenceGroup {
@@ -41,6 +42,7 @@ export interface ReferenceGroup {
     | "studioDeleteBoundMedia"
     | "mediaUsedInProjects"
     | "mediaUsedInSchedules"
+    | "mediaUsedInChannels"
     | "channelRefSubscriptions"
     | "channelRefPublishRecords"
     | "channelRefBgmItems"
@@ -175,6 +177,23 @@ interface ScreenChannelSwitchTriggerRow {
   screens: { name: string | null } | null;
 }
 
+/** Shape of a `project_schedules` row selected with `.select("id, name")`. */
+interface ProjectScheduleNameRow {
+  id: string;
+  name: string | null;
+}
+
+/**
+ * Shape of a `channel_bgm_items` row when queried by `media_id`, to find which
+ * channels use a given media asset as BGM.
+ * `.select("id, channel_id, channels:channel_id(name)")`
+ */
+interface ChannelBgmByMediaRow {
+  id: string;
+  channel_id: string;
+  channels: { name: string | null } | null;
+}
+
 /**
  * Minimal Supabase client interface used only for tables absent from the
  * generated types (e.g. `schedule_items`, `schedules`).
@@ -215,7 +234,7 @@ export async function checkDesignProjectReferences(
   projectId: string,
   limitPerSource = 10,
 ): Promise<ReferenceReport> {
-  const [mediaRes, defaultChRes, allowedChRes, blockChRes] = await Promise.all([
+  const [mediaRes, defaultChRes, allowedChRes, blockChRes, projSchedRes] = await Promise.all([
     supabase
       .from("media_items")
       .select("id, name")
@@ -234,6 +253,12 @@ export async function checkDesignProjectReferences(
     supabase
       .from("channel_blocks")
       .select("id, channel_id, channels(name)")
+      .eq("design_project_id", projectId)
+      .limit(limitPerSource),
+    // Project schedules that bind this design project
+    supabase
+      .from("project_schedules")
+      .select("id, name")
       .eq("design_project_id", projectId)
       .limit(limitPerSource),
   ]);
@@ -255,6 +280,10 @@ export async function checkDesignProjectReferences(
     .filter((m) => m?.name)
     .map((m) => ({ name: m.name as string, unassign: { source: "media_items", mediaId: m.id } as const }));
 
+  const scheduleItems: ReferenceItem[] = ((projSchedRes?.data ?? []) as ProjectScheduleNameRow[])
+    .filter((s) => s?.name)
+    .map((s) => ({ name: s.name as string, unassign: { source: "project_schedules", rowId: s.id } as const }));
+
   return buildReport([
     {
       kind: "channel",
@@ -267,6 +296,12 @@ export async function checkDesignProjectReferences(
       labelKey: "studioDeleteBoundMedia",
       names: dedupe(mediaItems.map((i) => i.name)),
       items: mediaItems,
+    },
+    {
+      kind: "schedule",
+      labelKey: "studioDeleteBoundSchedule",
+      names: dedupe(scheduleItems.map((i) => i.name)),
+      items: scheduleItems,
     },
   ]);
 }
@@ -317,6 +352,14 @@ export async function unassignProjectReference(item: ReferenceItem): Promise<voi
   } else if (u.source === "screen_channel_switch_triggers") {
     const { error } = await supabase
       .from("screen_channel_switch_triggers")
+      .delete()
+      .eq("id", u.rowId);
+    if (error) throw error;
+  } else if (u.source === "project_schedules") {
+    // The schedule exists specifically for this project — deleting the schedule
+    // is the only way to "unassign" it.
+    const { error } = await supabase
+      .from("project_schedules")
       .delete()
       .eq("id", u.rowId);
     if (error) throw error;
@@ -387,17 +430,29 @@ export async function checkMediaReferences(
   projectRefs: MediaProjectRef[],
 ): Promise<ReferenceReport> {
   // `schedule_items` is not in the generated DB types; use the escape hatch.
-  const { data: scheduleItems } = await (supabase as unknown as SupabaseAny)
-    .from("schedule_items")
-    .select("schedule_id, schedules:schedule_id(name)")
-    .eq("media_id", mediaId);
+  const [scheduleItemsRes, bgmRes] = await Promise.all([
+    (supabase as unknown as SupabaseAny)
+      .from("schedule_items")
+      .select("schedule_id, schedules:schedule_id(name)")
+      .eq("media_id", mediaId),
+    supabase
+      .from("channel_bgm_items")
+      .select("id, channel_id, channels:channel_id(name)")
+      .eq("media_id", mediaId),
+  ]);
 
-  const schedules = dedupe(((scheduleItems ?? []) as ScheduleItemRow[]).map((si) => si?.schedules?.name));
+  const schedules = dedupe(((scheduleItemsRes?.data ?? []) as ScheduleItemRow[]).map((si) => si?.schedules?.name));
   const projects = dedupe(projectRefs.map((p) => p?.name));
+  const channels = dedupe(
+    ((bgmRes?.data ?? []) as ChannelBgmByMediaRow[])
+      .map((r) => r?.channels?.name)
+      .filter((n): n is string => !!n),
+  );
 
   return buildReport([
     { kind: "project", labelKey: "mediaUsedInProjects", names: projects },
     { kind: "schedule", labelKey: "mediaUsedInSchedules", names: schedules },
+    { kind: "channel", labelKey: "mediaUsedInChannels", names: channels },
   ]);
 }
 
@@ -413,13 +468,19 @@ export async function checkMediaReferencesBatch(
   if (mediaIds.length === 0) return result;
 
   // `schedule_items` is not in the generated DB types; use the escape hatch.
-  const { data: scheduleHits } = await (supabase as unknown as SupabaseAny)
-    .from("schedule_items")
-    .select("media_id, schedules:schedule_id(name)")
-    .in("media_id", mediaIds);
+  const [scheduleHitsRes, bgmHitsRes] = await Promise.all([
+    (supabase as unknown as SupabaseAny)
+      .from("schedule_items")
+      .select("media_id, schedules:schedule_id(name)")
+      .in("media_id", mediaIds),
+    supabase
+      .from("channel_bgm_items")
+      .select("media_id, channels:channel_id(name)")
+      .in("media_id", mediaIds),
+  ]);
 
   const schedulesByMedia = new Map<string, string[]>();
-  for (const row of (scheduleHits ?? []) as (ScheduleItemRow & { media_id: string })[]) {
+  for (const row of (scheduleHitsRes?.data ?? []) as (ScheduleItemRow & { media_id: string })[]) {
     const mid = row?.media_id;
     const name = row?.schedules?.name;
     if (!mid || !name) continue;
@@ -428,14 +489,26 @@ export async function checkMediaReferencesBatch(
     schedulesByMedia.set(mid, arr);
   }
 
+  const channelsByMedia = new Map<string, string[]>();
+  for (const row of (bgmHitsRes?.data ?? []) as (ChannelBgmByMediaRow & { media_id: string })[]) {
+    const mid = row?.media_id;
+    const name = row?.channels?.name;
+    if (!mid || !name) continue;
+    const arr = channelsByMedia.get(mid) ?? [];
+    if (!arr.includes(name)) arr.push(name);
+    channelsByMedia.set(mid, arr);
+  }
+
   for (const id of mediaIds) {
     const projects = dedupe((projectRefsByMedia.get(id) ?? []).map((p) => p.name));
     const schedules = schedulesByMedia.get(id) ?? [];
+    const channels = channelsByMedia.get(id) ?? [];
     result.set(
       id,
       buildReport([
         { kind: "project", labelKey: "mediaUsedInProjects", names: projects },
         { kind: "schedule", labelKey: "mediaUsedInSchedules", names: schedules },
+        { kind: "channel", labelKey: "mediaUsedInChannels", names: channels },
       ]),
     );
   }
@@ -606,4 +679,119 @@ export async function fetchPendingChannelDeleteRequests(
     if (row?.channel_id) out.add(row.channel_id);
   }
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Idle asset detection
+// ---------------------------------------------------------------------------
+
+export interface IdleAssets {
+  media: { id: string; name: string | null; created_at: string; type: string }[];
+  projects: { id: string; name: string | null; updated_at: string }[];
+}
+
+/**
+ * Find media items and design projects that haven't been used for `idleDays`
+ * days and are no longer referenced by any channel / schedule.
+ *
+ * "Not in use" for media means:
+ *   - design_project_id IS NULL
+ *   - not referenced in schedule_items
+ *   - not referenced in channel_bgm_items
+ *   - created more than `idleDays` days ago
+ *
+ * "Not in use" for projects means:
+ *   - not the default_design_project_id of any channel
+ *   - not in channel_allowed_projects
+ *   - not in channel_blocks
+ *   - not in project_schedules
+ *   - updated more than `idleDays` days ago
+ */
+export async function checkIdleAssets(
+  orgId: string,
+  idleDays = 90,
+): Promise<IdleAssets> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - idleDays);
+  const cutoffIso = cutoff.toISOString();
+
+  // ── Idle media ────────────────────────────────────────────────────────────
+  const { data: candMedia } = await supabase
+    .from("media_items")
+    .select("id, name, created_at, type")
+    .eq("org_id", orgId)
+    .is("deleted_at", null)
+    .is("design_project_id", null)
+    .lt("created_at", cutoffIso)
+    .order("created_at", { ascending: true })
+    .limit(200);
+
+  const mediaIds = (candMedia ?? []).map((m: { id: string }) => m.id);
+
+  const usedMediaIds = new Set<string>();
+  if (mediaIds.length > 0) {
+    const [schedHits, bgmHits] = await Promise.all([
+      (supabase as unknown as SupabaseAny)
+        .from("schedule_items")
+        .select("media_id")
+        .in("media_id", mediaIds),
+      supabase
+        .from("channel_bgm_items")
+        .select("media_id")
+        .in("media_id", mediaIds),
+    ]);
+    for (const r of (schedHits?.data ?? []) as { media_id: string }[]) usedMediaIds.add(r.media_id);
+    for (const r of (bgmHits?.data ?? []) as { media_id: string }[]) usedMediaIds.add(r.media_id);
+  }
+
+  const idleMedia = (candMedia ?? []).filter(
+    (m: { id: string }) => !usedMediaIds.has(m.id),
+  ) as { id: string; name: string | null; created_at: string; type: string }[];
+
+  // ── Idle projects ─────────────────────────────────────────────────────────
+  const { data: candProjects } = await supabase
+    .from("design_projects")
+    .select("id, name, updated_at")
+    .eq("org_id", orgId)
+    .lt("updated_at", cutoffIso)
+    .order("updated_at", { ascending: true })
+    .limit(200);
+
+  const projectIds = (candProjects ?? []).map((p: { id: string }) => p.id);
+
+  let idleProjects: { id: string; name: string | null; updated_at: string }[] = [];
+  if (projectIds.length > 0) {
+    const [defChRes, allowedRes, blockRes, schedRes] = await Promise.all([
+      supabase
+        .from("channels")
+        .select("default_design_project_id")
+        .in("default_design_project_id", projectIds),
+      supabase
+        .from("channel_allowed_projects")
+        .select("design_project_id")
+        .in("design_project_id", projectIds),
+      supabase
+        .from("channel_blocks")
+        .select("design_project_id")
+        .in("design_project_id", projectIds),
+      supabase
+        .from("project_schedules")
+        .select("design_project_id")
+        .in("design_project_id", projectIds),
+    ]);
+
+    const usedProjectIds = new Set<string>();
+    for (const r of (defChRes?.data ?? []) as { default_design_project_id: string }[]) {
+      if (r.default_design_project_id) usedProjectIds.add(r.default_design_project_id);
+    }
+    for (const r of (allowedRes?.data ?? []) as { design_project_id: string }[]) usedProjectIds.add(r.design_project_id);
+    for (const r of (blockRes?.data ?? []) as { design_project_id: string }[]) usedProjectIds.add(r.design_project_id);
+    for (const r of (schedRes?.data ?? []) as { design_project_id: string }[]) usedProjectIds.add(r.design_project_id);
+
+    idleProjects = (candProjects ?? []).filter(
+      (p: { id: string }) => !usedProjectIds.has(p.id),
+    ) as { id: string; name: string | null; updated_at: string }[];
+  }
+
+  return { media: idleMedia, projects: idleProjects };
 }
