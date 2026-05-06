@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { useNavigate, useBlocker } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useActiveOrg } from "@/contexts/ActiveOrgContext";
 import { useUserOrgs } from "@/hooks/useUserOrgs";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -5173,16 +5173,24 @@ export default function ContentStudioPage() {
   useEffect(() => { cleanSnapshotRef.current = computeSnapshot(); setIsDirty(false);   }, []);
 
   // ── Unsaved-changes navigation guard ────────────────────────────
-  // 1) Browser-level: refresh / close tab triggers the native "unsaved changes" prompt.
-  // 2) In-app SPA navigation (sidebar clicks, programmatic navigate(), browser back/forward)
-  //    is intercepted by React Router's useBlocker, which works with both BrowserRouter and
-  //    HashRouter (previous manual DOM click + popstate approach broke on HashRouter because
-  //    every hash-router href starts with "#", so the old guard always skipped them).
+  // 1) Browser-level: refresh / close tab → native "unsaved changes" prompt.
+  // 2) In-app SPA navigation → click-intercept on document (capture phase).
+  //    Note: useBlocker from react-router-dom requires a *Data Router*
+  //    (createHashRouter / createBrowserRouter). This app uses the legacy
+  //    <HashRouter> component, so useBlocker throws at runtime. Instead we
+  //    intercept anchor clicks in the capture phase — all HashRouter NavLinks
+  //    render as <a href="#/route"> so we can detect route changes before
+  //    navigation commits.
   const navigate = useNavigate();
   const isDirtyRef = useRef(isDirty);
   useEffect(() => { isDirtyRef.current = isDirty; }, [isDirty]);
 
-  // beforeunload — covers tab close / page refresh (useBlocker does NOT handle these).
+  // pendingNavHref: the href the user clicked while dirty; non-null = dialog open.
+  const [pendingNavHref, setPendingNavHref] = useState<string | null>(null);
+  const pendingNavHrefRef = useRef<string | null>(null);
+  useEffect(() => { pendingNavHrefRef.current = pendingNavHref; }, [pendingNavHref]);
+
+  // beforeunload — covers tab close / page refresh.
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (!isDirtyRef.current) return;
@@ -5193,20 +5201,32 @@ export default function ContentStudioPage() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
 
-  // useBlocker — intercepts all React Router navigations while there are unsaved changes.
-  const blocker = useBlocker(
-    useCallback(
-      ({ currentLocation, nextLocation }) =>
-        isDirtyRef.current && currentLocation.pathname !== nextLocation.pathname,
-      []
-    )
-  );
-  // Stable ref so confirmLeave / saveAndLeave can call proceed() without stale closures.
-  const blockerRef = useRef(blocker);
-  blockerRef.current = blocker;
+  // Click-intercept — captures sidebar / NavLink clicks before HashRouter handles them.
+  // All in-app links look like href="#/schedules". We extract the path portion and
+  // compare it to the current hash route to decide if this is a real navigation away.
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (!isDirtyRef.current) return;
+      const anchor = (e.target as Element).closest("a[href]");
+      if (!anchor) return;
+      const href = anchor.getAttribute("href") ?? "";
+      // Hash-router links: "#/schedules", "#/media", etc.
+      const nextPath = href.startsWith("#") ? href.slice(1) : href;
+      if (!nextPath.startsWith("/")) return; // external or bare anchor — ignore
+      const currentPath = window.location.hash.slice(1) || "/";
+      if (nextPath === currentPath || nextPath.startsWith(currentPath + "/")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPendingNavHref(href);
+    };
+    document.addEventListener("click", handleClick, { capture: true });
+    return () => document.removeEventListener("click", handleClick, { capture: true });
+  }, []);
 
   const confirmLeave = useCallback(() => {
-    blockerRef.current?.proceed?.();
+    const href = pendingNavHrefRef.current;
+    setPendingNavHref(null);
+    if (href) window.location.href = href;
   }, []);
 
 
@@ -6784,7 +6804,7 @@ export default function ContentStudioPage() {
     }
     const ok = await handleSave();
     if (!ok) return;
-    // Proceed with the blocked navigation (blocker.proceed() via confirmLeave).
+    // Navigate away now that the project is saved.
     confirmLeave();
   }, [currentProject, handleSave, confirmLeave, openSaveDialogForNew]);
 
@@ -7200,7 +7220,7 @@ export default function ContentStudioPage() {
           <Button
             variant="default"
             size="sm"
-            className="gap-1.5 text-xs h-8 bg-emerald-600 hover:bg-emerald-700 text-white border-0"
+            className="gap-1.5 text-xs h-8 bg-gradient-to-r from-orange-500 to-rose-500 hover:from-orange-600 hover:to-rose-600 text-white border-0 shadow-md shadow-orange-500/30"
             onClick={handleQuickPublishClick}
             disabled={!currentProject}
             title={!currentProject ? t("qpNeedProject") : t("studioQuickPublish")}
@@ -9263,10 +9283,10 @@ export default function ContentStudioPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Unsaved-changes navigation guard — driven by React Router's useBlocker */}
+      {/* Unsaved-changes navigation guard — click-intercept for HashRouter */}
       <AlertDialog
-        open={blocker.state === "blocked"}
-        onOpenChange={(o) => { if (!o) blocker.reset?.(); }}
+        open={pendingNavHref !== null}
+        onOpenChange={(o) => { if (!o) setPendingNavHref(null); }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -9274,10 +9294,10 @@ export default function ContentStudioPage() {
             <AlertDialogDescription>{t("studioUnsavedLeaveDesc")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:gap-2">
-            <AlertDialogCancel onClick={() => blocker.reset?.()}>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setPendingNavHref(null)}>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => blocker.proceed?.()}
+              onClick={confirmLeave}
             >
               {t("studioUnsavedDiscard")}
             </AlertDialogAction>

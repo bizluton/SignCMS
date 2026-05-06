@@ -52,7 +52,6 @@ const PlayerPage = lazy(() => import("./pages/PlayerPage.tsx"));
 const UnsubscribePage = lazy(() => import("./pages/UnsubscribePage.tsx"));
 const LocalPlayerPage = lazy(() => import("./pages/LocalPlayerPage.tsx"));
 const SmartTriggerTestPage = lazy(() => import("./pages/SmartTriggerTestPage.tsx"));
-const QuickPublish = lazy(() => import("./pages/QuickPublish.tsx"));
 const DeveloperPortal = lazy(() => import("./pages/DeveloperPortal.tsx"));
 const AppReview = lazy(() => import("./pages/AppReview.tsx"));
 const AuthPage = lazy(() => import("./pages/AuthPage.tsx"));
@@ -81,7 +80,6 @@ const AppRoutes = () => {
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/onboarding" element={<ProtectedRoute><OnboardingPage /></ProtectedRoute>} />
           <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
-          <Route path="/quick-publish" element={<ProtectedRoute><QuickPublish /></ProtectedRoute>} />
           <Route path="/screens" element={<ProtectedRoute><Screens /></ProtectedRoute>} />
           <Route path="/media" element={<ProtectedRoute><Media /></ProtectedRoute>} />
           <Route path="/schedules" element={<ProtectedRoute><Schedules /></ProtectedRoute>} />

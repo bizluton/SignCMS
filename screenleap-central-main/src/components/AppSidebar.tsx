@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Monitor, Image, CalendarClock, ShieldCheck, Brush, Send, FileText, Store, Megaphone, Users, CloudSun, Instagram, DoorOpen, Languages, Clock, HeadphonesIcon, BookOpen, Radio, BarChart3, AlertTriangle, UserCog, Key, Settings, Wrench, Building2, TrendingUp, Code2, LayoutGrid, MonitorPlay, Rocket, History, Type, Puzzle, ClipboardCheck, Pin, PinOff } from "lucide-react";
+import { Monitor, Image, CalendarClock, ShieldCheck, Brush, Send, FileText, Store, Megaphone, Users, CloudSun, Instagram, DoorOpen, Languages, Clock, HeadphonesIcon, BookOpen, Radio, BarChart3, AlertTriangle, UserCog, Key, Settings, Wrench, Building2, TrendingUp, Code2, LayoutGrid, MonitorPlay, History, Type, Puzzle, ClipboardCheck, Pin, PinOff } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import logoLightImg from "@/assets/logo-light.png";
 import { useTheme } from "next-themes";
@@ -92,7 +92,6 @@ export function AppSidebar() {
   const canAccessAdmin = isAdmin || isOrgAdmin;
 
   const navItems = [
-    { titleKey: "navQuickPublish" as const, url: "/quick-publish", icon: Rocket, adminOnly: false },
     { titleKey: "navStudio" as const, url: "/studio", icon: Brush, adminOnly: false },
     { titleKey: "navSchedules" as const, url: "/schedules", icon: CalendarClock, adminOnly: false },
     { titleKey: "navPublishing" as const, url: "/publishing", icon: Send, adminOnly: false },
