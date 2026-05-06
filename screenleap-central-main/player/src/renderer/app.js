@@ -195,7 +195,6 @@ function renderProject(data) {
   const project = data.project;
   const channel = data.channel;
   const zones   = project.zones;
-  console.log("[DBG] renderProject screen:", data.screen?.org_id, "| project:", project?.id, "| zones raw:", JSON.stringify(zones)?.slice(0,500));
 
   // Inject orgId/teamId into any widget mediaItem params that lack them,
   // so widgets like announcement_board can query the right org without
@@ -316,7 +315,6 @@ function renderPage(page) {
       `background:${z.content?.bgColor || "#111"}`,
     ].join(";");
 
-    console.log("[DBG] zone", z.id, "type:", z.content?.type, "mediaItems:", z.content?.mediaItems?.length, "widgetConfig:", !!z.content?.widgetConfig, "widgetType:", z.content?.widgetConfig?.widgetType || z.content?.mediaItems?.[0]?.widgetConfig?.widgetType);
     if (z.content?.type === "media" && z.content.mediaItems?.length > 0) {
       const engine = new MediaZoneEngine(div, z.content);
       engine.start();
@@ -426,7 +424,6 @@ class MediaZoneEngine {
     ].join(";");
 
     if (wc.url) {
-      console.log("[DBG] widget fetch:", wc.url, JSON.stringify(params));
       fetch(wc.url)
         .then((r) => r.text())
         .then((html) => {
