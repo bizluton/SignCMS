@@ -205,6 +205,14 @@ function renderProject(data) {
     if (!Array.isArray(zoneList)) return;
     zoneList.forEach((z) => {
       const items = z.content?.mediaItems;
+      // type:"widget" zone (single widget shorthand)
+      if (z.content?.type === "widget" && z.content.widgetConfig) {
+        const wc = z.content.widgetConfig;
+        const p  = wc.params || (wc.params = {});
+        if (!p.orgId  && screenOrgId)  p.orgId  = screenOrgId;
+        if (!p.teamId && screenTeamId) p.teamId = screenTeamId;
+      }
+      // type:"media" zone with widget items
       if (!Array.isArray(items)) return;
       items.forEach((item) => {
         if (item.type !== "widget") return;
@@ -311,6 +319,9 @@ function renderPage(page) {
       const engine = new MediaZoneEngine(div, z.content);
       engine.start();
       zoneEngines[z.id] = engine;
+    } else if (z.content?.type === "widget" && z.content.widgetConfig) {
+      // Single-widget zone (ContentStudio type:"widget" shorthand)
+      renderWidgetZone(div, z.content.widgetConfig, z.id);
     } else if (z.content?.type === "text") {
       renderTextZone(div, z.content);
     } else if (z.content?.type === "url") {
@@ -366,6 +377,7 @@ function fadeTransition(cb) {
 class MediaZoneEngine {
   constructor(container, content) {
     this.container = container;
+    this.content   = content;           // keep reference for fitMode etc.
     this.items     = content.mediaItems || [];
     this.idx       = 0;
     this.timer     = null;
@@ -473,6 +485,11 @@ class MediaZoneEngine {
 
   _advance() {
     clearTimeout(this.timer);
+    // Single item — just reschedule, no crossfade (prevents widget/image flash)
+    if (this.items.length <= 1) {
+      this._scheduleNext(0);
+      return;
+    }
     const prev    = this.idx;
     this.idx      = (this.idx + 1) % this.items.length;
     const current = this.elements[this.idx];
@@ -519,6 +536,22 @@ function renderUrlZone(container, content) {
   iframe.style.cssText = "width:100%;height:100%;border:none;pointer-events:none";
   iframe.sandbox       = "allow-scripts allow-same-origin allow-forms";
   container.appendChild(iframe);
+}
+
+/** Render a type:"widget" zone (single widgetConfig, no carousel). */
+function renderWidgetZone(container, wc, zoneId) {
+  const params = new URLSearchParams(wc.params || {});
+  if (wc.bgColor)     params.set("bgColor",     wc.bgColor);
+  if (wc.textColor)   params.set("textColor",   wc.textColor);
+  if (wc.accentColor) params.set("accentColor", wc.accentColor);
+  if (wc.animation)   params.set("animation",   wc.animation);
+
+  const frame = el("iframe");
+  frame.src        = wc.url ? `${wc.url}?${params}` : "";
+  frame.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:none";
+  if (wc.bgColor) frame.style.background = wc.bgColor;
+  frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
+  container.appendChild(frame);
 }
 
 function renderClockZone(container, content) {
