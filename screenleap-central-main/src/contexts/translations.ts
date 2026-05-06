@@ -715,7 +715,7 @@ const translations = {
   // Reset password
   adminResetPassword: { zh: "重置密碼", en: "Reset Password", ja: "パスワードリセット" },
   adminResetPasswordTitle: { zh: "重置使用者密碼", en: "Reset User Password", ja: "ユーザーパスワードのリセット" },
-  adminResetPasswordDescPrefix: { zh: "為", en: "Reset password for", ja: "" },
+  adminResetPasswordDescPrefix: { zh: "為", en: "Reset password for", ja: "対象：" },
   adminResetPasswordDescSuffix: { zh: "重置密碼。可寄送重置信給使用者，或直接設定一組臨時密碼。", en: ". You can send a reset email or set a temporary password directly.", ja: " のパスワードをリセットします。リセットメールを送信するか、一時パスワードを直接設定できます。" },
   adminResetPasswordModeEmail: { zh: "寄送重置密碼信", en: "Send reset email", ja: "リセットメールを送信" },
   adminResetPasswordModePassword: { zh: "直接設定臨時密碼", en: "Set temporary password", ja: "一時パスワードを設定" },
