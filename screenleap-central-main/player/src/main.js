@@ -253,7 +253,7 @@ app.on("window-all-closed", () => {
 
 app.on("will-quit", () => {
   stopSyncLoop();
-  globalShortcut.unregisterAll();
+  try { globalShortcut.unregisterAll(); } catch (_) {}
 });
 
 // Single instance lock

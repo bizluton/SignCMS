@@ -375,18 +375,9 @@ class MediaZoneEngine {
   start() {
     if (this.items.length === 0) return;
 
-    // If there's only one widget item, render it directly (no wrap/crossfade needed)
-    const soleWidget = this.items.length === 1 && this.items[0].type === "widget";
-    if (soleWidget) {
-      const frame = this._createWidgetFrame(this.items[0]);
-      frame.style.opacity = "1";
-      this.container.appendChild(frame);
-      this._scheduleNext(0);
-      return;
-    }
-
     const wrap = el("div", "zone-media");
     this.container.appendChild(wrap);
+    this._wrap = wrap;
 
     // Pre-create media elements for crossfade
     this.items.forEach((item, i) => {
@@ -411,10 +402,16 @@ class MediaZoneEngine {
     if (wc.animation)   params.set("animation",   wc.animation);
 
     const frame = el("iframe", "media-item");
-    frame.src              = wc.url ? `${wc.url}?${params}` : "";
-    frame.style.border     = "none";
-    frame.style.objectFit  = ""; // object-fit has no effect on iframes
-    frame.style.background = wc.bgColor || "#000";
+    frame.src = wc.url ? `${wc.url}?${params}` : "";
+    // Explicit sizing so it fills the zone even outside .zone-media context
+    frame.style.cssText = [
+      "border:none",
+      "position:absolute",
+      "inset:0",
+      "width:100%",
+      "height:100%",
+      `background:${wc.bgColor || "#000"}`,
+    ].join(";");
     // allow-same-origin is required for scripts inside the widget to call Supabase
     frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
     return frame;
@@ -422,7 +419,8 @@ class MediaZoneEngine {
 
   _createElement(item) {
     // fitMode: per-item > zone default (content.fitMode) > "cover"
-    const fitMap = { cover: "cover", contain: "contain", stretch: "fill", fill: "fill", fit: "contain" };
+    // cover-x / cover-y are ContentStudio's axis-specific cover modes → CSS cover
+    const fitMap = { cover: "cover", "cover-x": "cover", "cover-y": "cover", contain: "contain", stretch: "fill", fill: "fill", fit: "contain" };
     const zoneFit = this.content?.fitMode;
     const rawFit  = item.fitMode || zoneFit || "cover";
     const cssFit  = fitMap[rawFit] || "cover";
