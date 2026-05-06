@@ -273,16 +273,23 @@ export default function ScreensPage() {
   }, [activeOrgId, screens.length]);
 
   // Live status: subscribe to realtime updates on screens (online + updated_at)
+  // Filter at the channel level to org_id so Supabase only delivers rows this
+  // admin can see — avoids O(all_screens × all_admins) RLS fan-out.
   useEffect(() => {
+    if (!activeOrgId) return;
     const channel = supabase
-      .channel("screens-live-status")
+      .channel(`screens-live-status-${activeOrgId}`)
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "screens" },
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "screens",
+          filter: `org_id=eq.${activeOrgId}`,
+        },
         (payload: { new: Record<string, unknown> }) => {
           const next = payload.new as Screen;
           if (!next?.id) return;
-          if (activeOrgId && next.org_id !== activeOrgId) return;
           setScreens((prev) =>
             prev.map((s) => (s.id === next.id ? { ...s, ...next } : s))
           );
@@ -295,18 +302,16 @@ export default function ScreensPage() {
   }, [activeOrgId]);
 
   // License status per screen (active | revoked | no_license)
+  // Uses a single batch RPC instead of one call per screen to avoid N+1 overhead.
   const [licenseStatusByScreen, setLicenseStatusByScreen] = useState<Record<string, { licensed: boolean; status: string }>>({});
   const refreshLicenseStatuses = useCallback(async (ids: string[]) => {
     if (ids.length === 0) { setLicenseStatusByScreen({}); return; }
-    const results = await Promise.all(
-      ids.map(async (id) => {
-        const { data } = await supabase.rpc("check_screen_license_status", { _screen_id: id });
-        return [id, data] as const;
-      }),
-    );
+    const { data } = await supabase.rpc("check_screen_license_status_batch", {
+      _screen_ids: ids,
+    });
     const map: Record<string, { licensed: boolean; status: string }> = {};
-    results.forEach(([id, data]) => {
-      if (data) map[id] = { licensed: !!data.licensed, status: String(data.status || "unknown") };
+    (data as Array<{ screen_id: string; licensed: boolean; status: string }> | null)?.forEach((row) => {
+      map[row.screen_id] = { licensed: row.licensed, status: row.status || "unknown" };
     });
     setLicenseStatusByScreen(map);
   }, []);
