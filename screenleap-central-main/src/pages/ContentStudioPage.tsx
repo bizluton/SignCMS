@@ -5002,10 +5002,13 @@ export default function ContentStudioPage() {
   const [selectedOverlay, setSelectedOverlay] = useState<string | null>(null);
   const [pinnedPreview, setPinnedPreview] = useState<{ trackId: string; itemIdx: number } | null>(null);
   const pinnedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref updated on every render so toggleLayoutPanelManualCollapse can read
+  // the current derived `layoutPanelCollapsed` without a stale closure.
+  const layoutPanelCollapsedRef = useRef<boolean>(false);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [sidebarTab, setSidebarTab] = useState<string>(() => {
-    const saved = persistedSessionRef.current?.sidebarTab ?? "new";
-    return ["new", "my"].includes(saved) ? saved : "new";
+    const saved = persistedSessionRef.current?.sidebarTab ?? "my";
+    return ["new", "my"].includes(saved) ? saved : "my";
   });
   const [innerSidebarTab, setInnerSidebarTab] = useState<string>("layouts");
   const isMobile = useIsMobile();
@@ -5026,7 +5029,7 @@ export default function ContentStudioPage() {
       : false
   );
   const enforceInitialPanelState = useCallback(() => {
-    setSidebarTab("new");
+    setSidebarTab("my");
     setInnerSidebarTab("layouts");
     setLayoutPanelOpen(true);
     setMediaLibraryOpen(false);
@@ -6777,6 +6780,16 @@ export default function ContentStudioPage() {
     setActiveOutput(1);
     // Auto-generate a project name (PRJ + YYMMDD + next hex sequence)
     setProjectName(generateProjectName(projects.map((p) => p.name || "")));
+    // Switch to template/layout selector, collapse media panel, ensure left panel is open
+    setSidebarTab("new");
+    setInnerSidebarTab("layouts");
+    setMediaLibraryOpen(false);
+    setLayoutPanelOpen(true);
+    // Clear any manual collapse so the layout panel is visible.
+    // NOTE: setLayoutPanelManuallyCollapsed is declared later in the component body but
+    // is safe to call here because handleNew is only invoked from user events (after full render).
+    setLayoutPanelManuallyCollapsed(false);
+    try { localStorage.setItem("studio:layoutPanelManuallyCollapsed", "0"); } catch { /* ignore */ }
     // Mark clean after state settles
     setTimeout(() => markClean(), 0);
   }, [markClean, projects]);
@@ -6883,12 +6896,21 @@ export default function ContentStudioPage() {
     try { return localStorage.getItem("studio:layoutPanelManuallyCollapsed") === "1"; } catch { return false; }
   });
   const toggleLayoutPanelManualCollapse = useCallback(() => {
-    setLayoutPanelManuallyCollapsed((prev) => {
-      const next = !prev;
-      try { localStorage.setItem("studio:layoutPanelManuallyCollapsed", next ? "1" : "0"); } catch { /* ignore */ }
-      if (next) setLayoutPanelOpen(false); else setLayoutPanelOpen(true);
-      return next;
-    });
+    // Read current collapsed state from ref (avoids stale closure; ref is kept in sync on every render).
+    // If panel is currently hidden for ANY reason → expand it (single click to open).
+    // If panel is visible → collapse it.
+    if (layoutPanelCollapsedRef.current) {
+      // Expand: clear manual-collapse, force layoutPanelOpen, close media (mutual exclusion)
+      setLayoutPanelManuallyCollapsed(false);
+      setLayoutPanelOpen(true);
+      setMediaLibraryOpen(false);
+      try { localStorage.setItem("studio:layoutPanelManuallyCollapsed", "0"); } catch { /* ignore */ }
+    } else {
+      // Collapse: set manual-collapse flag
+      setLayoutPanelManuallyCollapsed(true);
+      setLayoutPanelOpen(false);
+      try { localStorage.setItem("studio:layoutPanelManuallyCollapsed", "1"); } catch { /* ignore */ }
+    }
   }, []);
 
 
@@ -7155,6 +7177,8 @@ export default function ContentStudioPage() {
   // Working project name: saved name takes priority over the draft name in the save-dialog input
   const workingProjectName = currentProject?.name || projectName;
   const layoutPanelCollapsed = !isMobile && (layoutPanelManuallyCollapsed || ((!!activeZone || !!activeOverlay) && !layoutPanelOpen));
+  // Keep ref in sync so callbacks defined earlier can read current value without stale closures
+  layoutPanelCollapsedRef.current = layoutPanelCollapsed;
   const existingVideoZoneLabel = (() => {
     if (activeZone) {
       return (
@@ -8555,7 +8579,16 @@ export default function ContentStudioPage() {
             <div className="flex shrink-0 w-6 items-start pt-[72px] justify-center">
               <button
                 type="button"
-                onClick={() => setMediaLibraryOpen(!mediaLibraryOpen)}
+                onClick={() => {
+                  const opening = !mediaLibraryOpen;
+                  if (opening) {
+                    // Opening media panel → mutually exclusive with left panel
+                    setLayoutPanelManuallyCollapsed(true);
+                    try { localStorage.setItem("studio:layoutPanelManuallyCollapsed", "1"); } catch { /* ignore */ }
+                    setLayoutPanelOpen(false);
+                  }
+                  setMediaLibraryOpen(opening);
+                }}
                 title={mediaLibraryOpen ? t("studioRailCollapseMedia") : t("studioRailExpandMedia")}
                 aria-label={mediaLibraryOpen ? t("studioRailCollapseMedia") : t("studioRailExpandMedia")}
                 aria-expanded={mediaLibraryOpen}
