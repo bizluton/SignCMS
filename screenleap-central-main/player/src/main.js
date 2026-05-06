@@ -215,12 +215,18 @@ ipcMain.handle("open-external", (_e, url) => { shell.openExternal(url); });
 
 // ─── App lifecycle ────────────────────────────────────────────────────────
 app.whenReady().then(() => {
-  // Force Content-Type: text/html for any .html URLs (e.g. widget files
-  // served from Supabase Storage which may return text/plain or octet-stream)
+  // Fix response headers for widget HTML files served from Supabase Storage:
+  // 1. Force Content-Type: text/html so Chromium renders instead of showing source
+  // 2. Remove Content-Security-Policy and X-Frame-Options that block scripts/styles
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const headers = Object.assign({}, details.responseHeaders);
     if (/\.html(\?|$)/i.test(details.url)) {
       headers["content-type"] = ["text/html; charset=utf-8"];
+      // Remove headers that would block widget scripts and external resources
+      delete headers["content-security-policy"];
+      delete headers["Content-Security-Policy"];
+      delete headers["x-frame-options"];
+      delete headers["X-Frame-Options"];
     }
     callback({ responseHeaders: headers });
   });

@@ -195,6 +195,7 @@ function renderProject(data) {
   const project = data.project;
   const channel = data.channel;
   const zones   = project.zones;
+  console.log("[DBG] renderProject screen:", data.screen?.org_id, "| project:", project?.id, "| zones raw:", JSON.stringify(zones)?.slice(0,500));
 
   // Inject orgId/teamId into any widget mediaItem params that lack them,
   // so widgets like announcement_board can query the right org without
@@ -315,6 +316,7 @@ function renderPage(page) {
       `background:${z.content?.bgColor || "#111"}`,
     ].join(";");
 
+    console.log("[DBG] zone", z.id, "type:", z.content?.type, "mediaItems:", z.content?.mediaItems?.length, "widgetConfig:", !!z.content?.widgetConfig, "widgetType:", z.content?.widgetConfig?.widgetType || z.content?.mediaItems?.[0]?.widgetConfig?.widgetType);
     if (z.content?.type === "media" && z.content.mediaItems?.length > 0) {
       const engine = new MediaZoneEngine(div, z.content);
       engine.start();
@@ -407,6 +409,7 @@ class MediaZoneEngine {
   /** Build an iframe for a widget mediaItem */
   _createWidgetFrame(item) {
     const wc     = item.widgetConfig || {};
+    console.log("[DBG] _createWidgetFrame url:", wc.url, "params:", JSON.stringify(wc.params));
     const params = new URLSearchParams(wc.params || {});
     if (wc.bgColor)     params.set("bgColor",     wc.bgColor);
     if (wc.textColor)   params.set("textColor",   wc.textColor);
@@ -424,8 +427,8 @@ class MediaZoneEngine {
       "height:100%",
       `background:${wc.bgColor || "#000"}`,
     ].join(";");
-    // allow-same-origin is required for scripts inside the widget to call Supabase
-    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
+    // Do NOT set sandbox — Electron has webSecurity:false and sandbox would
+    // override main.js CSP-header removal, blocking widget scripts anyway.
     return frame;
   }
 
@@ -550,7 +553,6 @@ function renderWidgetZone(container, wc, zoneId) {
   frame.src        = wc.url ? `${wc.url}?${params}` : "";
   frame.style.cssText = "position:absolute;inset:0;width:100%;height:100%;border:none";
   if (wc.bgColor) frame.style.background = wc.bgColor;
-  frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
   container.appendChild(frame);
 }
 
