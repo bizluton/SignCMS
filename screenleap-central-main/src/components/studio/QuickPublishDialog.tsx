@@ -53,8 +53,6 @@ interface Screen {
 interface DesignProjectLike {
   id: string;
   name: string | null;
-  /** zones JSON stored in DB — used to compute total media duration */
-  zones?: unknown[];
 }
 
 export interface QuickPublishDialogProps {
@@ -87,25 +85,7 @@ const WORKDAYS = ["mon", "tue", "wed", "thu", "fri"];
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/** Compute total playback duration (seconds) from saved project zones JSON */
-function computeProjectDuration(zones: unknown[] | undefined): number {
-  if (!Array.isArray(zones)) return 10;
-  const mediaZones = zones.filter(
-    (z) => z && typeof z === "object" && !(z as Record<string, unknown>)._meta
-  );
-  const items = mediaZones.flatMap(
-    (z) =>
-      ((z as Record<string, unknown>).content as Record<string, unknown> | undefined)
-        ?.mediaItems as Record<string, unknown>[] | undefined ?? []
-  );
-  const total = items.reduce(
-    (sum, item) => sum + Math.max(1, Number(item.duration) || 5),
-    0
-  );
-  return Math.max(1, total);
-}
-
-/** Build a human-readable schedule label for the publish record name */
+/** Build a human-readable schedule label */
 function buildScheduleLabel(
   type: ScheduleType,
   startTime: string,
@@ -308,90 +288,117 @@ export function QuickPublishDialog({
     setPublishing(true);
 
     try {
-      const duration = computeProjectDuration(project.zones);
-      const projectName = project.name?.trim() || "未命名專案";
-      const scheduleLabel = buildScheduleLabel(
-        scheduleType, startTime, endTime, weekdays, dateFrom, dateTo
-      );
-      const scheduleName = `⚡ ${projectName} · ${scheduleLabel}`;
-
       const screenList = screens.filter((s) => selectedIds.has(s.id));
+      const projectName = project.name?.trim() || "未命名專案";
 
-      // Build schedules inserts
-      const scheduleDays =
-        scheduleType === "now"
-          ? ALL_DAYS
-          : scheduleType === "weekly"
-          ? weekdays
-          : [];
+      // ── 1. Fetch default channel for each selected screen ───────────────
+      const { data: subs, error: subsError } = await supabase
+        .from("screen_channel_subscriptions")
+        .select("screen_id, channel_id")
+        .in("screen_id", screenList.map((s) => s.id))
+        .eq("is_default", true);
 
-      const schedInserts = screenList.map((s) => ({
-        org_id: activeOrgId,
-        screen_id: s.id,
-        name: scheduleName,
-        enabled: true,
-        start_time: scheduleType === "now" ? "00:00" : startTime,
-        end_time: scheduleType === "now" ? "23:59" : endTime,
-        days: scheduleDays,
-      }));
+      if (subsError) throw subsError;
 
-      const { data: createdSchedules, error: schedError } = await supabase
-        .from("schedules")
-        .insert(schedInserts)
-        .select("id, screen_id");
+      const subMap = new Map((subs ?? []).map((r) => [r.screen_id, r.channel_id]));
+      const channelScreens  = screenList.filter((s) => subMap.has(s.id));
+      const noChannelScreens = screenList.filter((s) => !subMap.has(s.id));
 
-      if (schedError) throw schedError;
-
-      // Build schedule_items inserts
-      const itemInserts = (createdSchedules ?? []).map((sc) => ({
-        schedule_id: sc.id,
-        design_project_id: project.id,
-        item_type: "design_project",
-        sort_order: 0,
-        duration,
-      }));
-
-      const { error: itemError } = await supabase
-        .from("schedule_items")
-        .insert(itemInserts);
-
-      if (itemError) throw itemError;
-
-      // Determine publish status & scheduled_at
-      let status: string;
-      let scheduledAt: string | null = null;
-      if (scheduleType === "now") {
-        status = "playing";
-      } else if (scheduleType === "calendar" && dateFrom) {
-        status = "scheduled";
-        const d = format(dateFrom, "yyyy-MM-dd");
-        scheduledAt = new Date(`${d}T${startTime}:00`).toISOString();
-      } else {
-        status = "published";
+      if (channelScreens.length === 0) {
+        toast.error("所選螢幕均未訂閱頻道，請先在螢幕管理中設定頻道訂閱");
+        return;
       }
 
-      // Build publish_records inserts
-      const recordInserts = screenList.map((s) => ({
-        screen_id: s.id,
-        channel_id: null as string | null,
-        screen_name: s.name,
-        channel_name: "",
-        schedule_name: scheduleName,
-        status,
-        scheduled_at: scheduledAt,
-        published_by: userId ?? null,
-      }));
+      const uniqueChannelIds = [...new Set(channelScreens.map((s) => subMap.get(s.id)!))];
 
-      const { error: recError } = await supabase
-        .from("publish_records")
-        .insert(recordInserts);
+      // ── 2. Apply schedule to channels ───────────────────────────────────
+      if (scheduleType === "now") {
+        // Update each channel's default project — player picks up on next sync
+        const updates = await Promise.all(
+          uniqueChannelIds.map((chId) =>
+            supabase.from("channels")
+              .update({ default_design_project_id: project.id })
+              .eq("id", chId)
+          )
+        );
+        const failed = updates.find((r) => r.error);
+        if (failed) throw failed.error;
 
+      } else if (scheduleType === "calendar" && dateFrom) {
+        const dateFromStr = format(dateFrom, "yyyy-MM-dd");
+        const dateToStr   = dateTo ? format(dateTo, "yyyy-MM-dd") : dateFromStr;
+        const startAt = new Date(`${dateFromStr}T${startTime}:00`).toISOString();
+        const endAt   = new Date(`${dateToStr}T${endTime}:00`).toISOString();
+
+        const blockInserts = uniqueChannelIds.map((chId) => ({
+          channel_id:        chId,
+          org_id:            activeOrgId,
+          design_project_id: project.id,
+          name:              `⚡ ${projectName}`,
+          block_type:        "calendar" as const,
+          start_at:          startAt,
+          end_at:            endAt,
+          effective_from:    dateFromStr,
+          effective_to:      dateToStr,
+          start_time:        startTime,
+          end_time:          endTime,
+          weekdays:          [] as string[],
+          priority:          10,
+          enabled:           true,
+        }));
+
+        const { error: blockError } = await supabase.from("channel_blocks").insert(blockInserts);
+        if (blockError) throw blockError;
+
+      } else if (scheduleType === "weekly") {
+        const blockInserts = uniqueChannelIds.map((chId) => ({
+          channel_id:        chId,
+          org_id:            activeOrgId,
+          design_project_id: project.id,
+          name:              `⚡ ${projectName}`,
+          block_type:        "weekly" as const,
+          weekdays:          weekdays,
+          start_time:        startTime,
+          end_time:          endTime,
+          priority:          10,
+          enabled:           true,
+        }));
+
+        const { error: blockError } = await supabase.from("channel_blocks").insert(blockInserts);
+        if (blockError) throw blockError;
+      }
+
+      // ── 3. Write publish_records ────────────────────────────────────────
+      const status: string =
+        scheduleType === "now" ? "playing"
+        : scheduleType === "calendar" && dateFrom ? "scheduled"
+        : "published";
+
+      const scheduledAt: string | null =
+        scheduleType === "calendar" && dateFrom
+          ? new Date(`${format(dateFrom, "yyyy-MM-dd")}T${startTime}:00`).toISOString()
+          : null;
+
+      const { error: recError } = await supabase.from("publish_records").insert(
+        channelScreens.map((s) => ({
+          screen_id:    s.id,
+          screen_name:  s.name,
+          channel_id:   subMap.get(s.id) ?? null,
+          channel_name: "",
+          published_by: userId ?? null,
+          status,
+          scheduled_at: scheduledAt,
+        }))
+      );
       if (recError) throw recError;
 
-      toast.success(`已成功發佈至 ${selectedIds.size} 台螢幕`);
+      const skippedNote = noChannelScreens.length > 0
+        ? `（${noChannelScreens.length} 台無頻道訂閱已略過）`
+        : "";
+      toast.success(`已成功發佈至 ${channelScreens.length} 台螢幕${skippedNote}`);
       onClose();
     } catch (err) {
-      console.error(err);
+      console.error("QuickPublish error:", err);
       toast.error("發佈失敗，請重試");
     } finally {
       setPublishing(false);
