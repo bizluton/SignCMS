@@ -1278,6 +1278,14 @@ const translations = {
   idleAssetsDismiss:        { zh: "暫時忽略", en: "Dismiss for now", ja: "今は無視する" },
   idleAssetsGoMedia:        { zh: "前往媒體櫃", en: "Go to Media Library", ja: "メディアライブラリへ" },
   idleAssetsGoStudio:       { zh: "前往設計工作室", en: "Go to Studio", ja: "スタジオへ" },
+  // Studio auto-draft recovery
+  studioDraftTitle:    { zh: "發現未儲存的草稿", en: "Unsaved Draft Found", ja: "未保存のドラフトが見つかりました" },
+  studioDraftDesc:     { zh: "偵測到上次編輯時有未儲存的內容，是否要還原？", en: "Unsaved changes from your last session were detected. Would you like to restore them?", ja: "前回セッションの未保存の変更が見つかりました。復元しますか？" },
+  studioDraftProject:  { zh: "專案：{name}", en: "Project: {name}", ja: "プロジェクト：{name}" },
+  studioDraftTime:     { zh: "草稿時間：{time}", en: "Draft time: {time}", ja: "ドラフト時間：{time}" },
+  studioDraftRestore:  { zh: "還原草稿", en: "Restore Draft", ja: "ドラフトを復元" },
+  studioDraftDiscard:  { zh: "捨棄草稿", en: "Discard Draft", ja: "ドラフトを破棄" },
+  studioDraftRestored: { zh: "草稿已還原，請記得儲存", en: "Draft restored — remember to save", ja: "ドラフトを復元しました。保存を忘れずに" },
   // Auto-deleted expired schedules
   autoDeletedExpiredSchedules: { zh: "已自動刪除 {count} 個過期排程", en: "Auto-deleted {count} expired schedule(s)", ja: "{count} 件の期限切れスケジュールを自動削除しました" },
   // Channel reference check (pre-delete impact summary)

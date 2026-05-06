@@ -196,6 +196,7 @@ const DEFAULT_RESOLUTION_ID = "uhd-4k";
 const CUSTOM_RES_STORAGE_KEY = "studio:lastCustomRes";
 const MY_PRESETS_STORAGE_KEY = "studio:myResPresets";
 const STUDIO_SESSION_KEY = "studio:session";
+const STUDIO_DRAFT_KEY = "studio:draft";
 
 // ── Auto-name helper ─────────────────────────────────────────────────────────
 // Generates a unique project name in the format PRJ{YYMMDD}{XX} where XX is
@@ -249,6 +250,45 @@ function loadStudioSession(): Partial<StudioSession> | null {
 
 function saveStudioSession(s: StudioSession) {
   try { localStorage.setItem(STUDIO_SESSION_KEY, JSON.stringify(s)); } catch { /* ignore */ }
+}
+
+// ── Auto-draft types & helpers ────────────────────────────────────────────────
+// A draft captures the full unsaved canvas state so it can be recovered after
+// an unexpected page reload (ChunkLoadError auto-retry, HMR, tab discard, etc.).
+type StudioDraft = {
+  v: 1;
+  orgId: string | null;
+  projectId: string | null;
+  projectName: string;
+  savedAt: string; // ISO timestamp
+  aspect: AspectRatio;
+  resolution: { id: string; width: number; height: number };
+  outputPages: Record<string, Array<{ id: string; name: string; zones: Zone[]; overlays: OverlayBlock[] }>>;
+  outputActivePageId: Record<string, string>;
+  outputMode: string;
+  outputCount: number;
+  activeOutput: number;
+  bgmItems: MediaItem[];
+  bgmVolume: number;
+  bgmAudioSource: string;
+};
+
+function loadStudioDraft(): StudioDraft | null {
+  try {
+    const raw = localStorage.getItem(STUDIO_DRAFT_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (!p || typeof p !== "object" || p.v !== 1) return null;
+    return p as StudioDraft;
+  } catch { return null; }
+}
+
+function saveStudioDraft(draft: StudioDraft) {
+  try { localStorage.setItem(STUDIO_DRAFT_KEY, JSON.stringify(draft)); } catch { /* ignore */ }
+}
+
+function clearStudioDraft() {
+  try { localStorage.removeItem(STUDIO_DRAFT_KEY); } catch { /* ignore */ }
 }
 
 type StoredCustomRes = { w: string; h: string; rows: string; cols: string; applyGrid: boolean };
@@ -5130,6 +5170,11 @@ export default function ContentStudioPage() {
   // Unsaved-changes tracking
   const [isDirty, setIsDirty] = useState(false);
   const cleanSnapshotRef = useRef<string>("");
+  // Auto-draft recovery
+  const [draftRecoveryOpen, setDraftRecoveryOpen] = useState(false);
+  const draftToRestoreRef = useRef<StudioDraft | null>(null);
+  // Always-current payload ref — synchronously readable by emergency-save event handler
+  const draftPayloadRef = useRef<StudioDraft | null>(null);
   const [pendingDestructiveAction, setPendingDestructiveAction] = useState<null | "new" | "load">(null);
   const [showPreviewSavePrompt, setShowPreviewSavePrompt] = useState(false);
 
@@ -5164,6 +5209,8 @@ export default function ContentStudioPage() {
   const markClean = useCallback(() => {
     cleanSnapshotRef.current = computeSnapshot();
     setIsDirty(false);
+    clearStudioDraft();
+    draftPayloadRef.current = null;
   }, [computeSnapshot]);
 
   // Recompute dirty whenever tracked state changes.
@@ -5174,6 +5221,62 @@ export default function ContentStudioPage() {
 
   // Initial baseline on mount.
   useEffect(() => { cleanSnapshotRef.current = computeSnapshot(); setIsDirty(false);   }, []);
+
+  // ── Auto-draft: keep draftPayloadRef always current ───────────────────────
+  // This ref is read synchronously by the emergency-save handler (and by the
+  // debounced timer) so that we never capture stale state.
+  useEffect(() => {
+    if (!isDirty) { draftPayloadRef.current = null; return; }
+    draftPayloadRef.current = {
+      v: 1,
+      orgId: activeOrgId ?? null,
+      projectId: currentProject?.id ?? null,
+      projectName: currentProject?.name ?? projectName,
+      savedAt: new Date().toISOString(),
+      aspect,
+      resolution: { id: resolution.id, width: resolution.width, height: resolution.height },
+      outputPages: Object.fromEntries(
+        Object.entries(outputPages).map(([k, pgList]) => [
+          k,
+          pgList.map((p) => ({ id: p.id, name: p.name, zones: p.zones, overlays: p.overlays })),
+        ])
+      ),
+      outputActivePageId: Object.fromEntries(Object.entries(outputActivePageId).map(([k, v]) => [k, v])),
+      outputMode,
+      outputCount,
+      activeOutput,
+      bgmItems,
+      bgmVolume,
+      bgmAudioSource,
+    };
+  }, [isDirty, activeOrgId, currentProject?.id, currentProject?.name, projectName, aspect, resolution, outputPages, outputActivePageId, outputMode, outputCount, activeOutput, bgmItems, bgmVolume, bgmAudioSource]);
+
+  // ── Auto-draft: debounced save to localStorage (3 s after last change) ────
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!isDirty) return;
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = setTimeout(() => {
+      const payload = draftPayloadRef.current;
+      if (payload) saveStudioDraft(payload);
+    }, 3000);
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    };
+  }, [isDirty, aspect, resolution.width, resolution.height, zones, overlays, bgmItems, bgmVolume, bgmAudioSource, outputPages]);
+
+  // ── Auto-draft: emergency sync-save before ErrorBoundary-triggered reload ─
+  // ErrorBoundary dispatches "studio:emergency-draft-save" before calling
+  // window.location.reload() on a ChunkLoadError. We write the current draft
+  // synchronously so it survives the reload.
+  useEffect(() => {
+    const onEmergencySave = () => {
+      const payload = draftPayloadRef.current;
+      if (payload) saveStudioDraft(payload);
+    };
+    window.addEventListener("studio:emergency-draft-save", onEmergencySave);
+    return () => window.removeEventListener("studio:emergency-draft-save", onEmergencySave);
+  }, []);
 
   // ── Unsaved-changes navigation guard ────────────────────────────
   // 1) Browser-level: refresh / close tab → native "unsaved changes" prompt.
@@ -6208,6 +6311,10 @@ export default function ContentStudioPage() {
     setSelectedZone(null);
     setSelectedOverlay(null);
     setShowLoadDialog(false);
+    // Dismiss any pending draft (user loaded a project, so the draft is superseded)
+    clearStudioDraft();
+    draftToRestoreRef.current = null;
+    setDraftRecoveryOpen(false);
     setTimeout(() => markClean(), 0);
     if (suppressLoadToastRef.current) {
       suppressLoadToastRef.current = false;
@@ -6265,6 +6372,36 @@ export default function ContentStudioPage() {
     }, 0);
   }, [projects, handleLoad]);
 
+  // ── Auto-draft: check for a recoverable draft after session restore ───────
+  // Runs once after projects load (gives session restore a 200 ms head start).
+  const draftCheckedRef = useRef(false);
+  useEffect(() => {
+    if (projects.length === 0) return; // wait for projects list
+    if (draftCheckedRef.current) return;
+    const timer = setTimeout(() => {
+      if (draftCheckedRef.current) return;
+      draftCheckedRef.current = true;
+      const draft = loadStudioDraft();
+      if (!draft) return;
+      // Discard if it belongs to a different org
+      if (draft.orgId && activeOrgId && draft.orgId !== activeOrgId) {
+        clearStudioDraft();
+        return;
+      }
+      // Discard if the project has been saved more recently than the draft
+      if (draft.projectId) {
+        const proj = projects.find((p) => p.id === draft.projectId);
+        if (proj && proj.updated_at && new Date(proj.updated_at) >= new Date(draft.savedAt)) {
+          clearStudioDraft();
+          return;
+        }
+      }
+      draftToRestoreRef.current = draft;
+      setDraftRecoveryOpen(true);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [projects, activeOrgId]);
+
   // ── Session persist: keep the last project + selection + panels in sync ──
   // Only remember the project ID when there are unsaved changes (isDirty).
   // A cleanly-saved project should NOT auto-reopen on next visit — the user
@@ -6289,6 +6426,69 @@ export default function ContentStudioPage() {
     mediaLibraryOpen,
     sidebarTab,
   ]);
+
+  // ── Draft recovery: restore saved draft back to the canvas ──────────────────
+  type StudioPage = { id: string; name: string; zones: Zone[]; overlays: OverlayBlock[] };
+  const handleRecoverDraft = useCallback(() => {
+    const draft = draftToRestoreRef.current;
+    if (!draft) { setDraftRecoveryOpen(false); return; }
+    setDraftRecoveryOpen(false);
+
+    // Restore aspect & resolution
+    setAspect(draft.aspect as AspectRatio);
+    const resLabelKey =
+      draft.resolution.id === "hd"     ? "studioRes720p" :
+      draft.resolution.id === "fhd"    ? "studioResFHD"  :
+      draft.resolution.id === "uhd-4k" ? "studioRes4K"   :
+      draft.resolution.id === "uhd-8k" ? "studioRes8K"   : "studioResCustom";
+    setResolution({ id: draft.resolution.id, labelKey: resLabelKey as TranslationKey, width: draft.resolution.width, height: draft.resolution.height });
+
+    // Restore output settings
+    const validModes = ["mirror", "independent", "extend-h", "extend-v", "grid-2x2-h"];
+    if (validModes.includes(draft.outputMode)) setOutputMode(draft.outputMode as "mirror" | "independent" | "extend-h" | "extend-v" | "grid-2x2-h");
+    const safeCount = Math.max(1, Math.min(4, draft.outputCount));
+    setOutputCount(safeCount);
+    const safeAO = Math.max(1, Math.min(safeCount, draft.activeOutput));
+    setActiveOutput(safeAO);
+
+    // Restore per-output pages
+    const restoredOutputPages: Record<number, StudioPage[]> = {};
+    const restoredOutputActivePageId: Record<number, string> = {};
+    for (const [k, pgList] of Object.entries(draft.outputPages)) {
+      const oNum = parseInt(k, 10);
+      if (!Number.isFinite(oNum) || !Array.isArray(pgList)) continue;
+      restoredOutputPages[oNum] = pgList as StudioPage[];
+      const wantId = draft.outputActivePageId[k];
+      const found = typeof wantId === "string" && (pgList as StudioPage[]).find((p) => p.id === wantId);
+      restoredOutputActivePageId[oNum] = found ? found.id : ((pgList as StudioPage[])[0]?.id ?? "");
+    }
+    setOutputPages(restoredOutputPages);
+    setOutputActivePageId(restoredOutputActivePageId);
+
+    // Set active page zones/overlays
+    const aoPages = restoredOutputPages[safeAO] ?? [];
+    const aoActiveId = restoredOutputActivePageId[safeAO] ?? aoPages[0]?.id ?? "";
+    const activePg = aoPages.find((p) => p.id === aoActiveId) ?? aoPages[0];
+    setZones(activePg?.zones ?? []);
+    setOverlays(activePg?.overlays ?? []);
+
+    // Restore BGM
+    setBgmItems(Array.isArray(draft.bgmItems) ? draft.bgmItems : []);
+    setBgmVolume(typeof draft.bgmVolume === "number" ? Math.max(0, Math.min(100, draft.bgmVolume)) : 30);
+    setBgmAudioSource(typeof draft.bgmAudioSource === "string" && draft.bgmAudioSource ? draft.bgmAudioSource : "bgm");
+
+    // Restore project ref if it still exists
+    if (draft.projectId) {
+      const proj = projects.find((p) => p.id === draft.projectId);
+      if (proj) setCurrentProject(proj);
+    }
+    setProjectName(draft.projectName || "");
+
+    // Draft content is dirty — do NOT call markClean
+    clearStudioDraft();
+    draftToRestoreRef.current = null;
+    toast.success(t("studioDraftRestored"));
+  }, [projects, t, setAspect, setResolution, setOutputMode, setOutputCount, setActiveOutput, setOutputPages, setOutputActivePageId, setZones, setOverlays, setBgmItems, setBgmVolume, setBgmAudioSource, setCurrentProject, setProjectName]);
 
   // Delete project
   const handleDelete = useCallback(async (id: string) => {
@@ -6761,6 +6961,11 @@ export default function ContentStudioPage() {
     // is safe to call here because handleNew is only invoked from user events (after full render).
     setLayoutPanelManuallyCollapsed(false);
     try { localStorage.setItem("studio:layoutPanelManuallyCollapsed", "0"); } catch { /* ignore */ }
+    // Discard any pending draft (user explicitly chose to start fresh)
+    clearStudioDraft();
+    draftPayloadRef.current = null;
+    draftToRestoreRef.current = null;
+    setDraftRecoveryOpen(false);
     // Mark clean after state settles
     setTimeout(() => markClean(), 0);
   }, [markClean, projects]);
@@ -9499,6 +9704,38 @@ export default function ContentStudioPage() {
               }}
             >
               {t("studioDeleteScene")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Auto-draft recovery dialog */}
+      <AlertDialog open={draftRecoveryOpen} onOpenChange={(o) => { if (!o) { clearStudioDraft(); draftToRestoreRef.current = null; setDraftRecoveryOpen(false); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("studioDraftTitle")}</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-1.5 text-sm">
+                <p>{t("studioDraftDesc")}</p>
+                {draftToRestoreRef.current?.projectName && (
+                  <p className="text-foreground font-medium">
+                    {t("studioDraftProject").replace("{name}", draftToRestoreRef.current.projectName)}
+                  </p>
+                )}
+                {draftToRestoreRef.current?.savedAt && (
+                  <p className="text-xs text-muted-foreground">
+                    {t("studioDraftTime").replace("{time}", new Date(draftToRestoreRef.current.savedAt).toLocaleString())}
+                  </p>
+                )}
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { clearStudioDraft(); draftToRestoreRef.current = null; }}>
+              {t("studioDraftDiscard")}
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleRecoverDraft}>
+              {t("studioDraftRestore")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

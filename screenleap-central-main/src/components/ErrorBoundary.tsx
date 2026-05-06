@@ -45,6 +45,8 @@ export class ErrorBoundary extends Component<Props, State> {
         const alreadyRetried = sessionStorage.getItem(RETRY_KEY) === "1";
         if (!alreadyRetried) {
           sessionStorage.setItem(RETRY_KEY, "1");
+          // Give ContentStudio a chance to flush an emergency draft before the reload.
+          try { window.dispatchEvent(new CustomEvent("studio:emergency-draft-save")); } catch { /* ignore */ }
           window.location.reload();
           return;
         }
