@@ -392,7 +392,8 @@ class MediaZoneEngine {
     frame.style.border     = "none";
     frame.style.objectFit  = ""; // object-fit has no effect on iframes
     frame.style.background = wc.bgColor || "#000";
-    frame.allowFullscreen  = false;
+    // allow-same-origin is required for scripts inside the widget to call Supabase
+    frame.setAttribute("sandbox", "allow-scripts allow-same-origin allow-forms allow-popups");
     return frame;
   }
 

@@ -3,7 +3,7 @@
  * Handles: window, tray, config, heartbeat, IPC
  */
 const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage,
-        globalShortcut, dialog, shell } = require("electron");
+        globalShortcut, dialog, shell, session } = require("electron");
 const path  = require("path");
 const https = require("https");
 const http  = require("http");
@@ -215,6 +215,16 @@ ipcMain.handle("open-external", (_e, url) => { shell.openExternal(url); });
 
 // ─── App lifecycle ────────────────────────────────────────────────────────
 app.whenReady().then(() => {
+  // Force Content-Type: text/html for any .html URLs (e.g. widget files
+  // served from Supabase Storage which may return text/plain or octet-stream)
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const headers = Object.assign({}, details.responseHeaders);
+    if (/\.html(\?|$)/i.test(details.url)) {
+      headers["content-type"] = ["text/html; charset=utf-8"];
+    }
+    callback({ responseHeaders: headers });
+  });
+
   createWindow();
   createTray();
   startSyncLoop();
