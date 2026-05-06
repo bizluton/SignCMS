@@ -196,14 +196,37 @@ function renderProject(data) {
   const channel = data.channel;
   const zones   = project.zones;
 
+  // Inject orgId/teamId into any widget mediaItem params that lack them,
+  // so widgets like announcement_board can query the right org without
+  // requiring the ContentStudio user to manually configure it.
+  const screenOrgId  = data.screen?.org_id  || "";
+  const screenTeamId = data.screen?.team_id || "";
+  function injectOrgIntoZones(zoneList) {
+    if (!Array.isArray(zoneList)) return;
+    zoneList.forEach((z) => {
+      const items = z.content?.mediaItems;
+      if (!Array.isArray(items)) return;
+      items.forEach((item) => {
+        if (item.type !== "widget") return;
+        const wc = item.widgetConfig || (item.widgetConfig = {});
+        const p  = wc.params || (wc.params = {});
+        if (!p.orgId  && screenOrgId)  p.orgId  = screenOrgId;
+        if (!p.teamId && screenTeamId) p.teamId = screenTeamId;
+      });
+    });
+  }
+
   // Find _meta block
   const meta = Array.isArray(zones) ? zones.find((z) => z._meta === true) : null;
 
   if (meta?.pages?.length > 0) {
+    meta.pages.forEach((pg) => injectOrgIntoZones(pg.zones));
     renderNewFormat(meta, channel);
   } else if (Array.isArray(zones)) {
     // Fallback: old flat zones format
-    renderFlatZones(zones.filter((z) => !z._meta), channel);
+    const flatZones = zones.filter((z) => !z._meta);
+    injectOrgIntoZones(flatZones);
+    renderFlatZones(flatZones, channel);
   }
 }
 
