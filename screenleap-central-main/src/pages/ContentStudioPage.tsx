@@ -6266,9 +6266,14 @@ export default function ContentStudioPage() {
   }, [projects, handleLoad]);
 
   // ── Session persist: keep the last project + selection + panels in sync ──
+  // Only remember the project ID when there are unsaved changes (isDirty).
+  // A cleanly-saved project should NOT auto-reopen on next visit — the user
+  // explicitly saved and left, so the next visit starts with a fresh canvas.
+  // If the user navigates away mid-edit (isDirty=true), the session is
+  // preserved so they can resume where they left off.
   useEffect(() => {
     saveStudioSession({
-      projectId: currentProject?.id ?? null,
+      projectId: (currentProject && isDirty) ? currentProject.id : null,
       selectedZone,
       selectedOverlay,
       layoutPanelOpen,
@@ -6277,6 +6282,7 @@ export default function ContentStudioPage() {
     });
   }, [
     currentProject?.id,
+    isDirty,
     selectedZone,
     selectedOverlay,
     layoutPanelOpen,
