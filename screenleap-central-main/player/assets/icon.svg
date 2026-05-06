@@ -1,0 +1,8 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <rect width="512" height="512" rx="115" fill="#10b981"/>
+  <rect x="80" y="120" width="352" height="220" rx="28" fill="white" fill-opacity="0.95"/>
+  <rect x="196" y="356" width="120" height="36" rx="12" fill="white" fill-opacity="0.6"/>
+  <rect x="152" y="396" width="208" height="20" rx="10" fill="white" fill-opacity="0.4"/>
+  <!-- Play button -->
+  <polygon points="208,185 208,295 328,240" fill="#10b981"/>
+</svg>

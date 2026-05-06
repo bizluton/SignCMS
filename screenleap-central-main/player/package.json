@@ -1,0 +1,60 @@
+{
+  "name": "signcms-player",
+  "version": "1.0.0",
+  "description": "SignCMS HTML5 Player — Digital Signage & Remote Teaching",
+  "main": "src/main.js",
+  "author": "SignCMS",
+  "license": "MIT",
+  "scripts": {
+    "start":   "electron .",
+    "dev":     "electron . --dev",
+    "pack":    "electron-builder --dir",
+    "dist":    "electron-builder",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist:all": "electron-builder --mac --win"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  },
+  "devDependencies": {
+    "electron":         "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId":       "com.signcms.player",
+    "productName": "SignCMS Player",
+    "copyright":   "Copyright © 2026 SignCMS",
+    "files": [
+      "src/**/*",
+      "assets/**/*"
+    ],
+    "extraResources": [
+      { "from": "assets", "to": "assets" }
+    ],
+    "mac": {
+      "category": "public.app-category.business",
+      "icon":     "assets/icon.icns",
+      "target":   [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "darkModeSupport": true
+    },
+    "win": {
+      "icon":   "assets/icon.ico",
+      "target": [{ "target": "nsis", "arch": ["x64"] }]
+    },
+    "nsis": {
+      "oneClick":           false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName":       "SignCMS Player"
+    },
+    "dmg": {
+      "title":   "SignCMS Player Installer",
+      "window":  { "width": 540, "height": 380 }
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}
