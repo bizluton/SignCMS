@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useBlocker } from "react-router-dom";
 import { useActiveOrg } from "@/contexts/ActiveOrgContext";
 import { useUserOrgs } from "@/hooks/useUserOrgs";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -5171,96 +5171,41 @@ export default function ContentStudioPage() {
   useEffect(() => { cleanSnapshotRef.current = computeSnapshot(); setIsDirty(false);   }, []);
 
   // ── Unsaved-changes navigation guard ────────────────────────────
-  // 1) Browser-level: refresh / close tab triggers the native confirm prompt.
-  // 2) In-app: clicking any internal <a href> while dirty opens a confirmation
-  //    dialog; on confirm we navigate to the pending destination.
-  // 3) Back/forward (popstate) is intercepted the same way and re-pushed.
-  //
-  // All three guards are scoped to the Content Design Center route prefix.
-  // The page itself only mounts under `/studio`, but as a safety net every
-  // listener also bails out if the URL is no longer under the studio prefix
-  // (e.g. during a navigation that races the unmount).
-  const STUDIO_ROUTE_PREFIX = "/studio";
-  const isOnStudioRoute = useCallback(
-    () => window.location.pathname.startsWith(STUDIO_ROUTE_PREFIX),
-    [],
-  );
+  // 1) Browser-level: refresh / close tab triggers the native "unsaved changes" prompt.
+  // 2) In-app SPA navigation (sidebar clicks, programmatic navigate(), browser back/forward)
+  //    is intercepted by React Router's useBlocker, which works with both BrowserRouter and
+  //    HashRouter (previous manual DOM click + popstate approach broke on HashRouter because
+  //    every hash-router href starts with "#", so the old guard always skipped them).
   const navigate = useNavigate();
   const isDirtyRef = useRef(isDirty);
   useEffect(() => { isDirtyRef.current = isDirty; }, [isDirty]);
-  const allowNextNavRef = useRef(false);
-  const [pendingNavHref, setPendingNavHref] = useState<string | null>(null);
 
+  // beforeunload — covers tab close / page refresh (useBlocker does NOT handle these).
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!isDirtyRef.current || !isOnStudioRoute()) return;
+      if (!isDirtyRef.current) return;
       e.preventDefault();
-      // Required for Chrome; the actual string is ignored by modern browsers.
-      e.returnValue = "";
+      e.returnValue = ""; // required for Chrome
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [isOnStudioRoute]);
+  }, []);
 
-  useEffect(() => {
-    const onClick = (e: MouseEvent) => {
-      if (!isDirtyRef.current || allowNextNavRef.current) return;
-      // Only guard clicks that originate while the user is on a studio route.
-      if (!isOnStudioRoute()) return;
-      // Ignore modified clicks (open in new tab, etc.) and non-primary buttons.
-      if (e.defaultPrevented || e.button !== 0) return;
-      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-      const target = e.target as HTMLElement | null;
-      const anchor = target?.closest("a") as HTMLAnchorElement | null;
-      if (!anchor) return;
-      const href = anchor.getAttribute("href");
-      if (!href || href.startsWith("#")) return;
-      if (anchor.target && anchor.target !== "" && anchor.target !== "_self") return;
-      // External links — let the browser's beforeunload handle it.
-      const isExternal = /^(https?:)?\/\//i.test(href) && !href.startsWith(window.location.origin);
-      if (isExternal) return;
-      // Same-route clicks: nothing to guard.
-      const path = href.startsWith(window.location.origin) ? href.slice(window.location.origin.length) : href;
-      if (path === window.location.pathname + window.location.search) return;
-      // In-studio navigation (e.g. /studio/foo) shouldn't trigger the dialog —
-      // the user isn't actually leaving the Content Design Center.
-      if (path.startsWith(STUDIO_ROUTE_PREFIX)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setPendingNavHref(path);
-    };
-    document.addEventListener("click", onClick, true);
-    return () => document.removeEventListener("click", onClick, true);
-  }, [isOnStudioRoute]);
-
-  useEffect(() => {
-    // Keep a sentinel entry so popstate can be reverted without losing the page.
-    window.history.pushState({ __studioGuard: true }, "");
-    const onPopState = (e: PopStateEvent) => {
-      // Only intercept while we're still on the studio route and have unsaved work.
-      if (!isOnStudioRoute()) return;
-      if (!isDirtyRef.current || allowNextNavRef.current) return;
-      // Re-push so the user stays on the studio while we ask.
-      window.history.pushState({ __studioGuard: true }, "");
-      setPendingNavHref("__back__");
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
-  }, [isOnStudioRoute]);
+  // useBlocker — intercepts all React Router navigations while there are unsaved changes.
+  const blocker = useBlocker(
+    useCallback(
+      ({ currentLocation, nextLocation }) =>
+        isDirtyRef.current && currentLocation.pathname !== nextLocation.pathname,
+      []
+    )
+  );
+  // Stable ref so confirmLeave / saveAndLeave can call proceed() without stale closures.
+  const blockerRef = useRef(blocker);
+  blockerRef.current = blocker;
 
   const confirmLeave = useCallback(() => {
-    const dest = pendingNavHref;
-    setPendingNavHref(null);
-    if (!dest) return;
-    allowNextNavRef.current = true;
-    if (dest === "__back__") {
-      window.history.back();
-    } else {
-      navigate(dest);
-    }
-    // Reset the allow flag shortly after the navigation commits.
-    setTimeout(() => { allowNextNavRef.current = false; }, 0);
-  }, [pendingNavHref, navigate]);
+    blockerRef.current?.proceed?.();
+  }, []);
 
 
   // DB media for picker
@@ -6837,7 +6782,7 @@ export default function ContentStudioPage() {
     }
     const ok = await handleSave();
     if (!ok) return;
-    // confirmLeave reads pendingNavHref, which is still set.
+    // Proceed with the blocked navigation (blocker.proceed() via confirmLeave).
     confirmLeave();
   }, [currentProject, handleSave, confirmLeave, openSaveDialogForNew]);
 
@@ -9245,18 +9190,21 @@ export default function ContentStudioPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Unsaved-changes navigation guard */}
-      <AlertDialog open={pendingNavHref !== null} onOpenChange={(o) => { if (!o) setPendingNavHref(null); }}>
+      {/* Unsaved-changes navigation guard — driven by React Router's useBlocker */}
+      <AlertDialog
+        open={blocker.state === "blocked"}
+        onOpenChange={(o) => { if (!o) blocker.reset?.(); }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("studioUnsavedLeaveTitle")}</AlertDialogTitle>
             <AlertDialogDescription>{t("studioUnsavedLeaveDesc")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:gap-2">
-            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => blocker.reset?.()}>{t("cancel")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={confirmLeave}
+              onClick={() => blocker.proceed?.()}
             >
               {t("studioUnsavedDiscard")}
             </AlertDialogAction>
