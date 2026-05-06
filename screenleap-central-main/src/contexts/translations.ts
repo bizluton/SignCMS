@@ -448,6 +448,7 @@ const translations = {
   mediaPixels: { zh: "畫素", en: "Pixels", ja: "画素数" },
   mediaFrameRate: { zh: "幀率", en: "Frame Rate", ja: "フレームレート" },
   mediaBitrate: { zh: "位元率", en: "Bitrate", ja: "ビットレート" },
+  mediaCodec:   { zh: "解碼格式", en: "Codec", ja: "コーデック" },
   mediaUploadDate: { zh: "上傳日期", en: "Upload Date", ja: "アップロード日" },
   mediaPreviewUnavailable: { zh: "預覽不可用（範例素材）", en: "Preview unavailable (sample)", ja: "プレビュー不可（サンプル）" },
   mediaDeleteItem: { zh: "刪除素材", en: "Delete Media", ja: "メディア削除" },

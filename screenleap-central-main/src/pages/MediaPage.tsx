@@ -2031,6 +2031,7 @@ const MediaPage = () => {
                       <>
                         <span>·</span>
                         <span>{formatDimensions(item) || "-"}</span>
+                        {(() => { const codec = formatCodecLabel(item); return codec ? <><span>·</span><span className="font-mono uppercase">{codec}</span></> : null; })()}
                       </>
                     ) : null}
                     <span>·</span>
@@ -2154,7 +2155,10 @@ const MediaPage = () => {
                     {item.type === "audio" ? (
                       <span className="font-mono uppercase">{getAudioFormatLabel(item)}</span>
                     ) : item.type !== "widget" ? (
-                      <span>{formatDimensions(item) || "-"}</span>
+                      <>
+                        <span>{formatDimensions(item) || "-"}</span>
+                        {(() => { const codec = formatCodecLabel(item); return codec ? <span className="font-mono uppercase">{codec}</span> : null; })()}
+                      </>
                     ) : null}
                     {(() => { const d = formatDuration(item); return d ? <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{d}</span> : null; })()}
                     <span>{item.created_at?.split("T")[0]}</span>
@@ -3342,6 +3346,48 @@ function getEncodingFromUrl(url?: string | null): string {
   return "-";
 }
 
+/**
+ * Returns a short, human-readable codec / format label for the card info bar.
+ * - Video: derived from source_codec (e.g. "H.264", "HEVC", "AV1")
+ * - Image: derived from mime_type (e.g. "JPEG", "PNG", "WebP")
+ * - Audio: handled separately by getAudioFormatLabel
+ * Returns null when no meaningful label can be produced.
+ */
+export function formatCodecLabel(item: {
+  type: string;
+  source_codec?: string | null;
+  mime_type?: string | null;
+}): string | null {
+  if (item.type === "video") {
+    const c = (item.source_codec || "").toLowerCase().trim();
+    if (!c) return null;
+    if (c === "h264" || c === "avc" || c === "avc1") return "H.264";
+    if (c === "hevc" || c === "h265" || c === "hvc1" || c === "hev1") return "HEVC";
+    if (c === "av1"  || c === "av01") return "AV1";
+    if (c === "vp9"  || c === "vp09") return "VP9";
+    if (c === "vp8"  || c === "vp08") return "VP8";
+    if (c === "mpeg4" || c === "mp4v" || c === "mp4") return "MPEG-4";
+    if (c === "mpeg2") return "MPEG-2";
+    if (c === "theora") return "Theora";
+    if (c === "wmv" || c === "wmv3" || c === "wvc1") return "WMV";
+    if (c === "prores") return "ProRes";
+    return item.source_codec!.toUpperCase(); // unknown — show raw
+  }
+  if (item.type === "image") {
+    const mime = (item.mime_type || "").toLowerCase();
+    if (mime.includes("jpeg") || mime.includes("jpg")) return "JPEG";
+    if (mime.includes("png"))  return "PNG";
+    if (mime.includes("webp")) return "WebP";
+    if (mime.includes("avif")) return "AVIF";
+    if (mime.includes("gif"))  return "GIF";
+    if (mime.includes("svg"))  return "SVG";
+    if (mime.includes("bmp"))  return "BMP";
+    if (mime.includes("tiff")) return "TIFF";
+    return null;
+  }
+  return null; // audio handled by getAudioFormatLabel
+}
+
 /** Short, uppercase audio format label (e.g. "MP3", "WAV", "OGG", "M4A", "AAC", "FLAC"). */
 export function getAudioFormatLabel(item: { mime_type?: string | null; name?: string | null; original_name?: string | null; url?: string | null }): string {
   const mime = (item.mime_type || "").toLowerCase();
@@ -3480,6 +3526,7 @@ function PreviewInfoPanel({ item, usedInProjects, usedInSchedules, t, uploaderPr
     { label: t("mediaResolution"), value: formatDimensions(item) || "-" },
     { label: t("mediaFileSize"), value: formatMediaBytes(getSizeBytes(item)) || "-" },
     { label: t("mediaEncoding"), value: encoding },
+    ...((() => { const codec = formatCodecLabel(item); return codec ? [{ label: t("mediaCodec"), value: codec }] : []; })()),
     ...(item.type === "image" ? [{ label: t("mediaPixels"), value: extraInfo.pixels || "..." }] : []),
     ...(item.type === "video" ? [
       { label: t("mediaDuration"), value: formatDuration(item) || "-" },
