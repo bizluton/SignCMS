@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Monitor, Plus, Pencil, Trash2, Search, MapPin, Loader2, FolderPlus, Layers, MoreHorizontal, Settings, RotateCw, Power, RefreshCw, Eye, Moon, Play, Brush, FileText, Radio, Wifi, Cable, ArrowUpDown, SlidersHorizontal, X, WifiOff, Zap, TerminalSquare, ShieldOff, KeyRound, Copy, Check } from "lucide-react";
+import { Monitor, Plus, Pencil, Trash2, Search, MapPin, Loader2, FolderPlus, Layers, MoreHorizontal, Settings, RotateCw, Power, RefreshCw, Eye, Moon, Play, Brush, FileText, Radio, Wifi, Cable, ArrowUpDown, SlidersHorizontal, X, WifiOff, Zap, TerminalSquare, ShieldOff } from "lucide-react";
 import { Tv } from "lucide-react";
 import type { ScreenDetailScreen } from "@/components/screens/ScreenDetailDrawer";
 import { ScreenChannelDialog } from "@/components/screens/ScreenChannelDialog";
@@ -96,36 +96,6 @@ export default function ScreensPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Device Token dialog
-  const [tokenDialogScreen, setTokenDialogScreen] = useState<Screen | null>(null);
-  const [tokenDialogStep, setTokenDialogStep]  = useState<"confirm" | "show">("confirm");
-  const [generatedToken, setGeneratedToken]    = useState<string>("");
-  const [tokenGenerating, setTokenGenerating]  = useState(false);
-  const [tokenCopied, setTokenCopied]          = useState(false);
-
-  const handleGenerateToken = async () => {
-    if (!tokenDialogScreen) return;
-    setTokenGenerating(true);
-    try {
-      const { data, error } = await supabase.rpc("issue_screen_device_token", {
-        _screen_id: tokenDialogScreen.id,
-      });
-      if (error || !data?.ok) {
-        toast.error({ zh: "產生失敗，請確認您有管理員權限", en: "Failed — check you have admin permissions", ja: "生成失敗 — 管理者権限を確認してください" }[language]);
-        return;
-      }
-      setGeneratedToken(data.token as string);
-      setTokenDialogStep("show");
-    } finally {
-      setTokenGenerating(false);
-    }
-  };
-
-  const handleCopyToken = () => {
-    navigator.clipboard.writeText(generatedToken);
-    setTokenCopied(true);
-    setTimeout(() => setTokenCopied(false), 2000);
-  };
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
 
@@ -1036,7 +1006,6 @@ export default function ScreensPage() {
                     <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => setSmartTriggerScreen(screen)} title={locked ? lockedTitle : { zh: "智能觸發", en: "Smart Triggers", ja: "スマートトリガー" }[language]}><Zap className="w-4 h-4" /></Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => setSettingsScreen(screen)} title={locked ? lockedTitle : t("screenSettings")}><Settings className="w-4 h-4" /></Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => openEdit(screen)} title={locked ? lockedTitle : t("tipEditScreen")}><Pencil className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-amber-500 hover:text-amber-400" onClick={() => { setTokenDialogScreen(screen); setTokenDialogStep("confirm"); setGeneratedToken(""); setTokenCopied(false); }} title={{ zh: "產生播放器 Device Token", en: "Generate Device Token", ja: "デバイストークンを生成" }[language]}><KeyRound className="w-4 h-4" /></Button>
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(screen.id)} title={t("tipDeleteScreen")}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                   </div>
                 );
@@ -1387,68 +1356,6 @@ export default function ScreensPage() {
               {t("screensSaveChanges")}
             </Button>
           </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Device Token Dialog */}
-      <Dialog open={tokenDialogScreen !== null} onOpenChange={(open) => { if (!open) setTokenDialogScreen(null); }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <KeyRound className="w-5 h-5 text-amber-500" />
-              {{ zh: "播放器 Device Token", en: "Player Device Token", ja: "プレーヤーデバイストークン" }[language]}
-            </DialogTitle>
-          </DialogHeader>
-
-          {tokenDialogStep === "confirm" && (
-            <div className="space-y-4 py-2">
-              <p className="text-sm text-muted-foreground">
-                {{ zh: `為螢幕「${tokenDialogScreen?.name}」產生新的 Device Token。此 Token 讓 Electron 播放器 App 可驗證身份並取得播放內容。`, en: `Generate a new Device Token for screen "${tokenDialogScreen?.name}". This token allows the Electron player app to authenticate and receive content.`, ja: `スクリーン「${tokenDialogScreen?.name}」の新しいデバイストークンを生成します。` }[language]}
-              </p>
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400 space-y-1">
-                <p className="font-semibold">{{ zh: "⚠️ 注意", en: "⚠️ Warning", ja: "⚠️ 注意" }[language]}</p>
-                <p>{{ zh: "產生後將立即讓舊 Token 失效。Token 只顯示一次，請立即複製保存。", en: "This will immediately invalidate any existing token. The token is only shown once — copy it immediately.", ja: "既存のトークンは即座に無効になります。トークンは一度しか表示されません。" }[language]}</p>
-              </div>
-              <DialogFooter>
-                <DialogClose asChild><Button variant="outline">{{ zh: "取消", en: "Cancel", ja: "キャンセル" }[language]}</Button></DialogClose>
-                <Button onClick={handleGenerateToken} disabled={tokenGenerating} className="bg-amber-500 hover:bg-amber-600 text-white">
-                  {tokenGenerating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <KeyRound className="w-4 h-4 mr-2" />}
-                  {{ zh: "產生 Token", en: "Generate Token", ja: "トークンを生成" }[language]}
-                </Button>
-              </DialogFooter>
-            </div>
-          )}
-
-          {tokenDialogStep === "show" && (
-            <div className="space-y-4 py-2">
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-xs text-emerald-600 dark:text-emerald-400">
-                {{ zh: "✅ Token 產生成功！請立即複製，此頁關閉後將無法再次查看。", en: "✅ Token generated! Copy it now — it won't be shown again after closing.", ja: "✅ トークンが生成されました。今すぐコピーしてください。" }[language]}
-              </div>
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Device Token</p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 block rounded-md bg-muted px-3 py-2 text-xs font-mono break-all select-all border">
-                    {generatedToken}
-                  </code>
-                  <Button variant="outline" size="icon" className="shrink-0 h-9 w-9" onClick={handleCopyToken}>
-                    {tokenCopied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                  </Button>
-                </div>
-              </div>
-              <div className="rounded-lg border p-3 text-xs text-muted-foreground space-y-1">
-                <p className="font-medium">{{ zh: "填入 Electron Player 設定", en: "Enter in Electron Player Setup", ja: "Electron Player の設定に入力" }[language]}</p>
-                <div className="mt-2 space-y-1 font-mono text-[11px]">
-                  <p><span className="text-muted-foreground">URL: </span>https://narhbpojjtnalyfiwxue.supabase.co</p>
-                  <p className="break-all"><span className="text-muted-foreground">Token: </span>{generatedToken.substring(0, 16)}…</p>
-                </div>
-              </div>
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button className="w-full">{{ zh: "已複製，關閉", en: "Copied — Close", ja: "コピー済み、閉じる" }[language]}</Button>
-                </DialogClose>
-              </DialogFooter>
-            </div>
-          )}
         </DialogContent>
       </Dialog>
 

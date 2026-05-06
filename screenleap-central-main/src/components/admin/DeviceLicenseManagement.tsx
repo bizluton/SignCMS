@@ -8,9 +8,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus, Cpu, Copy, Trash2, Ban, RotateCcw, Settings, Pencil, GripVertical } from "lucide-react";
+import { Loader2, Plus, Cpu, Copy, Trash2, Ban, RotateCcw, Settings, Pencil, GripVertical, KeyRound, Check } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -68,6 +68,64 @@ export default function DeviceLicenseManagement() {
   const [open, setOpen] = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // ── Device Token generation (system admin only) ───────────────────────
+  type TokenDialog = {
+    deviceSerial: string;
+    orgId: string;
+    deviceModel: string;
+    screenName?: string;
+    screenId?: string;
+  };
+  const [tokenDialog, setTokenDialog]       = useState<TokenDialog | null>(null);
+  const [tokenStep, setTokenStep]           = useState<"confirm" | "noscreen" | "show">("confirm");
+  const [generatedToken, setGeneratedToken] = useState("");
+  const [tokenGenerating, setTokenGenerating] = useState(false);
+  const [tokenCopied, setTokenCopied]       = useState(false);
+
+  const openTokenDialog = async (r: DeviceLicense) => {
+    // Look up the matching screen (serial_number + org_id)
+    const { data: scr } = await supabase
+      .from("screens")
+      .select("id, name")
+      .eq("serial_number", r.device_serial)
+      .eq("org_id", r.org_id)
+      .maybeSingle();
+    setTokenDialog({
+      deviceSerial: r.device_serial,
+      orgId:        r.org_id,
+      deviceModel:  r.device_model,
+      screenName:   scr?.name,
+      screenId:     scr?.id,
+    });
+    setTokenStep(scr?.id ? "confirm" : "noscreen");
+    setGeneratedToken("");
+    setTokenCopied(false);
+  };
+
+  const handleGenerateToken = async () => {
+    if (!tokenDialog?.screenId) return;
+    setTokenGenerating(true);
+    try {
+      const { data, error } = await supabase.rpc("issue_screen_device_token", {
+        _screen_id: tokenDialog.screenId,
+      });
+      if (error || !data?.ok) {
+        toast.error(`產生失敗：${error?.message ?? data?.error ?? "未知錯誤"}`);
+        return;
+      }
+      setGeneratedToken(data.token as string);
+      setTokenStep("show");
+    } finally {
+      setTokenGenerating(false);
+    }
+  };
+
+  const handleCopyToken = () => {
+    navigator.clipboard.writeText(generatedToken);
+    setTokenCopied(true);
+    setTimeout(() => setTokenCopied(false), 2000);
+  };
 
   const [model, setModel] = useState("");
   const [serial, setSerial] = useState("");
@@ -204,6 +262,16 @@ export default function DeviceLicenseManagement() {
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copyCode(r.code)} title="複製授權碼">
                         <Copy className="w-3.5 h-3.5" />
                       </Button>
+                      {isSystemAdmin && r.status === "active" && (
+                        <Button
+                          variant="ghost" size="icon"
+                          className="h-7 w-7 text-amber-500 hover:text-amber-400"
+                          onClick={() => openTokenDialog(r)}
+                          title="產生播放器 Device Token（僅系統管理員）"
+                        >
+                          <KeyRound className="w-3.5 h-3.5" />
+                        </Button>
+                      )}
                       {r.status === "active" ? (
                         <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => revoke(r.id)} title="撤銷">
                           <Ban className="w-3.5 h-3.5" />
@@ -279,6 +347,110 @@ export default function DeviceLicenseManagement() {
         models={models}
         onChanged={fetchData}
       />
+
+      {/* ── Device Token Dialog (system admin only) ──────────────────────── */}
+      <Dialog open={!!tokenDialog} onOpenChange={v => { if (!v) setTokenDialog(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-amber-500" />
+              產生播放器 Device Token
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Step: screen not found */}
+          {tokenStep === "noscreen" && (
+            <>
+              <div className="text-sm space-y-2 py-1">
+                <p>找不到對應的螢幕記錄。</p>
+                <p className="text-muted-foreground">
+                  Device Token 綁定在「螢幕」上。請先在<strong>螢幕管理</strong>中建立序號為
+                  <code className="mx-1 px-1 py-0.5 bg-muted rounded text-xs font-mono">
+                    {tokenDialog?.deviceSerial}
+                  </code>
+                  的螢幕，再回此處產生 Token。
+                </p>
+              </div>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button variant="outline">關閉</Button>
+                </DialogClose>
+              </DialogFooter>
+            </>
+          )}
+
+          {/* Step: confirm generation */}
+          {tokenStep === "confirm" && (
+            <>
+              <div className="space-y-3 text-sm py-1">
+                <p>即將為下列螢幕產生（或重新產生）Device Token：</p>
+                <div className="rounded border bg-muted/40 px-4 py-3 space-y-1.5 text-sm">
+                  <div className="flex gap-2">
+                    <span className="text-muted-foreground w-20 shrink-0">螢幕名稱</span>
+                    <span className="font-medium">{tokenDialog?.screenName}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="text-muted-foreground w-20 shrink-0">設備序號</span>
+                    <code className="font-mono text-xs">{tokenDialog?.deviceSerial}</code>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="text-muted-foreground w-20 shrink-0">設備型號</span>
+                    <span>{tokenDialog?.deviceModel}</span>
+                  </div>
+                </div>
+                <p className="text-amber-600 dark:text-amber-400 text-xs rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+                  ⚠️ 產生新 Token 會使舊 Token 立即失效，播放器需重新設定。Token 僅顯示一次，請立即複製保存。
+                </p>
+              </div>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button variant="outline">取消</Button>
+                </DialogClose>
+                <Button onClick={handleGenerateToken} disabled={tokenGenerating} className="bg-amber-500 hover:bg-amber-600 text-white">
+                  {tokenGenerating && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  確認產生
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+
+          {/* Step: show generated token */}
+          {tokenStep === "show" && (
+            <>
+              <div className="space-y-3 text-sm py-1">
+                <div className="rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+                  ✅ Token 產生成功！請立即複製，此視窗關閉後將無法再次查看。
+                </div>
+                <div className="relative">
+                  <code className="block w-full rounded border bg-muted px-3 py-2 font-mono text-xs break-all pr-10 select-all">
+                    {generatedToken}
+                  </code>
+                  <Button
+                    variant="ghost" size="icon"
+                    className="absolute right-1 top-1 h-7 w-7"
+                    onClick={handleCopyToken}
+                    title="複製 Token"
+                  >
+                    {tokenCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                  </Button>
+                </div>
+                <div className="rounded border px-3 py-2 text-xs text-muted-foreground space-y-1">
+                  <p className="font-medium">填入 Electron 播放器設定</p>
+                  <div className="mt-1 space-y-0.5 font-mono text-[11px]">
+                    <p><span className="text-muted-foreground">URL: </span>https://narhbpojjtnalyfiwxue.supabase.co</p>
+                    <p className="break-all"><span className="text-muted-foreground">Token: </span>{generatedToken.substring(0, 16)}…</p>
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <DialogClose asChild>
+                  <Button className="w-full">已複製，關閉</Button>
+                </DialogClose>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
