@@ -1813,7 +1813,7 @@ export default function ScreensPage() {
         screen={detailScreen}
         open={detailScreen !== null}
         onOpenChange={(o) => { if (!o) setDetailScreen(null); }}
-        connectedPlayer={detailScreen ? playerByScreen[detailScreen.id] : undefined}
+        connectedPlayer={detailScreen ? (() => { const pi = playerByScreen[detailScreen.id]; if (!pi) return undefined; return [pi.channel, pi.project].filter(Boolean).join(" › "); })() : undefined}
         onEdit={(s) => openEdit(s as Screen)}
         onChanged={fetchScreens}
       />

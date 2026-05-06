@@ -351,14 +351,25 @@ class MediaZoneEngine {
 
   start() {
     if (this.items.length === 0) return;
+
+    // If there's only one widget item, render it directly (no wrap/crossfade needed)
+    const soleWidget = this.items.length === 1 && this.items[0].type === "widget";
+    if (soleWidget) {
+      const frame = this._createWidgetFrame(this.items[0]);
+      frame.style.opacity = "1";
+      this.container.appendChild(frame);
+      this._scheduleNext(0);
+      return;
+    }
+
     const wrap = el("div", "zone-media");
     this.container.appendChild(wrap);
 
     // Pre-create media elements for crossfade
     this.items.forEach((item, i) => {
       const elem = this._createElement(item);
-      elem.dataset.idx   = i;
-      elem.dataset.id    = item.id;
+      elem.dataset.idx = i;
+      elem.dataset.id  = item.id;
       if (i === 0) elem.classList.add("active");
       wrap.appendChild(elem);
       this.elements.push(elem);
@@ -367,21 +378,50 @@ class MediaZoneEngine {
     this._scheduleNext(0);
   }
 
+  /** Build an iframe for a widget mediaItem */
+  _createWidgetFrame(item) {
+    const wc     = item.widgetConfig || {};
+    const params = new URLSearchParams(wc.params || {});
+    if (wc.bgColor)     params.set("bgColor",     wc.bgColor);
+    if (wc.textColor)   params.set("textColor",   wc.textColor);
+    if (wc.accentColor) params.set("accentColor", wc.accentColor);
+    if (wc.animation)   params.set("animation",   wc.animation);
+
+    const frame = el("iframe", "media-item");
+    frame.src              = wc.url ? `${wc.url}?${params}` : "";
+    frame.style.border     = "none";
+    frame.style.objectFit  = ""; // object-fit has no effect on iframes
+    frame.style.background = wc.bgColor || "#000";
+    frame.allowFullscreen  = false;
+    return frame;
+  }
+
   _createElement(item) {
-    if (item.type === "video") {
+    // fitMode: per-item > zone default (content.fitMode) > "cover"
+    const fitMap = { cover: "cover", contain: "contain", stretch: "fill", fill: "fill", fit: "contain" };
+    const zoneFit = this.content?.fitMode;
+    const rawFit  = item.fitMode || zoneFit || "cover";
+    const cssFit  = fitMap[rawFit] || "cover";
+
+    if (item.type === "widget") {
+      const frame = this._createWidgetFrame(item);
+      return frame;
+    } else if (item.type === "video") {
       const v = el("video", "media-item");
-      v.src   = item.url;
-      v.muted = (item.volume ?? 0) === 0;
-      v.volume= Math.min(1, (item.volume ?? 0) / 100);
+      v.src        = item.url;
+      v.muted      = (item.volume ?? 0) === 0;
+      v.volume     = Math.min(1, (item.volume ?? 0) / 100);
       v.playsInline = true;
-      v.preload= "auto";
+      v.preload    = "auto";
+      v.style.objectFit = cssFit;
       v.addEventListener("ended", () => this._advance());
       return v;
     } else {
       const img = el("img", "media-item");
-      img.src     = item.url;
-      img.loading = "eager";
-      img.decoding= "async";
+      img.src          = item.url;
+      img.loading      = "eager";
+      img.decoding     = "async";
+      img.style.objectFit = cssFit;
       return img;
     }
   }
