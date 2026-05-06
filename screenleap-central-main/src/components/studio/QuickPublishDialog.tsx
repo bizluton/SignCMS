@@ -291,21 +291,70 @@ export function QuickPublishDialog({
       const screenList = screens.filter((s) => selectedIds.has(s.id));
       const projectName = project.name?.trim() || "未命名專案";
 
-      // ── 1. Fetch default channel for each selected screen ───────────────
-      const { data: subs, error: subsError } = await supabase
+      // ── 1. Resolve channel for each selected screen ─────────────────────
+      //  Priority: default subscription → any subscription → auto-create
+      const subMap = new Map<string, string>(); // screen_id → channel_id
+
+      // 1a. Fetch all existing subscriptions for selected screens
+      const { data: allSubs, error: subsError } = await supabase
         .from("screen_channel_subscriptions")
-        .select("screen_id, channel_id")
-        .in("screen_id", screenList.map((s) => s.id))
-        .eq("is_default", true);
+        .select("screen_id, channel_id, is_default")
+        .in("screen_id", screenList.map((s) => s.id));
 
       if (subsError) throw subsError;
 
-      const subMap = new Map((subs ?? []).map((r) => [r.screen_id, r.channel_id]));
-      const channelScreens  = screenList.filter((s) => subMap.has(s.id));
+      // Prefer is_default; fall back to first available
+      for (const s of screenList) {
+        const defaults = (allSubs ?? []).filter((r) => r.screen_id === s.id && r.is_default);
+        const any      = (allSubs ?? []).filter((r) => r.screen_id === s.id);
+        const chosen   = defaults[0] ?? any[0];
+        if (chosen) subMap.set(s.id, chosen.channel_id);
+      }
+
+      // 1b. Auto-create "預設頻道" for screens that still have no channel
+      const unsubscribed = screenList.filter((s) => !subMap.has(s.id));
+      if (unsubscribed.length > 0) {
+        // Find an existing org channel first
+        let { data: existingCh } = await supabase
+          .from("channels")
+          .select("id")
+          .eq("org_id", activeOrgId)
+          .eq("enabled", true)
+          .order("sort_order")
+          .limit(1)
+          .maybeSingle();
+
+        // Create one if the org has none
+        if (!existingCh) {
+          const { data: newCh, error: chErr } = await supabase
+            .from("channels")
+            .insert({ org_id: activeOrgId, name: "預設頻道", enabled: true })
+            .select("id")
+            .single();
+          if (chErr) throw chErr;
+          existingCh = newCh;
+        }
+
+        if (existingCh) {
+          const { error: subErr } = await supabase
+            .from("screen_channel_subscriptions")
+            .insert(
+              unsubscribed.map((s) => ({
+                screen_id:  s.id,
+                channel_id: existingCh!.id,
+                is_default: true,
+              }))
+            );
+          if (subErr && subErr.code !== "23505") throw subErr; // ignore dup
+          unsubscribed.forEach((s) => subMap.set(s.id, existingCh!.id));
+        }
+      }
+
+      const channelScreens   = screenList.filter((s) => subMap.has(s.id));
       const noChannelScreens = screenList.filter((s) => !subMap.has(s.id));
 
       if (channelScreens.length === 0) {
-        toast.error("所選螢幕均未訂閱頻道，請先在螢幕管理中設定頻道訂閱");
+        toast.error("無法取得或建立頻道，請重試");
         return;
       }
 
