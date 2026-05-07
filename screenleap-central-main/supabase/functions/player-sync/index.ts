@@ -1,6 +1,7 @@
 // player-sync — SignCMS Player API
 // Authenticates via device_token, returns screen content + handles heartbeat + log batch
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { BROKER_WS } from "../_shared/mqtt.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -151,6 +152,14 @@ Deno.serve(async (req) => {
     .order("start_at", { ascending: false })
     .limit(10);
 
+  // ── MQTT broker info (optional — only when MQTT is configured) ────────────
+  const mqttOut = BROKER_WS
+    ? {
+        broker:       BROKER_WS,
+        topic_prefix: `signcms/${orgId}/screens/${screenId}`,
+      }
+    : null;
+
   return json({
     ok:            true,
     server_time:   now.toISOString(),
@@ -158,5 +167,6 @@ Deno.serve(async (req) => {
     channel:       channelOut,
     project:       projectOut,
     announcements: announcements ?? [],
+    mqtt:          mqttOut,
   });
 });

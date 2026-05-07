@@ -18,6 +18,7 @@
 //   get_alerts, get_playback_stats, get_active_overrides
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { screenCmd, orgBroadcast, notifySync } from "../_shared/mqtt.ts";
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const CORS = {
@@ -493,6 +494,9 @@ async function executeTool(
       }));
       await sb.from("publish_records").insert(pubInserts);
 
+      // ── MQTT: push switch_channel command to each screen ─────────────────
+      await notifySync(orgId, screenIds);
+
       return {
         affected_count:    screenIds.length,
         channel_name:      ch.name,
@@ -532,6 +536,9 @@ async function executeTool(
         current_channel_id:    null,
         channel_override_until: null,
       }).in("id", screenIds).eq("org_id", orgId);
+
+      // ── MQTT: tell restored screens to sync immediately ───────────────────
+      await notifySync(orgId, screenIds);
 
       return { restored_count: screenIds.length };
     }
@@ -691,6 +698,14 @@ async function executeTool(
         payload:     { channel_id: channelId, screen_ids: screenIds, reason: args.reason, restore_at: restoreAt },
       });
 
+      // ── MQTT: push emergency_broadcast command to all affected screens ─────
+      await orgBroadcast(orgId, {
+        type:       "emergency_broadcast",
+        channel_id: channelId,
+        restore_at: restoreAt,
+        reason:     args.reason ?? "",
+      });
+
       return {
         affected_count: screenIds.length,
         channel_name:   ch.name,
@@ -723,6 +738,9 @@ async function executeTool(
       }));
       const { data: inserted, error } = await sb.from("publish_records").insert(inserts).select("id");
       if (error) throw error;
+
+      // ── MQTT: notify each published screen to sync immediately ─────────────
+      await notifySync(orgId, screenIds);
 
       return { published_count: inserted?.length ?? 0, channel_name: ch.name };
     }
