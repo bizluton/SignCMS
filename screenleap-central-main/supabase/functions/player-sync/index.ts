@@ -44,11 +44,13 @@ Deno.serve(async (req) => {
   const orgId    = auth.org_id    as string;
   const now      = new Date();
 
-  // ── Parse optional body (log batch) ────────────────────────────────────
+  // ── Parse body (log batch + optional shadow reported state) ───────────────
   let logBatch: LogEntry[] = [];
+  let shadowReported: Record<string, unknown> | null = null;
   try {
     const body = await req.json();
-    if (Array.isArray(body?.log_batch)) logBatch = body.log_batch.slice(0, 200);
+    if (Array.isArray(body?.log_batch))                      logBatch       = body.log_batch.slice(0, 200);
+    if (body?.reported && typeof body.reported === "object") shadowReported = body.reported;
   } catch { /* empty body ok */ }
 
   // ── Heartbeat ───────────────────────────────────────────────────────────
@@ -152,14 +154,32 @@ Deno.serve(async (req) => {
     .order("start_at", { ascending: false })
     .limit(10);
 
-  // ── MQTT broker info (optional — only when MQTT is configured) ────────────
-  // Players connect to this Mosquitto WebSocket endpoint.
-  // Topics: signage/player/{screenId}/command|heartbeat|response
+  // ── Device Shadow ────────────────────────────────────────────────────────
+  // Read the current shadow (desired + delta) for this screen.
+  // If the player piggybacked a reported state in the request body, update it.
+  let shadowOut: { desired: Record<string, unknown>; delta: Record<string, unknown> } | null = null;
+
+  if (shadowReported !== null) {
+    // Player sent its current reported state → upsert + let DB compute delta
+    const { data: sh } = await admin
+      .from("screen_shadows")
+      .upsert({ screen_id: screenId, reported: shadowReported }, { onConflict: "screen_id" })
+      .select("desired, delta")
+      .maybeSingle();
+    shadowOut = sh ? { desired: sh.desired ?? {}, delta: sh.delta ?? {} } : null;
+  } else {
+    // Just read the current shadow
+    const { data: sh } = await admin
+      .from("screen_shadows")
+      .select("desired, delta")
+      .eq("screen_id", screenId)
+      .maybeSingle();
+    shadowOut = sh ? { desired: sh.desired ?? {}, delta: sh.delta ?? {} } : null;
+  }
+
+  // ── MQTT broker info ──────────────────────────────────────────────────────
   const mqttOut = BROKER_WS
-    ? {
-        broker: BROKER_WS,
-        serial: screenId,   // player uses screen_id as MQTT serial / topic identifier
-      }
+    ? { broker: BROKER_WS, serial: screenId }
     : null;
 
   return json({
@@ -169,6 +189,7 @@ Deno.serve(async (req) => {
     channel:       channelOut,
     project:       projectOut,
     announcements: announcements ?? [],
+    shadow:        shadowOut,
     mqtt:          mqttOut,
   });
 });

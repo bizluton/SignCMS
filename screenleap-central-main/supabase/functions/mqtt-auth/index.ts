@@ -117,16 +117,20 @@ Deno.serve(async (req) => {
     const subscribeOk = accNum === 1 || accNum === 4 || accNum === 6; // sub or unsub or both
 
     if (publishOk) {
-      // Screens may only publish to their own heartbeat and response topics
+      // Screens may publish to their own: heartbeat, response, status (LWT)
       const allowed =
         topic === `signage/player/${screenId}/heartbeat` ||
-        topic === `signage/player/${screenId}/response`;
+        topic === `signage/player/${screenId}/response`  ||
+        topic === `signage/player/${screenId}/status`;
       return allowed ? allow() : deny();
     }
 
     if (subscribeOk) {
-      // Screens may only subscribe to their own command topic
-      return topic === `signage/player/${screenId}/command` ? allow() : deny();
+      // Screens may subscribe to their own: command, shadow/delta
+      const allowed =
+        topic === `signage/player/${screenId}/command`      ||
+        topic === `signage/player/${screenId}/shadow/delta`;
+      return allowed ? allow() : deny();
     }
 
     return deny();

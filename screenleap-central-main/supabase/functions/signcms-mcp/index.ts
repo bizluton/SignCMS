@@ -18,7 +18,7 @@
 //   get_alerts, get_playback_stats, get_active_overrides
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { notifySync, orgBroadcast } from "../_shared/mqtt.ts";
+import { notifySync, orgBroadcast, pushDesiredState } from "../_shared/mqtt.ts";
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const CORS = {
@@ -494,8 +494,9 @@ async function executeTool(
       }));
       await sb.from("publish_records").insert(pubInserts);
 
-      // ── MQTT: push switch_channel command to each screen ─────────────────
-      await notifySync(orgId, screenIds);
+      // ── MQTT: update shadow desired + publish retained delta to each screen ─
+      const desired = { channel_id: channelId, channel_override_until: restoreAt ?? null };
+      await Promise.all(screenIds.map((sid) => pushDesiredState(sb, sid, desired)));
 
       return {
         affected_count:    screenIds.length,
@@ -537,8 +538,9 @@ async function executeTool(
         channel_override_until: null,
       }).in("id", screenIds).eq("org_id", orgId);
 
-      // ── MQTT: tell restored screens to sync immediately ───────────────────
-      await notifySync(orgId, screenIds);
+      // ── MQTT: clear desired channel override, publish delta ───────────────
+      const desired = { channel_id: null, channel_override_until: null };
+      await Promise.all(screenIds.map((sid) => pushDesiredState(sb, sid, desired)));
 
       return { restored_count: screenIds.length };
     }
@@ -698,12 +700,9 @@ async function executeTool(
         payload:     { channel_id: channelId, screen_ids: screenIds, reason: args.reason, restore_at: restoreAt },
       });
 
-      // ── MQTT: push switch_channel command to all affected screens ─────────
-      await orgBroadcast(orgId, screenIds, "content", "switch_channel", {
-        channel_id: channelId,
-        restore_at: restoreAt,
-        reason:     args.reason ?? "",
-      });
+      // ── MQTT: update shadow desired + publish retained delta ───────────────
+      const desiredEmergency = { channel_id: channelId, channel_override_until: restoreAt };
+      await Promise.all(screenIds.map((sid) => pushDesiredState(sb, sid, desiredEmergency)));
 
       return {
         affected_count: screenIds.length,
@@ -738,8 +737,9 @@ async function executeTool(
       const { data: inserted, error } = await sb.from("publish_records").insert(inserts).select("id");
       if (error) throw error;
 
-      // ── MQTT: notify each published screen to sync immediately ─────────────
-      await notifySync(orgId, screenIds);
+      // ── MQTT: update shadow desired + publish retained delta ───────────────
+      const desiredPublish = { channel_id: channelId, channel_override_until: null };
+      await Promise.all(screenIds.map((sid) => pushDesiredState(sb, sid, desiredPublish)));
 
       return { published_count: inserted?.length ?? 0, channel_name: ch.name };
     }

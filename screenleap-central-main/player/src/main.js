@@ -145,6 +145,15 @@ function connectMqtt(mqttCfg, deviceToken) {
 
   console.log("[MQTT] connecting to", mqttCfg.broker, "serial:", serial);
 
+  // LWT — broker auto-publishes this when the TCP connection drops unexpectedly.
+  // Using retain: true so the last known status persists for the dashboard.
+  const lwt = {
+    topic:   `signage/player/${serial}/status`,
+    payload: JSON.stringify({ online: false, serial, ts: Math.floor(Date.now() / 1_000) }),
+    qos:     1,
+    retain:  true,
+  };
+
   mqttClient = mqtt.connect(mqttCfg.broker, {
     clientId:        `screen_${serial}_${Date.now()}`,
     username:        `screen:${serial}`,
@@ -152,17 +161,28 @@ function connectMqtt(mqttCfg, deviceToken) {
     clean:           true,
     reconnectPeriod: 5_000,
     connectTimeout:  10_000,
+    will:            lwt,
   });
 
   mqttClient.on("connect", () => {
     console.log("[MQTT] connected, serial:", serial);
     mqttConnected = true;
 
-    // Subscribe to command topic (QoS 0)
-    mqttClient.subscribe(mqttTopic.cmd(serial), { qos: 0 }, (err) => {
-      if (err) console.error("[MQTT] subscribe error:", err.message);
-      else     console.log("[MQTT] subscribed to", mqttTopic.cmd(serial));
+    // Subscribe: command (QoS 1 — server uses QoS 1 for reliable delivery)
+    mqttClient.subscribe(mqttTopic.cmd(serial), { qos: 1 }, (err) => {
+      if (err) console.error("[MQTT] cmd subscribe error:", err.message);
+      else     console.log("[MQTT] subscribed cmd:", mqttTopic.cmd(serial));
     });
+
+    // Subscribe: shadow/delta (QoS 1, retain) — immediately receive any pending
+    // desired-state diff that arrived while the player was offline
+    mqttClient.subscribe(`signage/player/${serial}/shadow/delta`, { qos: 1 }, (err) => {
+      if (err) console.error("[MQTT] shadow subscribe error:", err.message);
+      else     console.log("[MQTT] subscribed shadow/delta:", serial);
+    });
+
+    // Publish online status (retained) — overwrites any LWT left by previous crash
+    publishOnlineStatus(true);
 
     // Switch sync loop to slow fallback (5 min) while MQTT is alive
     restartSyncLoop(300);
@@ -175,12 +195,17 @@ function connectMqtt(mqttCfg, deviceToken) {
   });
 
   mqttClient.on("message", (topic, payload) => {
+    const raw = payload.toString();
+    if (!raw) return;  // empty payload = retain clear (e.g. shadow cleared)
+
     let msg;
-    try { msg = JSON.parse(payload.toString()); }
-    catch { console.warn("[MQTT] bad payload on", topic, payload.toString()); return; }
+    try { msg = JSON.parse(raw); }
+    catch { console.warn("[MQTT] bad payload on", topic, raw); return; }
 
     if (topic === mqttTopic.cmd(serial)) {
       handleMqttCommand(msg);
+    } else if (topic === `signage/player/${serial}/shadow/delta`) {
+      handleShadowDelta(msg);
     }
   });
 
@@ -269,6 +294,72 @@ function publishResponse(cmd, data = {}) {
     data: { msg: "okay.", ...data },
   };
   mqttClient.publish(mqttTopic.res(mqttSerial), JSON.stringify(payload), { qos: 0 });
+}
+
+/**
+ * Publish the device online/offline status to the retained status topic.
+ * Called on connect (online=true) and graceful disconnect (online=false).
+ * The LWT handles unexpected drops automatically.
+ */
+function publishOnlineStatus(online) {
+  if (!mqttClient || !mqttSerial) return;
+  const payload = JSON.stringify({ online, serial: mqttSerial, ts: Math.floor(Date.now() / 1_000) });
+  mqttClient.publish(
+    `signage/player/${mqttSerial}/status`,
+    payload,
+    { qos: 1, retain: true },
+  );
+}
+
+/**
+ * Handle a shadow/delta message from the server.
+ * Payload: { ts, desired: {...}, delta: {...} }
+ *
+ * The delta contains only the keys that differ from the device's last
+ * reported state.  We trigger an immediate doSync() so the player
+ * fetches the updated playlist, then report back to shadow-report
+ * so the server can clear the retained message.
+ */
+function handleShadowDelta(msg) {
+  if (!msg?.delta || Object.keys(msg.delta).length === 0) return;
+  console.log("[Shadow] delta received:", JSON.stringify(msg.delta));
+
+  // Forward to renderer for any UI updates
+  win?.webContents.send("shadow-delta", msg);
+
+  // Re-sync to pick up the new channel/project from the DB
+  doSync();
+
+  // Report new state after a short delay (let doSync complete)
+  setTimeout(() => postShadowReport(msg.desired ?? {}), 3_000);
+}
+
+/**
+ * HTTP POST to the shadow-report Edge Function so the server knows
+ * the device has applied the desired state.
+ * Piggybacks the reported state so the server can compute the new delta.
+ */
+async function postShadowReport(desired) {
+  const cfg = loadConfig();
+  if (!cfg.deviceToken || !cfg.supabaseUrl) return;
+
+  const channelId = lastSync?.channel?.id ?? desired?.channel_id ?? null;
+  const reported  = {
+    channel_id: channelId,
+    status:     lastSync ? "playing" : "idle",
+    version:    app.getVersion(),
+  };
+
+  const url = `${cfg.supabaseUrl.replace(/\/$/, "")}/functions/v1/shadow-report`;
+  try {
+    await httpPost(url, {
+      "x-device-token": cfg.deviceToken,
+      "apikey":         cfg.anonKey,
+    }, { reported });
+    console.log("[Shadow] reported state:", JSON.stringify(reported));
+  } catch (e) {
+    console.error("[Shadow] report failed:", e.message);
+  }
 }
 
 function startMqttHeartbeat() {
@@ -525,8 +616,13 @@ app.on("window-all-closed", () => {
 
 app.on("will-quit", () => {
   stopSyncLoop();
-  disconnectMqtt();
-  try { globalShortcut.unregisterAll(); } catch (_) {}
+  // Publish offline status before closing the MQTT connection gracefully
+  // (LWT only fires on unexpected drops; this handles clean shutdown)
+  publishOnlineStatus(false);
+  setTimeout(() => {
+    disconnectMqtt();
+    try { globalShortcut.unregisterAll(); } catch (_) {}
+  }, 300);
 });
 
 // Single instance lock
