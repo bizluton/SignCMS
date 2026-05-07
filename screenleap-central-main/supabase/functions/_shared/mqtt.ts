@@ -15,18 +15,18 @@
  *   the server wrote the change.  Once the device reports back (reported ==
  *   desired), the server clears the retain by publishing an empty payload.
  *
- * ── Broker: rcc.signcms.net:18883 (TCP MQTT / TLS) ──────────────────────
- *   Port 18883 is a raw TCP MQTT listener with TLS, NOT a WebSocket listener.
+ * ── Broker: mqtt.signcms.net:18884 (TCP MQTT / TLS) ──────────────────────
+ *   Port 18884 is a raw TCP MQTT listener with TLS, NOT a WebSocket listener.
  *   URI schemes by client:
- *     Edge Functions / Electron  (npm:mqtt)  →  mqtts://rcc.signcms.net:18883
- *     Android Paho MqttAsyncClient           →  ssl://rcc.signcms.net:18883
+ *     Edge Functions / Electron  (npm:mqtt)  →  mqtts://mqtt.signcms.net:18884
+ *     Android Paho MqttAsyncClient           →  ssl://mqtt.signcms.net:18884
  *       (MqttManager.toPahoUri() converts mqtts:// → ssl:// automatically)
  *
  * ── Environment variables ─────────────────────────────────────────────────
  *   MQTT_BROKER_WS        — broker URL sent to players in player-sync response
- *                           set to: mqtts://rcc.signcms.net:18883
+ *                           set to: mqtts://mqtt.signcms.net:18884
  *   MQTT_BROKER_WS_SERVER — broker URL used by Edge Functions for publishing
- *                           set to: mqtts://rcc.signcms.net:18883
+ *                           set to: mqtts://mqtt.signcms.net:18884
  *                           (falls back to MQTT_BROKER_WS if unset)
  *   MQTT_SERVER_USER      — server publisher username  (e.g. signcms-server)
  *   MQTT_SERVER_PASS      — server publisher password
