@@ -12,7 +12,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Mail, Bell, Loader2, Save, Database, Trash2, Play, Image as ImageIcon, CheckCircle2, AlertCircle, Key, Plus, Copy, ShieldCheck, ShieldAlert, Clock } from "lucide-react";
+import { Mail, Bell, Loader2, Save, Database, Trash2, Play, Image as ImageIcon, CheckCircle2, AlertCircle, Key, Plus, Copy, ShieldCheck, ShieldAlert, Clock, Smartphone, ExternalLink, ChevronDown, ChevronUp, QrCode } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -109,7 +110,15 @@ const SystemSettingsPage = () => {
   const [newTokenPerms, setNewTokenPerms] = useState<string[]>(["read", "write"]);
   const [creatingToken, setCreatingToken] = useState(false);
   const [createdRawToken, setCreatedRawToken] = useState<string | null>(null);
-  const [revokeTarget, setRevokeTarget] = useState<McpToken | null>(null);
+  const [showRawToken, setShowRawToken] = useState(false);
+  const [revokeTarget,   setRevokeTarget]   = useState<McpToken | null>(null);
+  const [reissueTarget,  setReissueTarget]  = useState<McpToken | null>(null);
+  const [reissuing,      setReissuing]      = useState(false);
+
+  // URL of the SignCMS Go PWA — shown in QR code & connect link.
+  // Override via VITE_SIGNCMS_GO_URL in the dashboard's .env file.
+  const GO_APP_URL: string =
+    (import.meta.env as Record<string, string>).VITE_SIGNCMS_GO_URL || "https://go.signcms.com";
 
   const labels = {
     title: { zh: "系統設定", en: "System Settings", ja: "システム設定" },
@@ -306,6 +315,30 @@ const SystemSettingsPage = () => {
       toast.error(e.message);
     } finally {
       setCreatingToken(false);
+    }
+  };
+
+  // Re-issue: generate fresh raw token for an existing key, then show QR dialog.
+  // Previous raw token is invalidated immediately in DB.
+  const handleReissueToken = async () => {
+    if (!reissueTarget) return;
+    setReissuing(true);
+    try {
+      const rawToken  = generateRawToken();
+      const tokenHash = await sha256hex(rawToken);
+      const { error } = await supabase
+        .from("mcp_tokens")
+        .update({ token_hash: tokenHash, last_used_at: null, updated_at: new Date().toISOString() })
+        .eq("id", reissueTarget.id);
+      if (error) throw error;
+      setReissueTarget(null);
+      setShowRawToken(false);
+      setCreatedRawToken(rawToken);   // reuse the existing QR dialog
+      await loadMcpTokens();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setReissuing(false);
     }
   };
 
@@ -842,7 +875,19 @@ const SystemSettingsPage = () => {
                       <TableBody>
                         {mcpTokens.map((tok) => (
                           <TableRow key={tok.id}>
-                            <TableCell className="font-medium">{tok.name}</TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{tok.name}</span>
+                                <button
+                                  type="button"
+                                  title="連線 QR Code"
+                                  onClick={() => setReissueTarget(tok)}
+                                  className="text-muted-foreground hover:text-primary transition-colors"
+                                >
+                                  <QrCode className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </TableCell>
                             <TableCell className="text-muted-foreground text-xs">{tok.org_name || tok.org_id.slice(0, 8)}</TableCell>
                             <TableCell>
                               <div className="flex flex-wrap gap-1">
@@ -892,39 +937,125 @@ const SystemSettingsPage = () => {
         </Tabs>
       </div>
 
-      {/* Raw token dialog — shown once after creation */}
-      <Dialog open={!!createdRawToken} onOpenChange={(o) => !o && setCreatedRawToken(null)}>
-        <DialogContent className="sm:max-w-lg">
+      {/* Token created — QR connect dialog */}
+      <Dialog open={!!createdRawToken} onOpenChange={(o) => { if (!o) { setCreatedRawToken(null); setShowRawToken(false); } }}>
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Key className="w-5 h-5 text-primary" />
-              {L("mcpCreatedTitle")}
+              <Smartphone className="w-5 h-5 text-primary" />
+              掃描 QR Code 連線
             </DialogTitle>
-            <DialogDescription>{L("mcpCreatedDesc")}</DialogDescription>
+            <DialogDescription>
+              用手機掃描 QR Code，即可在 SignCMS Go 自動完成設定。
+            </DialogDescription>
           </DialogHeader>
-          <div className="my-2 p-3 bg-muted rounded-lg font-mono text-sm break-all select-all border border-border">
-            {createdRawToken}
-          </div>
-          <DialogFooter className="gap-2 flex-col sm:flex-row">
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (createdRawToken) {
-                  navigator.clipboard.writeText(createdRawToken);
-                  toast.success(L("mcpCopied"));
-                }
-              }}
-            >
-              <Copy className="w-4 h-4 mr-1" />
-              {L("mcpCopy")}
-            </Button>
-            <Button onClick={() => setCreatedRawToken(null)}>
+
+          {createdRawToken && (() => {
+            const connectUrl = `${GO_APP_URL}?token=${createdRawToken}`;
+            return (
+              <div className="flex flex-col items-center gap-4 py-2">
+                {/* QR Code */}
+                <div className="p-3 bg-white rounded-2xl shadow-sm">
+                  <QRCodeSVG
+                    value={connectUrl}
+                    size={200}
+                    level="M"
+                    includeMargin={false}
+                  />
+                </div>
+
+                <p className="text-xs text-muted-foreground text-center px-2">
+                  掃描後瀏覽器會開啟 SignCMS Go，Token 自動寫入設定。
+                </p>
+
+                {/* Copy connect URL */}
+                <div className="w-full flex gap-2">
+                  <div className="flex-1 bg-muted rounded-lg px-3 py-2 text-xs font-mono truncate text-muted-foreground select-all">
+                    {GO_APP_URL}?token=••••••••…
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => { navigator.clipboard.writeText(connectUrl); toast.success("連線網址已複製"); }}
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => window.open(connectUrl, "_blank")}
+                    title="在新分頁開啟"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+
+                {/* Collapsible raw token (advanced) */}
+                <button
+                  type="button"
+                  onClick={() => setShowRawToken((x) => !x)}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showRawToken ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  顯示原始 Token（進階）
+                </button>
+                {showRawToken && (
+                  <div className="w-full space-y-2">
+                    <div className="p-2 bg-muted rounded-lg font-mono text-xs break-all select-all border border-border text-muted-foreground">
+                      {createdRawToken}
+                    </div>
+                    <p className="text-[11px] text-amber-500 text-center">
+                      ⚠ Token 僅顯示一次，關閉後無法再查看。
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full"
+                      onClick={() => { navigator.clipboard.writeText(createdRawToken); toast.success(L("mcpCopied")); }}
+                    >
+                      <Copy className="w-3.5 h-3.5 mr-1" />
+                      複製原始 Token
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          <DialogFooter>
+            <Button className="w-full" onClick={() => { setCreatedRawToken(null); setShowRawToken(false); }}>
               <CheckCircle2 className="w-4 h-4 mr-1" />
-              {L("mcpClose")}
+              已完成，關閉
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Re-issue confirmation — clicking QR icon on an existing token */}
+      <AlertDialog open={!!reissueTarget} onOpenChange={(o) => !o && setReissueTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <QrCode className="w-5 h-5 text-primary" />
+              產生連線 QR Code
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              將為「<span className="font-semibold text-foreground">{reissueTarget?.name}</span>」重新產生 Token 並顯示 QR Code。
+              <br />
+              目前連線此金鑰的裝置將失效，需重新掃描。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={reissuing}>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={handleReissueToken} disabled={reissuing}>
+              {reissuing
+                ? <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                : <QrCode   className="w-4 h-4 mr-1" />}
+              產生 QR Code
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Revoke confirmation */}
       <AlertDialog open={!!revokeTarget} onOpenChange={(o) => !o && setRevokeTarget(null)}>

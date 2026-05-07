@@ -913,19 +913,332 @@ async function writeAudit(
 }
 
 // ── Main Handler ──────────────────────────────────────────────────────────────
+// ── OAuth 2.0 helpers ─────────────────────────────────────────────────────────
+function getMcpBase(req: Request): string {
+  // Supabase edge functions are called via an internal URL that strips /functions/v1.
+  // Always reconstruct the canonical HTTPS public URL.
+  // If the user added a token in the path (e.g. /signcms-mcp/{64-hex-token}),
+  // include it in the base so all OAuth discovery URLs carry the same token prefix.
+  const parsed  = new URL(req.url);
+  const host    = parsed.host;
+  const HEX64   = /^\/([0-9a-f]{64})(\/|$)/i;
+  const m       = parsed.pathname.match(HEX64);
+  const token   = m ? `/${m[1]}` : "";
+  return `https://${host}/functions/v1/signcms-mcp${token}`;
+}
+
+// Extract a 64-hex token embedded in the request path (the "token-in-URL" flow).
+function tokenFromPath(req: Request): string | null {
+  const HEX64 = /^\/([0-9a-f]{64})(\/|$)/i;
+  const m = new URL(req.url).pathname.match(HEX64);
+  return m ? m[1] : null;
+}
+
+function htmlResponse(body: string, status = 200) {
+  return new Response(body, { status, headers: { ...CORS, "Content-Type": "text/html; charset=utf-8" } });
+}
+
+function authorizePageHtml(params: {
+  base: string; redirectUri: string; state: string;
+  clientId: string; codeChallenge: string; error?: string;
+}) {
+  const esc = (s: string) => s.replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return `<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SignCMS — 授權 MCP 連線</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0f172a;color:#f1f5f9;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:16px}
+.card{background:#1e293b;border-radius:16px;padding:36px 32px;max-width:420px;width:100%;box-shadow:0 8px 32px rgba(0,0,0,.5)}
+.logo{font-size:1.5rem;font-weight:700;color:#38bdf8;margin-bottom:8px}
+.sub{font-size:.875rem;color:#94a3b8;margin-bottom:28px;line-height:1.5}
+label{display:block;font-size:.8rem;color:#94a3b8;font-weight:500;margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em}
+input{width:100%;padding:11px 14px;border:1.5px solid #334155;border-radius:10px;background:#0f172a;color:#f1f5f9;font-size:.875rem;font-family:monospace;transition:border .15s}
+input:focus{outline:none;border-color:#38bdf8}
+.hint{font-size:.75rem;color:#64748b;margin-top:8px;line-height:1.4}
+btn{display:block;width:100%;padding:12px;background:#38bdf8;color:#0f172a;border:none;border-radius:10px;font-size:.9rem;font-weight:700;cursor:pointer;margin-top:20px;transition:background .15s}
+button:hover{background:#7dd3fc}
+.err{color:#f87171;background:#450a0a30;border:1px solid #f8717140;padding:10px 14px;border-radius:8px;font-size:.85rem;margin-bottom:18px}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">📺 SignCMS</div>
+  <p class="sub">Claude 正在請求存取您的 SignCMS 組織。<br>請輸入在「系統設定 → MCP 金鑰」產生的 Token。</p>
+  ${params.error ? `<div class="err">⚠️ ${esc(params.error)}</div>` : ""}
+  <form method="POST" action="${esc(params.base)}/oauth/authorize">
+    <input type="hidden" name="redirect_uri"    value="${esc(params.redirectUri)}">
+    <input type="hidden" name="state"           value="${esc(params.state)}">
+    <input type="hidden" name="client_id"       value="${esc(params.clientId)}">
+    <input type="hidden" name="code_challenge"  value="${esc(params.codeChallenge)}">
+    <label>MCP Token</label>
+    <input type="text" name="token" placeholder="貼上您的 MCP Token…" autocomplete="off" required autofocus>
+    <p class="hint">Token 從 SignCMS 系統設定 → MCP 金鑰 分頁產生，僅顯示一次。</p>
+    <button type="submit">✓ 授權連線</button>
+  </form>
+</div>
+</body>
+</html>`;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
-  if (req.method !== "POST" && req.method !== "GET") {
-    return json({ error: "Method not allowed" }, 405);
-  }
 
+  const reqUrl  = new URL(req.url);
+  const reqPath = reqUrl.pathname;
+  const method  = req.method;
+
+  // Lazily created service client (only when needed for DB access)
   const sbService = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // OAuth 2.0  (Authorization Code + PKCE)
+  // Required for Claude.ai web connector — no static Bearer token UI exists
+  // ══════════════════════════════════════════════════════════════════════════
+
+  // ── 1a. OAuth Protected Resource Metadata (RFC 9728) ────────────────────
+  // Claude.ai reads this after receiving 401 + WWW-Authenticate: Bearer resource_metadata=
+  if (reqPath.includes("/.well-known/oauth-protected-resource")) {
+    const base = getMcpBase(req);
+    return json({
+      resource:             base,
+      authorization_servers: [base],
+      scopes_supported:     ["mcp"],
+    });
+  }
+
+  // ── 1b. OAuth Authorization Server Metadata (RFC 8414) ───────────────────
+  if (reqPath.includes("/.well-known/oauth-authorization-server")) {
+    const base = getMcpBase(req);
+    return json({
+      issuer:                                base,
+      authorization_endpoint:               `${base}/oauth/authorize`,
+      token_endpoint:                        `${base}/oauth/token`,
+      registration_endpoint:                 `${base}/register`,
+      response_types_supported:             ["code"],
+      grant_types_supported:                ["authorization_code"],
+      code_challenge_methods_supported:     ["S256", "plain"],
+      token_endpoint_auth_methods_supported: ["none"],
+      scopes_supported:                     ["mcp"],
+    });
+  }
+
+  // ── 2. Dynamic Client Registration (RFC 7591) ─────────────────────────────
+  // Claude.ai calls /register with its redirect_uris; we must echo them back
+  // so Claude proceeds to open the authorization page.
+  if (method === "POST" && reqPath.endsWith("/register")) {
+    const now = Math.floor(Date.now() / 1000);
+    let regBody: Record<string, unknown> = {};
+    try { regBody = await req.clone().json(); } catch { /* ignore parse errors */ }
+    const redirectUris: string[] = Array.isArray(regBody.redirect_uris)
+      ? regBody.redirect_uris as string[]
+      : [];
+    return json({
+      client_id:                  crypto.randomUUID(),
+      client_id_issued_at:        now,
+      client_secret_expires_at:   0,
+      token_endpoint_auth_method: "none",
+      grant_types:                Array.isArray(regBody.grant_types)   ? regBody.grant_types   : ["authorization_code"],
+      response_types:             Array.isArray(regBody.response_types) ? regBody.response_types : ["code"],
+      redirect_uris:              redirectUris,
+      ...(regBody.client_name ? { client_name: regBody.client_name } : {}),
+      ...(regBody.scope       ? { scope:        regBody.scope       } : {}),
+    }, 201);
+  }
+
+  // ── 3a. Authorization endpoint — GET ─────────────────────────────────────
+  if (method === "GET" && reqPath.endsWith("/oauth/authorize")) {
+    const p            = reqUrl.searchParams;
+    const redirectUri  = p.get("redirect_uri")   ?? "";
+    const state        = p.get("state")          ?? "";
+    const clientId     = p.get("client_id")      ?? "";
+    const codeChallenge = p.get("code_challenge") ?? "";
+
+    // ── Fast path A: token embedded in the MCP server URL path ───────────────
+    // e.g. user added https://…/signcms-mcp/{token} as the MCP server URL.
+    // No user interaction needed — OAuth completes automatically.
+    const pathToken  = tokenFromPath(req);
+    // ── Fast path B: token appended as ?token= query param (manual link) ─────
+    const queryToken = (p.get("token") ?? "").trim();
+
+    const autoToken  = pathToken ?? (queryToken || null);
+
+    if (autoToken) {
+      const hash = await sha256hex(autoToken);
+      const { data: tokenRow } = await sbService
+        .from("mcp_tokens")
+        .select("id, expires_at")
+        .eq("token_hash", hash)
+        .maybeSingle();
+
+      if (!tokenRow || (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date())) {
+        return json({ error: "invalid_token", error_description: "MCP token invalid or expired. Regenerate in SignCMS → Settings → MCP Keys." }, 400);
+      }
+
+      // Token valid → issue code = token, redirect to Claude.ai callback
+      const redirectTo = new URL(redirectUri || "https://claude.ai/api/mcp/auth_callback");
+      redirectTo.searchParams.set("code",  autoToken);
+      redirectTo.searchParams.set("state", state);
+      return new Response(null, {
+        status: 302,
+        headers: { ...CORS, Location: redirectTo.toString() },
+      });
+    }
+
+    // ── Default: render the interactive token-entry form ──────────────────────
+    return htmlResponse(authorizePageHtml({
+      base: getMcpBase(req), redirectUri, state, clientId, codeChallenge,
+    }));
+  }
+
+  // ── 3b. Authorization endpoint — validate token, issue code (POST) ────────
+  if (method === "POST" && reqPath.endsWith("/oauth/authorize")) {
+    let formRedirectUri = "", formState = "", formClientId = "", formCodeChallenge = "", formToken = "";
+    try {
+      const ct = req.headers.get("content-type") ?? "";
+      if (ct.includes("application/x-www-form-urlencoded")) {
+        const fd = new URLSearchParams(await req.text());
+        formRedirectUri   = fd.get("redirect_uri")   ?? "";
+        formState         = fd.get("state")          ?? "";
+        formClientId      = fd.get("client_id")      ?? "";
+        formCodeChallenge = fd.get("code_challenge")  ?? "";
+        formToken         = (fd.get("token") ?? "").trim();
+      } else {
+        const body = await req.json() as Record<string, string>;
+        formRedirectUri   = body.redirect_uri   ?? "";
+        formState         = body.state          ?? "";
+        formClientId      = body.client_id      ?? "";
+        formCodeChallenge = body.code_challenge ?? "";
+        formToken         = (body.token ?? "").trim();
+      }
+    } catch {
+      return htmlResponse(authorizePageHtml({
+        base: getMcpBase(req), redirectUri: "", state: "", clientId: "", codeChallenge: "",
+        error: "請求格式無效，請重試。",
+      }), 400);
+    }
+
+    if (!formToken) {
+      return htmlResponse(authorizePageHtml({
+        base: getMcpBase(req), redirectUri: formRedirectUri, state: formState,
+        clientId: formClientId, codeChallenge: formCodeChallenge, error: "請輸入 MCP Token。",
+      }), 400);
+    }
+
+    // Validate token exists in DB
+    const hash = await sha256hex(formToken);
+    const { data: tokenRow } = await sbService
+      .from("mcp_tokens")
+      .select("id, expires_at")
+      .eq("token_hash", hash)
+      .maybeSingle();
+
+    if (!tokenRow) {
+      return htmlResponse(authorizePageHtml({
+        base: getMcpBase(req), redirectUri: formRedirectUri, state: formState,
+        clientId: formClientId, codeChallenge: formCodeChallenge, error: "Token 無效，請確認後重試。",
+      }), 400);
+    }
+    if (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date()) {
+      return htmlResponse(authorizePageHtml({
+        base: getMcpBase(req), redirectUri: formRedirectUri, state: formState,
+        clientId: formClientId, codeChallenge: formCodeChallenge, error: "Token 已過期，請重新產生。",
+      }), 400);
+    }
+
+    // Issue auth code = raw token (transported securely over HTTPS)
+    const redirectTo = new URL(formRedirectUri);
+    redirectTo.searchParams.set("code",  formToken);
+    redirectTo.searchParams.set("state", formState);
+    return new Response(null, {
+      status: 302,
+      headers: { ...CORS, Location: redirectTo.toString() },
+    });
+  }
+
+  // ── 4. Token endpoint — exchange code for access_token ───────────────────
+  if (method === "POST" && reqPath.endsWith("/oauth/token")) {
+    let grantType = "", code = "";
+    try {
+      const ct = req.headers.get("content-type") ?? "";
+      if (ct.includes("application/x-www-form-urlencoded")) {
+        const fd = new URLSearchParams(await req.text());
+        grantType = fd.get("grant_type") ?? "";
+        code      = (fd.get("code") ?? "").trim();
+      } else {
+        const body = await req.json() as Record<string, string>;
+        grantType = body.grant_type ?? "";
+        code      = (body.code ?? "").trim();
+      }
+    } catch {
+      return json({ error: "invalid_request" }, 400);
+    }
+
+    if (grantType !== "authorization_code") {
+      return json({ error: "unsupported_grant_type" }, 400);
+    }
+    if (!code) {
+      return json({ error: "invalid_request", error_description: "missing code" }, 400);
+    }
+
+    // Validate code (= MCP token)
+    const hash = await sha256hex(code);
+    const { data: tokenRow } = await sbService
+      .from("mcp_tokens")
+      .select("id, expires_at")
+      .eq("token_hash", hash)
+      .maybeSingle();
+
+    if (!tokenRow || (tokenRow.expires_at && new Date(tokenRow.expires_at) < new Date())) {
+      return json({ error: "invalid_grant" }, 400);
+    }
+
+    // Touch last_used_at
+    sbService.from("mcp_tokens").update({ last_used_at: new Date().toISOString() })
+      .eq("id", tokenRow.id).then(() => {});
+
+    return json({
+      access_token: code,            // The MCP token is used directly as access_token
+      token_type:   "Bearer",
+      expires_in:   365 * 24 * 3600, // 1 year (matches MCP token lifetime)
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // Existing MCP / utility routes
+  // ══════════════════════════════════════════════════════════════════════════
+
+  if (method !== "POST" && method !== "GET") {
+    return json({ error: "Method not allowed" }, 405);
+  }
+
   // ── GET / → capability discovery ─────────────────────────────────────────
-  if (req.method === "GET") {
+  // ── 1c. OpenID Connect Discovery (RFC 8414 / OIDC Core §4) ─────────────────
+  // Claude.ai tries this path as a fallback when looking for auth server metadata
+  if (method === "GET" && reqPath.includes("/.well-known/openid-configuration")) {
+    const base = getMcpBase(req);
+    return json({
+      issuer:                                base,
+      authorization_endpoint:               `${base}/oauth/authorize`,
+      token_endpoint:                        `${base}/oauth/token`,
+      registration_endpoint:                 `${base}/register`,
+      response_types_supported:             ["code"],
+      grant_types_supported:                ["authorization_code"],
+      code_challenge_methods_supported:     ["S256", "plain"],
+      token_endpoint_auth_methods_supported: ["none"],
+      scopes_supported:                     ["mcp"],
+      subject_types_supported:              ["public"],
+      id_token_signing_alg_values_supported: ["RS256"],
+    });
+  }
+
+  if (method === "GET") {
     return json({
       name:        "signcms-mcp",
       version:     "1.0.0",
@@ -935,8 +1248,7 @@ Deno.serve(async (req) => {
   }
 
   // ── POST /llm → LLM proxy (bypasses browser CORS for Anthropic/etc.) ─────
-  const reqPath = new URL(req.url).pathname;
-  if (req.method === "POST" && reqPath.endsWith("/llm")) {
+  if (method === "POST" && reqPath.endsWith("/llm")) {
     const proxyClaims = await authenticate(req.headers.get("authorization"), sbService);
     if (!proxyClaims) return rpcError(null, -32001, "Unauthorized");
 
@@ -992,20 +1304,32 @@ Deno.serve(async (req) => {
   }
 
   // ── Authenticate ──────────────────────────────────────────────────────────
+  // Return HTTP 401 (not 200) so Claude triggers the OAuth flow instead of
+  // treating auth failure as "server unreachable".
   const claims = await authenticate(req.headers.get("authorization"), sbService);
-  if (!claims) return rpcError(null, -32001, "Unauthorized — invalid or expired MCP token");
+  if (!claims) {
+    const base = getMcpBase(req);
+    return new Response(JSON.stringify({ error: "unauthorized", error_description: "Valid MCP token required" }), {
+      status: 401,
+      headers: {
+        ...CORS,
+        "Content-Type": "application/json",
+        "WWW-Authenticate": `Bearer realm="${base}", resource_metadata="${base}/.well-known/oauth-protected-resource"`,
+      },
+    });
+  }
 
   // ── Parse JSON-RPC body ───────────────────────────────────────────────────
   let body: Record<string, unknown>;
   try { body = await req.json(); } catch { return rpcError(null, -32700, "Parse error"); }
 
   if (body.jsonrpc !== "2.0") return rpcError(body.id, -32600, "Invalid JSON-RPC version");
-  const method = body.method as string;
-  const params = (body.params as Record<string, unknown>) || {};
-  const id     = body.id;
+  const rpcMethod = body.method as string;
+  const params    = (body.params as Record<string, unknown>) || {};
+  const id        = body.id;
 
   // ── Method dispatch ───────────────────────────────────────────────────────
-  if (method === "initialize") {
+  if (rpcMethod === "initialize") {
     return rpcOk(id, {
       protocolVersion:     "2024-11-05",
       serverInfo:          { name: "signcms-mcp", version: "1.0.0" },
@@ -1014,11 +1338,11 @@ Deno.serve(async (req) => {
     });
   }
 
-  if (method === "tools/list") {
+  if (rpcMethod === "tools/list") {
     return rpcOk(id, { tools: TOOL_DEFS });
   }
 
-  if (method === "tools/call") {
+  if (rpcMethod === "tools/call") {
     const toolName = params.name as string;
     const toolArgs = (params.arguments as Record<string, unknown>) || {};
     if (!toolName) return rpcError(id, -32602, "Missing tool name");
@@ -1043,5 +1367,5 @@ Deno.serve(async (req) => {
     }
   }
 
-  return rpcError(id, -32601, `Method not found: ${method}`);
+  return rpcError(id, -32601, `Method not found: ${rpcMethod}`);
 });

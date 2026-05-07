@@ -1,10 +1,11 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Eye, EyeOff, Save, CheckCircle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { ArrowLeft, Eye, EyeOff, Save, CheckCircle, Link2, ExternalLink } from "lucide-react";
 import { clsx } from "clsx";
 
 import type { LLMProvider } from "@/types";
-import { loadSettings, saveSettings, getDefaultModel } from "@/store/settings";
+import { loadSettings, saveSettings, getDefaultModel,
+         parseConnectionUrl, makeConnectionUrl } from "@/store/settings";
 
 const PROVIDERS: { value: LLMProvider; label: string; models: string[] }[] = [
   { value: "openai",    label: "OpenAI",          models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"] },
@@ -20,11 +21,57 @@ const LANGUAGES = [
 ];
 
 export default function SettingsPage() {
-  const navigate  = useNavigate();
-  const [s, setS] = useState(loadSettings);
-  const [showKey, setShowKey] = useState(false);
-  const [showToken, setShowToken] = useState(false);
-  const [saved,   setSaved]   = useState(false);
+  const navigate       = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [s, setS]      = useState(loadSettings);
+  const [showKey,   setShowKey]   = useState(false);
+  const [saved,     setSaved]     = useState(false);
+  const [oauthMsg,  setOauthMsg]  = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Connection URL field — single input that accepts either base URL or token-in-URL
+  const [connectionInput, setConnectionInput] = useState(() =>
+    makeConnectionUrl(loadSettings().mcp.serverUrl, loadSettings().mcp.token),
+  );
+
+  // Show OAuth success/error from callback redirect
+  useEffect(() => {
+    const result = searchParams.get("oauth");
+    if (result === "success") setOauthMsg({ ok: true,  text: "✅ 已成功透過 OAuth 取得 Token！" });
+    if (result === "error")   setOauthMsg({ ok: false, text: "❌ OAuth 授權失敗，請重試。" });
+    if (result) setTimeout(() => setOauthMsg(null), 4000);
+  }, [searchParams]);
+
+  // Detect token in the connection URL as user types
+  const { token: detectedToken } = parseConnectionUrl(connectionInput);
+  const tokenOk = detectedToken.length === 64;
+
+  const handleConnectionUrl = (raw: string) => {
+    setConnectionInput(raw);
+    const { serverUrl, token } = parseConnectionUrl(raw);
+    setS((p) => ({ ...p, mcp: { ...p.mcp, serverUrl, token } }));
+  };
+
+  // OAuth Connect — opens the MCP server's authorize page in a popup
+  const handleOAuthConnect = () => {
+    const { serverUrl } = parseConnectionUrl(connectionInput);
+    if (!serverUrl) { alert("請先輸入 MCP Server URL。"); return; }
+
+    const state = crypto.randomUUID();
+    sessionStorage.setItem("mcp_oauth_state",      state);
+    sessionStorage.setItem("mcp_oauth_server_url", serverUrl);
+
+    // Build callback URL for this PWA
+    const base        = (import.meta as unknown as { env: Record<string, string> }).env.BASE_URL ?? "/";
+    const callbackUrl = `${window.location.origin}${base}oauth/callback`.replace(/([^:])\/\//g, "$1/");
+
+    const authorize = new URL(`${serverUrl}/oauth/authorize`);
+    authorize.searchParams.set("client_id",     "signcms-go");
+    authorize.searchParams.set("redirect_uri",  callbackUrl);
+    authorize.searchParams.set("state",         state);
+    authorize.searchParams.set("response_type", "code");
+
+    window.open(authorize.toString(), "_blank", "popup,width=500,height=640,noopener");
+  };
 
   const handleSave = () => {
     saveSettings(s);
@@ -57,25 +104,67 @@ export default function SettingsPage() {
 
         {/* ── MCP Section ─────────────────────────────────────────────────── */}
         <section className="space-y-3">
-          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">MCP 伺服器</h2>
-          <div className="space-y-2">
-            <SettingField
-              label="伺服器 URL"
-              value={s.mcp.serverUrl}
-              onChange={(v) => setS((p) => ({ ...p, mcp: { ...p.mcp, serverUrl: v } }))}
-              placeholder="https://xxx.supabase.co/functions/v1/signcms-mcp"
+          <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">MCP 連線</h2>
+
+          {/* OAuth 狀態訊息 */}
+          {oauthMsg && (
+            <div className={clsx(
+              "rounded-xl px-3 py-2.5 text-xs font-medium",
+              oauthMsg.ok ? "bg-emerald-500/15 text-emerald-400" : "bg-red-500/15 text-red-400",
+            )}>
+              {oauthMsg.text}
+            </div>
+          )}
+
+          {/* Connection URL */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-slate-400">Connection URL</label>
+              {connectionInput && (
+                <span className={clsx(
+                  "text-[10px] font-medium px-1.5 py-0.5 rounded-full",
+                  tokenOk
+                    ? "bg-emerald-500/20 text-emerald-400"
+                    : "bg-amber-500/20 text-amber-400",
+                )}>
+                  {tokenOk ? "✓ Token 已偵測" : "⚠ 未偵測到 Token"}
+                </span>
+              )}
+            </div>
+            <input
               type="url"
+              value={connectionInput}
+              onChange={(e) => handleConnectionUrl(e.target.value)}
+              placeholder="https://…/signcms-mcp/你的64位Token"
+              className="w-full bg-slate-800 border border-slate-700 text-slate-100 placeholder:text-slate-500 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-brand transition-colors font-mono"
             />
-            <PasswordField
-              label="MCP Token"
-              value={s.mcp.token}
-              onChange={(v) => setS((p) => ({ ...p, mcp: { ...p.mcp, token: v } }))}
-              show={showToken}
-              onToggle={() => setShowToken((x) => !x)}
-              placeholder="64 位十六進位 Token"
-            />
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              貼上「SignCMS → 系統設定 → MCP 金鑰」的完整連線 URL（已含 Token）。
+            </p>
           </div>
-          <p className="text-[11px] text-slate-500">Token 僅儲存在本裝置，不會上傳至 SignCMS 伺服器。</p>
+
+          {/* OAuth Connect 按鈕 */}
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-px bg-slate-800" />
+            <span className="text-[11px] text-slate-600">或</span>
+            <div className="flex-1 h-px bg-slate-800" />
+          </div>
+          <button
+            type="button"
+            onClick={handleOAuthConnect}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 text-sm font-medium hover:border-brand hover:text-white transition-colors"
+          >
+            <Link2 className="w-4 h-4" />
+            透過 OAuth 連線
+            <ExternalLink className="w-3.5 h-3.5 opacity-50" />
+          </button>
+          <p className="text-[11px] text-slate-500">
+            開啟 SignCMS 授權頁面，輸入 Token 後自動完成設定。
+          </p>
+
+          <p className="text-[11px] text-slate-600 border-t border-slate-800 pt-3">
+            Token 僅儲存在本裝置，不會上傳至 SignCMS 伺服器。
+          </p>
         </section>
 
         {/* ── LLM Section ─────────────────────────────────────────────────── */}

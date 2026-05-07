@@ -43,10 +43,18 @@ export class MCPClient {
     return result;
   }
 
+  /**
+   * Test connectivity AND auth by sending an initialize RPC.
+   * GET / returns 200 without a token, so we must use POST to verify the Bearer token.
+   */
   async ping(): Promise<boolean> {
     try {
-      const res = await fetch(this.cfg.serverUrl, { method: "GET" });
-      return res.ok;
+      await this.rpc("initialize", {
+        protocolVersion: "2024-11-05",
+        capabilities:    {},
+        clientInfo:      { name: "signcms-go", version: "1.0" },
+      });
+      return true;
     } catch {
       return false;
     }
