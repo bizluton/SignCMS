@@ -16,20 +16,15 @@
  *   auth_opt_http_aclcheck_uri   /functions/v1/mqtt-auth/acl
  *
  * MQTT Credentials (native MQTT username / password):
- *   Screens:          username = screen:{screenId}   password = {device_token}
- *   Server publisher: username = signcms-server      password = {MQTT_SERVER_PASS}
- *
- * Note: mosquitto-go-auth does NOT forward a custom HTTP Authorization header
- * to this backend. Authentication security relies entirely on:
- *   1. allow_anonymous false  (Mosquitto config)
- *   2. Credential validation below (device_token DB lookup / server password match)
+ *   Devices:          username = {screenId}       password = MQTT_DEVICE_PASS (shared)
+ *   Server publisher: username = signcms-server   password = MQTT_SERVER_PASS
  *
  * Topic ACL (acc: 1=subscribe, 2=publish, 4=unsubscribe):
- *   screen:{id} → publish   signage/player/{id}/heartbeat
- *   screen:{id} → publish   signage/player/{id}/response
- *   screen:{id} → publish   signage/player/{id}/status  (LWT)
- *   screen:{id} → subscribe signage/player/{id}/command
- *   screen:{id} → subscribe signage/player/{id}/shadow/delta
+ *   {screenId} → publish   signage/player/{screenId}/heartbeat
+ *   {screenId} → publish   signage/player/{screenId}/response
+ *   {screenId} → publish   signage/player/{screenId}/status  (LWT)
+ *   {screenId} → subscribe signage/player/{screenId}/command
+ *   {screenId} → subscribe signage/player/{screenId}/shadow/delta
  *   signcms-server → superuser (all topics)
  */
 
@@ -59,18 +54,19 @@ Deno.serve(async (req) => {
 
   const SUPABASE_URL     = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_ROLE     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const MQTT_SERVER_PASS = Deno.env.get("MQTT_SERVER_PASS") ?? "";
   const MQTT_SERVER_USER = Deno.env.get("MQTT_SERVER_USER") ?? "signcms-server";
+  const MQTT_SERVER_PASS = Deno.env.get("MQTT_SERVER_PASS") ?? "";
+  const MQTT_DEVICE_PASS = Deno.env.get("MQTT_DEVICE_PASS") ?? "";
 
   // ── Route by path suffix ───────────────────────────────────────────────
-  const url      = new URL(req.url);
-  const pathEnd  = url.pathname.split("/").pop() ?? "";
+  const url     = new URL(req.url);
+  const pathEnd = url.pathname.split("/").pop() ?? "";
 
   let body: Record<string, string>;
   try { body = await req.json(); }
   catch { return deny(400); }
 
-  const { username = "", password = "", clientid = "", topic = "", acc = "0" } = body;
+  const { username = "", password = "", topic = "", acc = "0" } = body;
 
   // ── /superuser — server publisher gets full access ─────────────────────
   if (pathEnd === "superuser") {
@@ -79,24 +75,17 @@ Deno.serve(async (req) => {
 
   // ── /user — authenticate client ────────────────────────────────────────
   if (pathEnd === "user") {
-    // Server-side publisher: validate password against MQTT_SERVER_PASS secret
+    if (!username || !password) return deny();
+
+    // Server publisher
     if (username === MQTT_SERVER_USER) {
-      if (!MQTT_SERVER_PASS) return deny();          // secret not configured
+      if (!MQTT_SERVER_PASS) return deny();
       return password === MQTT_SERVER_PASS ? allow() : deny();
     }
 
-    // Screen player: username must be "screen:{screenId}"
-    if (!username.startsWith("screen:")) return deny();
-    const screenId   = username.slice("screen:".length);
-    if (!screenId || !password) return deny();
-
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-    const { data: authResult } = await admin.rpc("get_screen_by_device_token", { _token: password });
-    if (!authResult?.ok || authResult.screen_id !== screenId) return deny();
-
-    return allow();
+    // Device: any screenId with the shared device password
+    if (!MQTT_DEVICE_PASS) return deny();    // secret not configured → reject all
+    return password === MQTT_DEVICE_PASS ? allow() : deny();
   }
 
   // ── /acl — check topic permission ─────────────────────────────────────
@@ -104,31 +93,27 @@ Deno.serve(async (req) => {
     const accNum = parseInt(acc, 10);
     // acc: 1=subscribe, 2=publish, 4=unsubscribe
 
-    // Server publisher: grant all via superuser (this path shouldn't be reached
-    // if superuser check returned true, but handle gracefully)
+    // Server publisher: superuser → grant all
     if (username === MQTT_SERVER_USER) return allow();
 
-    // Screen: username = "screen:{screenId}"
-    if (!username.startsWith("screen:")) return deny();
-    const screenId = username.slice("screen:".length);
+    if (!username) return deny();
+    const serial = username;  // screenId is the username directly
 
-    const publishOk   = accNum === 2 || accNum === 6; // publish or publish+subscribe
-    const subscribeOk = accNum === 1 || accNum === 4 || accNum === 6; // sub or unsub or both
+    const publishOk   = accNum === 2 || accNum === 6;
+    const subscribeOk = accNum === 1 || accNum === 4 || accNum === 6;
 
     if (publishOk) {
-      // Screens may publish to their own: heartbeat, response, status (LWT)
       const allowed =
-        topic === `signage/player/${screenId}/heartbeat` ||
-        topic === `signage/player/${screenId}/response`  ||
-        topic === `signage/player/${screenId}/status`;
+        topic === `signage/player/${serial}/heartbeat` ||
+        topic === `signage/player/${serial}/response`  ||
+        topic === `signage/player/${serial}/status`;
       return allowed ? allow() : deny();
     }
 
     if (subscribeOk) {
-      // Screens may subscribe to their own: command, shadow/delta
       const allowed =
-        topic === `signage/player/${screenId}/command`      ||
-        topic === `signage/player/${screenId}/shadow/delta`;
+        topic === `signage/player/${serial}/command`      ||
+        topic === `signage/player/${serial}/shadow/delta`;
       return allowed ? allow() : deny();
     }
 

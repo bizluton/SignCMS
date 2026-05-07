@@ -201,8 +201,12 @@ Deno.serve(async (req) => {
   }
 
   // ── MQTT broker info ──────────────────────────────────────────────────────
+  // password = shared device password (MQTT_DEVICE_PASS); all devices use the
+  // same password. The username (screenId) + per-topic ACL scoping provides
+  // isolation between devices.
+  const DEVICE_PASS = Deno.env.get("MQTT_DEVICE_PASS") ?? "";
   const mqttOut = BROKER_WS
-    ? { broker: BROKER_WS, serial: screenId }
+    ? { broker: BROKER_WS, serial: screenId, password: DEVICE_PASS }
     : null;
 
   return json({
