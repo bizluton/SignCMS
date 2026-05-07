@@ -18,7 +18,7 @@
 //   get_alerts, get_playback_stats, get_active_overrides
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { screenCmd, orgBroadcast, notifySync } from "../_shared/mqtt.ts";
+import { notifySync, orgBroadcast } from "../_shared/mqtt.ts";
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
 const CORS = {
@@ -698,9 +698,8 @@ async function executeTool(
         payload:     { channel_id: channelId, screen_ids: screenIds, reason: args.reason, restore_at: restoreAt },
       });
 
-      // ── MQTT: push emergency_broadcast command to all affected screens ─────
-      await orgBroadcast(orgId, {
-        type:       "emergency_broadcast",
+      // ── MQTT: push switch_channel command to all affected screens ─────────
+      await orgBroadcast(orgId, screenIds, "content", "switch_channel", {
         channel_id: channelId,
         restore_at: restoreAt,
         reason:     args.reason ?? "",

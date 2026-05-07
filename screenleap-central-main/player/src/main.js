@@ -100,81 +100,86 @@ async function playerSync(logBatch = []) {
 }
 
 // ─── MQTT client ──────────────────────────────────────────────────────────
+//
+// Protocol: Mosquitto (self-hosted)
+// Topics (SignPlayer compatible):
+//   signage/player/{serial}/heartbeat  — device → server, QoS 0, every 15 s
+//   signage/player/{serial}/command    — server → device, QoS 0
+//   signage/player/{serial}/response   — device → server, QoS 0
+//
+// Command payload (server → device):
+//   { ts, cls, cmd, data, cid }
+//
+// Response payload (device → server):
+//   { ts, cls, cmd, rid, data }
+
+let mqttSerial = null;   // = screenId from player-sync, used as MQTT topic serial
+
+/** Build topic paths */
+const mqttTopic = {
+  hb:  (s) => `signage/player/${s}/heartbeat`,
+  cmd: (s) => `signage/player/${s}/command`,
+  res: (s) => `signage/player/${s}/response`,
+};
 
 /**
- * Connect (or reconnect) to the MQTT broker using credentials from the
- * sync response.  Safe to call multiple times — tears down the old client
- * first so we never have duplicate connections.
+ * Connect (or reconnect) to the Mosquitto broker.
+ * Safe to call multiple times — tears down the previous client first.
  *
- * @param {object} mqttCfg  { broker, topic_prefix }   from player-sync response
- * @param {string} screenId
- * @param {string} orgId
+ * @param {object} mqttCfg   { broker, serial }   from player-sync response
  * @param {string} deviceToken
  */
-function connectMqtt(mqttCfg, screenId, orgId, deviceToken) {
-  if (!mqttCfg?.broker || !deviceToken) return;
+function connectMqtt(mqttCfg, deviceToken) {
+  if (!mqttCfg?.broker || !mqttCfg?.serial || !deviceToken) return;
 
-  // Avoid reconnecting if already connected to the same broker
-  if (mqttClient && mqttConnected && mqttCfg.broker === mqttClient.options?.href) return;
+  // Already connected to same broker with same serial → skip
+  if (mqttClient && mqttConnected &&
+      mqttSerial === mqttCfg.serial &&
+      mqttClient._connectOptions?.href === mqttCfg.broker) return;
 
   disconnectMqtt();
 
-  const prefix = mqttCfg.topic_prefix ?? `signcms/${orgId}/screens/${screenId}`;
-  mqttTopicPrefix = prefix;
-  mqttScreenId    = screenId;
-  mqttOrgId       = orgId;
+  const serial    = mqttCfg.serial;
+  mqttSerial      = serial;
+  mqttScreenId    = serial;
 
-  const lwt = {
-    topic:   `${prefix}/status`,
-    payload: JSON.stringify({ online: false, screen_id: screenId, ts: Date.now() }),
-    qos:     1,
-    retain:  true,
-  };
+  console.log("[MQTT] connecting to", mqttCfg.broker, "serial:", serial);
 
-  console.log("[MQTT] connecting to", mqttCfg.broker);
   mqttClient = mqtt.connect(mqttCfg.broker, {
-    clientId:  `screen_${screenId}_${Date.now()}`,
-    username:  `screen:${screenId}`,
-    password:  deviceToken,
-    clean:     true,
-    reconnectPeriod: 5000,
-    will: lwt,
+    clientId:        `screen_${serial}_${Date.now()}`,
+    username:        `screen:${serial}`,
+    password:        deviceToken,
+    clean:           true,
+    reconnectPeriod: 5_000,
+    connectTimeout:  10_000,
   });
 
   mqttClient.on("connect", () => {
-    console.log("[MQTT] connected");
+    console.log("[MQTT] connected, serial:", serial);
     mqttConnected = true;
 
-    // Subscribe to command topic
-    mqttClient.subscribe(`${prefix}/cmd`, { qos: 1 }, (err) => {
+    // Subscribe to command topic (QoS 0)
+    mqttClient.subscribe(mqttTopic.cmd(serial), { qos: 0 }, (err) => {
       if (err) console.error("[MQTT] subscribe error:", err.message);
+      else     console.log("[MQTT] subscribed to", mqttTopic.cmd(serial));
     });
 
-    // Subscribe to org-wide broadcast topic
-    mqttClient.subscribe(`signcms/${orgId}/broadcast`, { qos: 1 }, (err) => {
-      if (err) console.error("[MQTT] broadcast subscribe error:", err.message);
-    });
-
-    // Publish online status (retained)
-    publishStatus({ online: true });
-
-    // When MQTT is up, switch sync loop to slow fallback (5 min)
+    // Switch sync loop to slow fallback (5 min) while MQTT is alive
     restartSyncLoop(300);
 
-    // Start 60-second heartbeat ping
+    // Publish first heartbeat immediately, then every 15 s
+    publishHeartbeat();
     startMqttHeartbeat();
 
-    win?.webContents.send("mqtt-status", { connected: true });
+    win?.webContents.send("mqtt-status", { connected: true, serial });
   });
 
   mqttClient.on("message", (topic, payload) => {
     let msg;
     try { msg = JSON.parse(payload.toString()); }
-    catch { console.warn("[MQTT] bad payload on", topic); return; }
+    catch { console.warn("[MQTT] bad payload on", topic, payload.toString()); return; }
 
-    console.log("[MQTT] message", topic, msg);
-
-    if (topic === `${prefix}/cmd` || topic === `signcms/${orgId}/broadcast`) {
+    if (topic === mqttTopic.cmd(serial)) {
       handleMqttCommand(msg);
     }
   });
@@ -189,7 +194,7 @@ function connectMqtt(mqttCfg, screenId, orgId, deviceToken) {
     console.log("[MQTT] disconnected");
     mqttConnected = false;
     stopMqttHeartbeat();
-    // Fall back to fast polling until reconnect succeeds
+    // Fall back to fast polling while offline
     restartSyncLoop(config.syncInterval ?? 30);
     win?.webContents.send("mqtt-status", { connected: false });
   });
@@ -203,25 +208,72 @@ function disconnectMqtt() {
   stopMqttHeartbeat();
   if (mqttClient) {
     try { mqttClient.end(true); } catch (_) {}
-    mqttClient   = null;
+    mqttClient    = null;
     mqttConnected = false;
+    mqttSerial    = null;
   }
 }
 
-function publishStatus(extra = {}) {
-  if (!mqttClient || !mqttConnected || !mqttTopicPrefix) return;
-  const payload = JSON.stringify({
-    online:    true,
-    screen_id: mqttScreenId,
-    ts:        Date.now(),
-    ...extra,
-  });
-  mqttClient.publish(`${mqttTopicPrefix}/status`, payload, { qos: 1, retain: true });
+/**
+ * Build and publish a heartbeat payload to signage/player/{serial}/heartbeat.
+ * Structure matches the SignPlayer Android heartbeat for dashboard compatibility.
+ */
+function publishHeartbeat() {
+  if (!mqttClient || !mqttConnected || !mqttSerial) return;
+
+  const now      = Math.floor(Date.now() / 1_000);
+  const uptime   = Math.floor(process.uptime());
+  const appVer   = app.getVersion();
+  const mem      = process.memoryUsage();
+  const memUsed  = (mem.rss / 1_073_741_824).toFixed(2);  // bytes → GB
+
+  const currentSyncId = lastSync?.channel?.id ?? lastSync?.project?.id ?? "";
+
+  const payload = {
+    ts:        now,
+    uptime,
+    activity:  "electron",
+    version_code: parseInt(appVer.replace(/\./g, ""), 10) || 0,
+    version_name: appVer,
+    storage:   "N/A",
+    memory:    `${memUsed} GB / N/A`,
+    screen_on: true,
+    signplayer_status: {
+      version_name: appVer,
+      version_code: parseInt(appVer.replace(/\./g, ""), 10) || 0,
+      type:         "electron",
+      status:       lastSync ? "playing" : "idle",
+      signage_id:   currentSyncId,
+      group_id:     lastSync?.screen?.org_id ?? "",
+      ts:           now,
+    },
+    error_code:    0,
+    error_message: "",
+  };
+
+  mqttClient.publish(mqttTopic.hb(mqttSerial), JSON.stringify(payload), { qos: 0 });
+}
+
+/**
+ * Publish a response to signage/player/{serial}/response.
+ * @param {object} cmd  The original command message (must have cls, cmd, cid)
+ * @param {object} data Response data
+ */
+function publishResponse(cmd, data = {}) {
+  if (!mqttClient || !mqttConnected || !mqttSerial) return;
+  const payload = {
+    ts:  Math.floor(Date.now() / 1_000),
+    cls: cmd.cls ?? "unknown",
+    cmd: cmd.cmd ?? "unknown",
+    rid: cmd.cid ?? "",
+    data: { msg: "okay.", ...data },
+  };
+  mqttClient.publish(mqttTopic.res(mqttSerial), JSON.stringify(payload), { qos: 0 });
 }
 
 function startMqttHeartbeat() {
   stopMqttHeartbeat();
-  mqttHeartbeat = setInterval(() => publishStatus(), 60_000);
+  mqttHeartbeat = setInterval(() => publishHeartbeat(), 15_000);
 }
 
 function stopMqttHeartbeat() {
@@ -229,33 +281,55 @@ function stopMqttHeartbeat() {
 }
 
 /**
- * Handle an inbound MQTT command from the server.
- * Supported types: sync, switch_channel, emergency_broadcast, restore, reload
+ * Handle an inbound command from the server.
+ * Payload format: { ts, cls, cmd, data, cid }
+ *
+ * cls: "content" — playlist / channel commands
+ *   cmd: "sync"           → immediate re-sync
+ *   cmd: "switch_channel" → update channel, sync
+ * cls: "screen" — display commands
+ *   cmd: "reload"         → reload renderer
+ * cls: "app"   — application commands (forwarded to renderer)
  */
 function handleMqttCommand(msg) {
-  const type = msg?.type;
-  switch (type) {
-    case "sync":
-      // Server is telling us to re-sync immediately
-      doSync();
-      break;
+  console.log("[MQTT] command", msg?.cls, msg?.cmd);
+  const { cls, cmd } = msg ?? {};
 
-    case "switch_channel":
-    case "emergency_broadcast":
-    case "restore":
-      // Push the command payload directly to the renderer so it can act immediately
-      win?.webContents.send("mqtt-cmd", msg);
-      // Also trigger a sync to get the full updated playlist
-      doSync();
-      break;
-
-    case "reload":
-      win?.webContents.reload();
-      break;
-
-    default:
-      // Forward unknown commands to renderer
-      if (type) win?.webContents.send("mqtt-cmd", msg);
+  if (cls === "content") {
+    switch (cmd) {
+      case "sync":
+        publishResponse(msg);
+        doSync();
+        break;
+      case "switch_channel":
+      case "emergency_broadcast":
+      case "restore":
+        win?.webContents.send("mqtt-cmd", msg);
+        publishResponse(msg);
+        doSync();
+        break;
+      default:
+        win?.webContents.send("mqtt-cmd", msg);
+        publishResponse(msg, { msg: "unknown content command" });
+    }
+  } else if (cls === "screen") {
+    switch (cmd) {
+      case "reload":
+        publishResponse(msg);
+        setTimeout(() => win?.webContents.reload(), 500);
+        break;
+      case "fullscreen":
+        publishResponse(msg);
+        win?.setFullScreen(!win?.isFullScreen());
+        break;
+      default:
+        win?.webContents.send("mqtt-cmd", msg);
+        publishResponse(msg, { msg: "unknown screen command" });
+    }
+  } else {
+    // Forward all other classes to renderer
+    win?.webContents.send("mqtt-cmd", msg);
+    publishResponse(msg);
   }
 }
 
@@ -362,9 +436,10 @@ async function doSync() {
     updateTrayMenu();
 
     // ── MQTT: connect (or reconnect) after first successful sync ──────────
-    if (result.mqtt?.broker && result.screen?.id) {
+    // result.mqtt = { broker, serial }  (serial = screenId, used as topic identifier)
+    if (result.mqtt?.broker && result.mqtt?.serial) {
       const cfg = loadConfig();
-      connectMqtt(result.mqtt, result.screen.id, result.screen.org_id, cfg.deviceToken);
+      connectMqtt(result.mqtt, cfg.deviceToken);
     }
   } else {
     win?.webContents.send("sync-error", { time: new Date().toISOString() });

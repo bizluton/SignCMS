@@ -153,10 +153,12 @@ Deno.serve(async (req) => {
     .limit(10);
 
   // ── MQTT broker info (optional — only when MQTT is configured) ────────────
+  // Players connect to this Mosquitto WebSocket endpoint.
+  // Topics: signage/player/{screenId}/command|heartbeat|response
   const mqttOut = BROKER_WS
     ? {
-        broker:       BROKER_WS,
-        topic_prefix: `signcms/${orgId}/screens/${screenId}`,
+        broker: BROKER_WS,
+        serial: screenId,   // player uses screen_id as MQTT serial / topic identifier
       }
     : null;
 
