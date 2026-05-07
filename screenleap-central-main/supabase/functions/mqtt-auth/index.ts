@@ -14,17 +14,22 @@
  *   auth_opt_http_getuser_uri    /functions/v1/mqtt-auth/user
  *   auth_opt_http_superuser_uri  /functions/v1/mqtt-auth/superuser
  *   auth_opt_http_aclcheck_uri   /functions/v1/mqtt-auth/acl
- *   # Shared secret sent as a header so only Mosquitto can call us:
- *   auth_opt_http_response_params  Authorization: Bearer <MQTT_SERVER_PASS>
  *
- * Credentials:
- *   Screens:         username = screen:{screenId}   password = {device_token}
- *   Server publisher: username = signcms-server     password = {MQTT_SERVER_PASS}
+ * MQTT Credentials (native MQTT username / password):
+ *   Screens:          username = screen:{screenId}   password = {device_token}
+ *   Server publisher: username = signcms-server      password = {MQTT_SERVER_PASS}
+ *
+ * Note: mosquitto-go-auth does NOT forward a custom HTTP Authorization header
+ * to this backend. Authentication security relies entirely on:
+ *   1. allow_anonymous false  (Mosquitto config)
+ *   2. Credential validation below (device_token DB lookup / server password match)
  *
  * Topic ACL (acc: 1=subscribe, 2=publish, 4=unsubscribe):
  *   screen:{id} → publish   signage/player/{id}/heartbeat
  *   screen:{id} → publish   signage/player/{id}/response
+ *   screen:{id} → publish   signage/player/{id}/status  (LWT)
  *   screen:{id} → subscribe signage/player/{id}/command
+ *   screen:{id} → subscribe signage/player/{id}/shadow/delta
  *   signcms-server → superuser (all topics)
  */
 
@@ -52,14 +57,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   if (req.method !== "POST")    return deny(405);
 
-  const SUPABASE_URL    = Deno.env.get("SUPABASE_URL")!;
-  const SERVICE_ROLE    = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const SUPABASE_URL     = Deno.env.get("SUPABASE_URL")!;
+  const SERVICE_ROLE     = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const MQTT_SERVER_PASS = Deno.env.get("MQTT_SERVER_PASS") ?? "";
-
-  // ── Verify request comes from Mosquitto (shared secret) ────────────────
-  const auth = req.headers.get("authorization") ?? "";
-  const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
-  if (!MQTT_SERVER_PASS || token !== MQTT_SERVER_PASS) return deny(401);
+  const MQTT_SERVER_USER = Deno.env.get("MQTT_SERVER_USER") ?? "signcms-server";
 
   // ── Route by path suffix ───────────────────────────────────────────────
   const url      = new URL(req.url);
@@ -73,15 +74,14 @@ Deno.serve(async (req) => {
 
   // ── /superuser — server publisher gets full access ─────────────────────
   if (pathEnd === "superuser") {
-    const serverUser = Deno.env.get("MQTT_SERVER_USER") ?? "signcms-server";
-    return username === serverUser ? allow() : deny();
+    return username === MQTT_SERVER_USER ? allow() : deny();
   }
 
   // ── /user — authenticate client ────────────────────────────────────────
   if (pathEnd === "user") {
-    // Server-side publisher
-    const serverUser = Deno.env.get("MQTT_SERVER_USER") ?? "signcms-server";
-    if (username === serverUser) {
+    // Server-side publisher: validate password against MQTT_SERVER_PASS secret
+    if (username === MQTT_SERVER_USER) {
+      if (!MQTT_SERVER_PASS) return deny();          // secret not configured
       return password === MQTT_SERVER_PASS ? allow() : deny();
     }
 
@@ -106,8 +106,7 @@ Deno.serve(async (req) => {
 
     // Server publisher: grant all via superuser (this path shouldn't be reached
     // if superuser check returned true, but handle gracefully)
-    const serverUser = Deno.env.get("MQTT_SERVER_USER") ?? "signcms-server";
-    if (username === serverUser) return allow();
+    if (username === MQTT_SERVER_USER) return allow();
 
     // Screen: username = "screen:{screenId}"
     if (!username.startsWith("screen:")) return deny();
