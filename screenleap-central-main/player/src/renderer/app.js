@@ -24,6 +24,11 @@ let pinnedTimer      = null;
 let projectId        = null; // track to detect content changes
 let annZoneContainers = [];  // DOM containers for announcement zones in current page
 
+// ── Disk cache state ──────────────────────────────────────────────────────────
+// Populated by prewarmProjectMedia(); used synchronously in _createElement.
+// Maps original CDN URL → "file://..." local path.
+const cachedPaths = new Map();
+
 // ─────────────────────────────────────────────────────────────────────────────
 // UTILITIES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -152,11 +157,19 @@ $("btn-devtools").addEventListener("click", () => {
 // SYNC DATA HANDLER
 // ─────────────────────────────────────────────────────────────────────────────
 window.player.onSyncData((data) => {
+  // ── zones_changed === false: server confirmed content unchanged ──────────
+  // Merge into lastData so zones are preserved (server omits them to save bandwidth).
+  if (data.project && data.project.zones_changed === false && lastData?.project?.zones) {
+    data.project.zones = lastData.project.zones;
+  }
+
   lastData = data;
   setConnDot("online");
   updateHud(data);
 
-  const newProjectId = data.project?.id ?? null;
+  const newProjectId    = data.project?.id ?? null;
+  const contentChanged  = newProjectId !== projectId ||
+                          data.project?.zones_changed !== false;
 
   if (!data.project) {
     // No content assigned
@@ -169,9 +182,12 @@ window.player.onSyncData((data) => {
     showNoContent(true);
   } else {
     showNoContent(false);
-    // Re-render only if project changed
-    if (newProjectId !== projectId) {
+
+    if (contentChanged) {
       projectId = newProjectId;
+      // Prewarm disk cache for all media in the new project (background, non-blocking).
+      // First render uses CDN URLs; subsequent renders use file:// paths.
+      prewarmProjectMedia(data.project.zones);
       renderProject(data);
     }
   }
@@ -187,6 +203,70 @@ window.player.onSyncError(() => {
 
 window.player.onShowSettings(openSettings);
 window.player.onToggleHud(() => $("hud").classList.toggle("visible"));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DISK CACHE HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Collect every image/video URL from a project's zones structure.
+ * Widget HTML URLs are intentionally excluded (handled by Chromium HTTP cache).
+ */
+function extractMediaUrls(zones) {
+  const urls = new Set();
+
+  function processZones(zoneList) {
+    if (!Array.isArray(zoneList)) return;
+    for (const z of zoneList) {
+      const items = z.content?.mediaItems;
+      if (!Array.isArray(items)) continue;
+      for (const item of items) {
+        if (item.url && (item.type === "image" || item.type === "video")) {
+          urls.add(item.url);
+        }
+      }
+    }
+  }
+
+  const meta = Array.isArray(zones) ? zones.find((z) => z._meta) : null;
+  if (meta?.pages) {
+    meta.pages.forEach((pg) => processZones(pg.zones));
+  } else {
+    processZones((zones || []).filter((z) => !z._meta));
+  }
+
+  return [...urls];
+}
+
+/**
+ * Background-warm the disk cache for every media item in the project.
+ * Non-blocking: render proceeds immediately with CDN URLs.
+ * On the NEXT render cycle (same project, different sync) the cached paths
+ * will be in `cachedPaths` and `resolveUrl()` will return file:// URLs.
+ */
+async function prewarmProjectMedia(zones) {
+  if (!zones) return;
+  const urls = extractMediaUrls(zones);
+  if (urls.length === 0) return;
+
+  try {
+    const result = await window.player.prewarmCache(urls);
+    for (const [url, localUrl] of Object.entries(result)) {
+      cachedPaths.set(url, localUrl);
+    }
+    console.log(`[Cache] prewarm done — ${Object.keys(result).length}/${urls.length} cached`);
+  } catch (e) {
+    console.warn("[Cache] prewarm error:", e.message);
+  }
+}
+
+/**
+ * Resolve a CDN URL to a local file:// path if available, otherwise return the
+ * original URL.  Synchronous — reads in-memory cachedPaths map.
+ */
+function resolveUrl(url) {
+  return cachedPaths.get(url) || url;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONTENT RENDERING
@@ -456,24 +536,22 @@ class MediaZoneEngine {
       return frame;
     } else if (item.type === "video") {
       const v = el("video", "media-item");
-      v.src        = item.url;
-      v.muted      = (item.volume ?? 0) === 0;
-      v.volume     = Math.min(1, (item.volume ?? 0) / 100);
+      v.src         = resolveUrl(item.url);   // file:// if cached, CDN URL otherwise
+      v.muted       = (item.volume ?? 0) === 0;
+      v.volume      = Math.min(1, (item.volume ?? 0) / 100);
       v.playsInline = true;
-      v.preload    = "auto";
+      v.preload     = "auto";
       // Videos use object-fit (cover-x/cover-y both → cover for video)
       v.style.objectFit = objectFitMap[rawFit] || "cover";
       v.addEventListener("ended", () => this._advance());
       return v;
     } else if (rawFit === "cover-x" || rawFit === "cover-y") {
       // Match ContentStudio: flex-centered container + auto-sized image
-      // cover-x: image fills width, height follows aspect ratio (clips top/bottom)
-      // cover-y: image fills height, width follows aspect ratio (clips left/right)
       const wrapper = el("div", "media-item");
       wrapper.style.cssText = "position:absolute;inset:0;overflow:hidden;display:flex;align-items:center;justify-content:center";
       const img = document.createElement("img");
-      img.src     = item.url;
-      img.loading = "eager";
+      img.src      = resolveUrl(item.url);   // file:// if cached
+      img.loading  = "eager";
       img.decoding = "async";
       if (rawFit === "cover-x") {
         img.style.cssText = "width:100%;height:auto;max-height:none;flex-shrink:0;display:block";
@@ -484,9 +562,9 @@ class MediaZoneEngine {
       return wrapper;
     } else {
       const img = el("img", "media-item");
-      img.src          = item.url;
-      img.loading      = "eager";
-      img.decoding     = "async";
+      img.src             = resolveUrl(item.url);   // file:// if cached
+      img.loading         = "eager";
+      img.decoding        = "async";
       img.style.objectFit = objectFitMap[rawFit] || "cover";
       return img;
     }

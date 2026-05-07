@@ -44,13 +44,15 @@ Deno.serve(async (req) => {
   const orgId    = auth.org_id    as string;
   const now      = new Date();
 
-  // ── Parse body (log batch + optional shadow reported state) ───────────────
+  // ── Parse body ─────────────────────────────────────────────────────────────
   let logBatch: LogEntry[] = [];
   let shadowReported: Record<string, unknown> | null = null;
+  let projectEtag: string | null = null;
   try {
     const body = await req.json();
     if (Array.isArray(body?.log_batch))                      logBatch       = body.log_batch.slice(0, 200);
     if (body?.reported && typeof body.reported === "object") shadowReported = body.reported;
+    if (typeof body?.project_etag === "string")              projectEtag    = body.project_etag;
   } catch { /* empty body ok */ }
 
   // ── Heartbeat ───────────────────────────────────────────────────────────
@@ -136,10 +138,31 @@ Deno.serve(async (req) => {
       if (activeBlock?.design_project_id) activeProjectId = activeBlock.design_project_id;
 
       if (activeProjectId) {
-        const { data: proj } = await admin.from("design_projects")
-          .select("id, name, aspect, zones, updated_at")
+        // ── ETag optimisation ─────────────────────────────────────────────
+        // If the player sent its last-known project timestamp AND it matches
+        // the current updated_at, skip transmitting the zones blob (can be
+        // several KB of JSON) and return zones_changed: false instead.
+        // The player keeps rendering from its own copy; bandwidth is saved.
+
+        // Step 1: check metadata only
+        const { data: projMeta } = await admin.from("design_projects")
+          .select("id, name, aspect, updated_at")
           .eq("id", activeProjectId).maybeSingle();
-        projectOut = proj ?? null;
+
+        if (projMeta) {
+          const unchanged = projectEtag && projectEtag === projMeta.updated_at;
+
+          if (unchanged) {
+            // Content is the same — return lightweight response
+            projectOut = { ...projMeta, zones_changed: false };
+          } else {
+            // Content changed (or first sync) — return full zones
+            const { data: proj } = await admin.from("design_projects")
+              .select("id, name, aspect, zones, updated_at")
+              .eq("id", activeProjectId).maybeSingle();
+            projectOut = proj ? { ...proj, zones_changed: true } : null;
+          }
+        }
       }
     }
   }

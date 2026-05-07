@@ -1,14 +1,23 @@
 /**
  * SignCMS Player — Electron Main Process
- * Handles: window, tray, config, heartbeat, IPC, MQTT
+ * Handles: window, tray, config, heartbeat, IPC, MQTT, media disk cache
  */
 const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage,
         globalShortcut, dialog, shell, session } = require("electron");
-const path  = require("path");
-const https = require("https");
-const http  = require("http");
-const fs    = require("fs");
-const mqtt  = require("mqtt");
+const path       = require("path");
+const https      = require("https");
+const http       = require("http");
+const fs         = require("fs");
+const mqtt       = require("mqtt");
+const mediaCache = require("./media-cache");
+
+// ── Chromium HTTP disk cache (persists across restarts) ───────────────────────
+// Must be set before app.whenReady() / before BrowserWindow creation.
+// 200 MB for widget HTML, fonts, scripts (managed by Chromium internally).
+app.commandLine.appendSwitch("disk-cache-dir",
+  path.join(app.getPath("userData"), "net-cache"),
+);
+app.commandLine.appendSwitch("disk-cache-size", String(200 * 1024 * 1024));
 
 // ─── Config ────────────────────────────────────────────────────────────────
 const CONFIG_PATH = path.join(app.getPath("userData"), "config.json");
@@ -89,7 +98,11 @@ async function playerSync(logBatch = []) {
     const res = await httpPost(url, {
       "x-device-token": cfg.deviceToken,
       "apikey":         cfg.anonKey,
-    }, { log_batch: logBatch });
+    }, {
+      log_batch:    logBatch,
+      // Send last-known project timestamp so server can skip zones when unchanged
+      project_etag: lastSync?.project?.updated_at ?? null,
+    });
     if (res.status === 200 && res.body?.ok) return res.body;
     console.warn("player-sync error:", res.status, res.body);
     return null;
@@ -554,6 +567,21 @@ ipcMain.handle("save-config", (_e, cfg) => {
 
 ipcMain.handle("get-mqtt-status", () => ({ connected: mqttConnected }));
 
+// ── Media disk cache IPC ──────────────────────────────────────────────────
+// cache-get: synchronous check (in-memory index only, very fast)
+ipcMain.handle("cache-get", (_e, url) => {
+  const local = mediaCache.getLocalPath(url);
+  return local ? `file://${local}` : null;
+});
+
+// cache-prewarm: download a batch of URLs in background, return {url→file://} map
+ipcMain.handle("cache-prewarm", (_e, urls) => {
+  if (!Array.isArray(urls)) return {};
+  return mediaCache.prewarm(urls);
+});
+
+ipcMain.handle("cache-stats", () => mediaCache.getStats());
+
 ipcMain.handle("force-sync", async () => {
   await doSync();
   return { ok: true };
@@ -572,21 +600,58 @@ ipcMain.handle("open-external", (_e, url) => { shell.openExternal(url); });
 
 // ─── App lifecycle ────────────────────────────────────────────────────────
 app.whenReady().then(() => {
-  // Fix response headers for widget HTML files served from Supabase Storage:
-  // 1. Force Content-Type: text/html so Chromium renders instead of showing source
-  // 2. Remove Content-Security-Policy and X-Frame-Options that block scripts/styles
+  // ── Response header fixups ─────────────────────────────────────────────────
+  //
+  // 1. Widget HTML: force text/html, strip CSP/X-Frame-Options, add short-lived cache
+  // 2. Static assets (JS/CSS/fonts): aggressive long cache (content-addressed)
+  // 3. Images/videos from CDN: 1-day cache so Chromium reuses them across restarts
+  //
+  // These Cache-Control values work in tandem with the persistent disk-cache-dir
+  // configured above and with the explicit media-cache.js disk cache.
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const headers = Object.assign({}, details.responseHeaders);
-    if (/\.html(\?|$)/i.test(details.url)) {
-      headers["content-type"] = ["text/html; charset=utf-8"];
-      // Remove headers that would block widget scripts and external resources
+    const u       = details.url;
+
+    if (/\.html(\?|$)/i.test(u)) {
+      // Widget HTML — render correctly + cache for 10 minutes
+      headers["content-type"]             = ["text/html; charset=utf-8"];
+      headers["cache-control"]            = ["public, max-age=600, stale-while-revalidate=60"];
       delete headers["content-security-policy"];
       delete headers["Content-Security-Policy"];
       delete headers["x-frame-options"];
       delete headers["X-Frame-Options"];
+
+    } else if (/\.(js|mjs)(\?|$)/i.test(u)) {
+      // Widget scripts — cache 1 week (Supabase Storage uses content-addressed URLs)
+      if (!headers["cache-control"]) {
+        headers["cache-control"] = ["public, max-age=604800, immutable"];
+      }
+    } else if (/\.(css)(\?|$)/i.test(u)) {
+      if (!headers["cache-control"]) {
+        headers["cache-control"] = ["public, max-age=604800, immutable"];
+      }
+    } else if (/\.(woff2?|ttf|eot|otf)(\?|$)/i.test(u)) {
+      // Fonts — virtually never change
+      if (!headers["cache-control"]) {
+        headers["cache-control"] = ["public, max-age=2592000, immutable"];
+      }
+    } else if (/\.(jpg|jpeg|png|gif|webp|avif|svg)(\?|$)/i.test(u)) {
+      // Images — 1 day (also handled by explicit disk cache in media-cache.js)
+      if (!headers["cache-control"]) {
+        headers["cache-control"] = ["public, max-age=86400, stale-while-revalidate=3600"];
+      }
+    } else if (/\.(mp4|webm|mov|mp3|aac|wav|ogg)(\?|$)/i.test(u)) {
+      // Video/audio — 1 day; Range requests are naturally supported
+      if (!headers["cache-control"]) {
+        headers["cache-control"] = ["public, max-age=86400"];
+      }
     }
+
     callback({ responseHeaders: headers });
   });
+
+  // Initialise disk media cache (must be after userData path is available)
+  mediaCache.init(app.getPath("userData"));
 
   createWindow();
   createTray();
