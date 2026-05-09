@@ -142,10 +142,10 @@ const mqttTopic = {
  * @param {object} mqttCfg   { broker, serial }   from player-sync response
  * @param {string} deviceToken
  */
-function connectMqtt(mqttCfg, deviceToken) {
-  if (!mqttCfg?.broker || !mqttCfg?.serial || !deviceToken) return;
+function connectMqtt(mqttCfg) {
+  if (!mqttCfg?.broker || !mqttCfg?.serial || !mqttCfg?.password) return;
 
-  // Already connected to same broker with same serial → skip
+  // Already connected to same broker/serial → skip
   if (mqttClient && mqttConnected &&
       mqttSerial === mqttCfg.serial &&
       mqttClient._connectOptions?.href === mqttCfg.broker) return;
@@ -169,8 +169,8 @@ function connectMqtt(mqttCfg, deviceToken) {
 
   mqttClient = mqtt.connect(mqttCfg.broker, {
     clientId:        `screen_${serial}_${Date.now()}`,
-    username:        `screen:${serial}`,
-    password:        deviceToken,
+    username:        serial,               // screenId (no "screen:" prefix)
+    password:        mqttCfg.password,     // MQTT_DEVICE_PASS from player-sync response
     clean:           true,
     reconnectPeriod: 5_000,
     connectTimeout:  10_000,
@@ -540,10 +540,9 @@ async function doSync() {
     updateTrayMenu();
 
     // ── MQTT: connect (or reconnect) after first successful sync ──────────
-    // result.mqtt = { broker, serial }  (serial = screenId, used as topic identifier)
-    if (result.mqtt?.broker && result.mqtt?.serial) {
-      const cfg = loadConfig();
-      connectMqtt(result.mqtt, cfg.deviceToken);
+    // result.mqtt = { broker, serial, password }  (password = MQTT_DEVICE_PASS from server)
+    if (result.mqtt?.broker && result.mqtt?.serial && result.mqtt?.password) {
+      connectMqtt(result.mqtt);
     }
   } else {
     win?.webContents.send("sync-error", { time: new Date().toISOString() });

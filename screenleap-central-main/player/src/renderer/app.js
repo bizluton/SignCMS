@@ -186,8 +186,9 @@ window.player.onSyncData((data) => {
     if (contentChanged) {
       projectId = newProjectId;
       // Prewarm disk cache for all media in the new project (background, non-blocking).
+      // Passes full project so prewarmProjectMedia can use asset_manifest (sha256 + size).
       // First render uses CDN URLs; subsequent renders use file:// paths.
-      prewarmProjectMedia(data.project.zones);
+      prewarmProjectMedia(data.project);
       renderProject(data);
     }
   }
@@ -241,20 +242,44 @@ function extractMediaUrls(zones) {
 /**
  * Background-warm the disk cache for every media item in the project.
  * Non-blocking: render proceeds immediately with CDN URLs.
- * On the NEXT render cycle (same project, different sync) the cached paths
- * will be in `cachedPaths` and `resolveUrl()` will return file:// URLs.
+ * On the NEXT render cycle the cached paths will be in `cachedPaths` and
+ * `resolveUrl()` will return file:// URLs.
+ *
+ * CAS Phase 4: prefers asset_manifest (includes sha256 + size for hash-keyed
+ * caching and post-download verification) over extracting bare URLs from zones.
+ *
+ * @param {object} project  Full project object from player-sync response
  */
-async function prewarmProjectMedia(zones) {
-  if (!zones) return;
-  const urls = extractMediaUrls(zones);
-  if (urls.length === 0) return;
+async function prewarmProjectMedia(project) {
+  if (!project) return;
+
+  // ── Build asset list ───────────────────────────────────────────────────────
+  // Prefer asset_manifest (CAS Phase 3+): [{url, sha256, size}]
+  // Fall back to extracting plain URLs from zones (legacy projects / first boot)
+  let assets;
+  if (Array.isArray(project.asset_manifest) && project.asset_manifest.length > 0) {
+    assets = project.asset_manifest
+      .filter((a) => a?.url)
+      .map((a) => ({ url: a.url, sha256: a.sha256 ?? null, size: a.size ?? null }));
+  } else {
+    const urls = extractMediaUrls(project.zones);
+    assets = urls.map((u) => ({ url: u, sha256: null, size: null }));
+  }
+
+  const cacheable = assets.filter((a) => {
+    try { return /\.(jpg|jpeg|png|gif|webp|avif|mp4|webm|mov|mp3|aac|wav|ogg)(\?|$)/i
+                   .test(new URL(a.url).pathname); }
+    catch { return false; }
+  });
+
+  if (cacheable.length === 0) return;
 
   try {
-    const result = await window.player.prewarmCache(urls);
+    const result = await window.player.prewarmCache(cacheable);
     for (const [url, localUrl] of Object.entries(result)) {
       cachedPaths.set(url, localUrl);
     }
-    console.log(`[Cache] prewarm done — ${Object.keys(result).length}/${urls.length} cached`);
+    console.log(`[Cache] prewarm done — ${Object.keys(result).length}/${cacheable.length} cached`);
   } catch (e) {
     console.warn("[Cache] prewarm error:", e.message);
   }
