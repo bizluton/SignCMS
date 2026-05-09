@@ -22,6 +22,12 @@ interface LogEntry {
   duration_seconds?: number;
 }
 
+interface AssetEntry {
+  url:    string;
+  sha256: string | null;  // null for legacy items uploaded before CAS Phase 1
+  size:   number | null;  // size_bytes
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   if (req.method !== "POST")    return json({ ok: false, error: "method_not_allowed" }, 405);
@@ -138,29 +144,42 @@ Deno.serve(async (req) => {
       if (activeBlock?.design_project_id) activeProjectId = activeBlock.design_project_id;
 
       if (activeProjectId) {
-        // ── ETag optimisation ─────────────────────────────────────────────
-        // If the player sent its last-known project timestamp AND it matches
-        // the current updated_at, skip transmitting the zones blob (can be
-        // several KB of JSON) and return zones_changed: false instead.
-        // The player keeps rendering from its own copy; bandwidth is saved.
+        // ── ETag check + asset manifest — run in parallel ─────────────────
+        // asset_manifest: all non-deleted media items for this project,
+        // including sha256 (null for legacy rows) so the player can do
+        // hash-based delta sync (CAS Phase 3+).
+        // Always returned regardless of zones_changed so the player can
+        // warm its cache even when layout content hasn't changed.
+        const [projMetaRes, assetsRes] = await Promise.all([
+          admin.from("design_projects")
+            .select("id, name, aspect, updated_at")
+            .eq("id", activeProjectId).maybeSingle(),
+          admin.from("media_items")
+            .select("url, sha256, size_bytes")
+            .eq("design_project_id", activeProjectId)
+            .is("deleted_at", null)
+            .limit(500),
+        ]);
 
-        // Step 1: check metadata only
-        const { data: projMeta } = await admin.from("design_projects")
-          .select("id, name, aspect, updated_at")
-          .eq("id", activeProjectId).maybeSingle();
+        const projMeta      = projMetaRes.data;
+        const assetManifest: AssetEntry[] = (assetsRes.data ?? []).map((a) => ({
+          url:    a.url,
+          sha256: a.sha256    ?? null,
+          size:   a.size_bytes ?? null,
+        }));
 
         if (projMeta) {
           const unchanged = projectEtag && projectEtag === projMeta.updated_at;
 
           if (unchanged) {
-            // Content is the same — return lightweight response
-            projectOut = { ...projMeta, zones_changed: false };
+            // Layout unchanged — skip zones blob to save bandwidth
+            projectOut = { ...projMeta, zones_changed: false, asset_manifest: assetManifest };
           } else {
-            // Content changed (or first sync) — return full zones
+            // Layout changed (or first sync) — return full zones
             const { data: proj } = await admin.from("design_projects")
               .select("id, name, aspect, zones, updated_at")
               .eq("id", activeProjectId).maybeSingle();
-            projectOut = proj ? { ...proj, zones_changed: true } : null;
+            projectOut = proj ? { ...proj, zones_changed: true, asset_manifest: assetManifest } : null;
           }
         }
       }
