@@ -1,3 +1,19 @@
+/**
+ * upload-media — SignCMS media upload endpoint
+ *
+ * CAS Phase 2: server-side SHA-256 computation.
+ *
+ * Storage layout:
+ *   Legacy (pre-CAS):  media/{orgId}/{md5}.{ext}
+ *   CAS (Phase 2+):    media/assets/{sha256}.{ext}   ← global, cross-org dedup
+ *
+ * Dedup priority:
+ *   1. org-level sha256 match → 409 (same content already in this org)
+ *   2. global sha256 match    → reuse Storage URL, no upload (cross-org dedup)
+ *   3. org-level md5+size     → 409 (legacy rows that predate sha256)
+ *   4. no match               → upload to assets/{sha256}.{ext}
+ */
+
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.99.3";
 
 const corsHeaders = {
@@ -8,260 +24,263 @@ const corsHeaders = {
 
 const BUCKET = "media";
 
+function err(body: Record<string, unknown>, status: number) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function ok(body: Record<string, unknown>) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 function safeName(name: string): string {
-  // Strip path components, keep ascii/digits/dot/dash/underscore.
   const base = name.split(/[\\/]/).pop() || "file";
   return base.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120) || "file";
 }
 
-function bytesToHuman(b: number): string {
-  if (b < 1024) return `${b} B`;
-  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
-  return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+/** Compute SHA-256 hex from an ArrayBuffer (Web Crypto — available in Deno). */
+async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", buffer);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
+    // ── Auth ─────────────────────────────────────────────────────────────────
     const authHeader = req.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (!authHeader?.startsWith("Bearer ")) return err({ error: "Unauthorized" }, 401);
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const supabaseUrl        = Deno.env.get("SUPABASE_URL")!;
+    const supabaseAnonKey    = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const userClient = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } },
     });
-
-    const token = authHeader.replace("Bearer ", "");
+    const token = authHeader.slice("Bearer ".length);
     const { data: claimsData, error: claimsError } = await userClient.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (claimsError || !claimsData?.claims) return err({ error: "Unauthorized" }, 401);
 
-    const userId = claimsData.claims.sub as string;
-
-    // Service role client for DB writes & storage upload (bypasses owner-RLS for storage)
+    const userId  = claimsData.claims.sub as string;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Permission check (admin / org_admin / cs_agent / org member)
-    const { data: roleRows } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .in("role", ["admin", "org_admin"])
-      .limit(1);
-    let isAuthorized = !!(roleRows && roleRows.length > 0);
+    // ── Permission check (admin / org_admin / cs_agent / team member) ────────
+    const [roleRes, csRes, memberRes] = await Promise.all([
+      supabase.from("user_roles").select("role")
+        .eq("user_id", userId).in("role", ["admin", "org_admin"]).limit(1),
+      supabase.from("cs_agents").select("id")
+        .eq("user_id", userId).eq("status", "active").limit(1),
+      supabase.from("team_members").select("id")
+        .eq("user_id", userId).limit(1),
+    ]);
+    const isAuthorized =
+      !!(roleRes.data?.length) ||
+      !!(csRes.data?.length)   ||
+      !!(memberRes.data?.length);
+    if (!isAuthorized) return err({ error: "Forbidden" }, 403);
 
-    if (!isAuthorized) {
-      const { data: csRows } = await supabase
-        .from("cs_agents")
-        .select("id")
-        .eq("user_id", userId)
-        .eq("status", "active")
-        .limit(1);
-      isAuthorized = !!(csRows && csRows.length > 0);
-    }
-
-    if (!isAuthorized) {
-      const { data: memberRows } = await supabase
-        .from("team_members")
-        .select("id")
-        .eq("user_id", userId)
-        .limit(1);
-      isAuthorized = !!(memberRows && memberRows.length > 0);
-    }
-
-    if (!isAuthorized) {
-      return new Response(JSON.stringify({ error: "Forbidden" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const formData = await req.formData();
-    const file = formData.get("file") as File | null;
-    const name = (formData.get("name") as string) || file?.name || "unknown";
+    // ── Parse form data ───────────────────────────────────────────────────────
+    const formData     = await req.formData();
+    const file         = formData.get("file") as File | null;
+    const name         = (formData.get("name")          as string) || file?.name || "unknown";
     const originalName = (formData.get("original_name") as string) || file?.name || name;
-    const md5 = ((formData.get("md5") as string) || "").toLowerCase();
-    const type = (formData.get("type") as string) || "image";
-    const widthRaw = formData.get("width") as string | null;
-    const heightRaw = formData.get("height") as string | null;
-    const durationSecRaw = formData.get("duration_seconds") as string | null;
-    const projectId = formData.get("design_project_id") as string | null;
-    const orgId = formData.get("org_id") as string | null;
-    // Transcode metadata (from MediaInfo.js on the client)
-    const sourceFpsRaw = formData.get("source_fps") as string | null;
-    const sourceBitrateRaw = formData.get("source_bitrate") as string | null;
-    const sourceCodec = (formData.get("source_codec") as string | null) || null;
-    const sourceContainer = (formData.get("source_container") as string | null) || null;
-    const needsTranscode = formData.get("needs_transcode") === "true";
+    const md5Client    = ((formData.get("md5")          as string) || "").toLowerCase();
+    const type         = (formData.get("type")          as string) || "image";
+    const orgId        = formData.get("org_id")         as string | null;
+    const projectId    = formData.get("design_project_id") as string | null;
 
-    if (!file) {
-      return new Response(JSON.stringify({ error: "No file provided" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    // Defensive: reject anything that looks like a base64 data URL being smuggled
-    // through as a "file" or name. All media must go through Storage uploads only.
+    const widthRaw          = formData.get("width")            as string | null;
+    const heightRaw         = formData.get("height")           as string | null;
+    const durationSecRaw    = formData.get("duration_seconds") as string | null;
+    const sourceFpsRaw      = formData.get("source_fps")       as string | null;
+    const sourceBitrateRaw  = formData.get("source_bitrate")   as string | null;
+    const sourceCodec       = (formData.get("source_codec")    as string | null) || null;
+    const sourceContainer   = (formData.get("source_container") as string | null) || null;
+    const needsTranscode    = formData.get("needs_transcode") === "true";
+
+    // ── Basic validation ──────────────────────────────────────────────────────
+    if (!file) return err({ error: "No file provided" }, 400);
+
     if (
-      (typeof file.name === "string" && file.name.startsWith("data:")) ||
-      (typeof name === "string" && name.startsWith("data:")) ||
-      (typeof originalName === "string" && originalName.startsWith("data:"))
-    ) {
-      return new Response(JSON.stringify({ error: "base64_not_allowed" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    if (!orgId) {
-      return new Response(JSON.stringify({ error: "org_id is required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-    if (!/^[a-f0-9]{32}$/.test(md5)) {
-      return new Response(JSON.stringify({ error: "invalid_md5" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      file.name.startsWith("data:") ||
+      name.startsWith("data:")       ||
+      originalName.startsWith("data:")
+    ) return err({ error: "base64_not_allowed" }, 400);
+
+    if (!orgId) return err({ error: "org_id is required" }, 400);
+
+    // md5 is still accepted from clients for backward compat; validate format
+    // if provided, but no longer required (sha256 is now the authoritative hash).
+    if (md5Client && !/^[a-f0-9]{32}$/.test(md5Client)) {
+      return err({ error: "invalid_md5" }, 400);
     }
 
-    // Server-side duplicate check (org-scoped, exclude soft-deleted records)
-    const { data: dupRow } = await supabase
-      .from("media_items")
-      .select("id, original_name")
-      .eq("org_id", orgId)
-      .eq("md5", md5)
-      .eq("size_bytes", file.size)
-      .is("deleted_at", null)
-      .limit(1)
-      .maybeSingle();
+    // ── Compute SHA-256 server-side (CAS Phase 2) ─────────────────────────────
+    // Read the entire file into memory once; reuse buffer for storage upload.
+    const fileBuffer = await file.arrayBuffer();
+    const sha256     = await sha256Hex(fileBuffer);
+    const mimeType   = file.type || "application/octet-stream";
+    const sizeBytes  = file.size;
+    const ext        = (file.name.split(".").pop() || "").toLowerCase();
+    const extStr     = ext ? `.${ext}` : "";
 
-    if (dupRow) {
-      return new Response(
-        JSON.stringify({ error: "duplicate_file", original_name: (dupRow as any).original_name }),
-        {
-          status: 409,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        },
-      );
+    // ── Dedup checks (parallel) ───────────────────────────────────────────────
+    const [orgSha256Res, globalSha256Res, orgMd5Res] = await Promise.all([
+      // 1. org-level sha256 dedup
+      supabase.from("media_items")
+        .select("id, original_name")
+        .eq("org_id", orgId)
+        .eq("sha256", sha256)
+        .is("deleted_at", null)
+        .limit(1)
+        .maybeSingle(),
+      // 2. global sha256 — find existing Storage URL to reuse (cross-org dedup)
+      supabase.from("media_items")
+        .select("url")
+        .eq("sha256", sha256)
+        .is("deleted_at", null)
+        .limit(1)
+        .maybeSingle(),
+      // 3. org-level md5+size — catch legacy rows that predate sha256
+      md5Client
+        ? supabase.from("media_items")
+            .select("id, original_name")
+            .eq("org_id", orgId)
+            .eq("md5", md5Client)
+            .eq("size_bytes", sizeBytes)
+            .is("deleted_at", null)
+            .limit(1)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+
+    // 1 → 409: same content already exists in this org
+    if (orgSha256Res.data) {
+      return err({
+        error:         "duplicate_file",
+        original_name: (orgSha256Res.data as any).original_name,
+        dedup_by:      "sha256",
+      }, 409);
     }
 
-    // Storage path uses MD5 as filename for cross-user dedup-friendliness; ext is preserved.
-    const ext = (file.name.split(".").pop() || "").toLowerCase();
-    const storagePath = `${orgId}/${md5}${ext ? "." + ext : ""}`;
-    const mimeType = file.type || "application/octet-stream";
+    // 3 → 409: legacy md5+size match in same org
+    if (orgMd5Res.data) {
+      return err({
+        error:         "duplicate_file",
+        original_name: (orgMd5Res.data as any).original_name,
+        dedup_by:      "md5",
+      }, 409);
+    }
 
-    const { error: uploadError } = await supabase.storage
-      .from(BUCKET)
-      .upload(storagePath, file, {
-        contentType: mimeType,
-        cacheControl: "3600",
-        upsert: false,
-      });
+    // ── Storage upload (or reuse) ─────────────────────────────────────────────
+    const casPath   = `assets/${sha256}${extStr}`;  // CAS path (global, cross-org)
+    let   publicUrl: string;
 
-    if (uploadError) {
-      // If the object already exists (e.g. partial prior upload), reuse it instead of failing.
-      const msg = (uploadError as any).message || "";
-      const alreadyExists = /already exists/i.test(msg) || (uploadError as any).statusCode === "409";
-      if (!alreadyExists) {
-        console.error("Storage upload error:", uploadError);
-        return new Response(JSON.stringify({ error: "Storage upload failed", detail: msg }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
+    if (globalSha256Res.data?.url) {
+      // 2 → reuse existing Storage object from another org; no upload needed
+      publicUrl = globalSha256Res.data.url;
+      console.log(`[upload] cross-org dedup hit: ${sha256.slice(0, 16)}… reusing existing URL`);
+    } else {
+      // New content — upload to CAS path
+      const { error: uploadError } = await supabase.storage
+        .from(BUCKET)
+        .upload(casPath, fileBuffer, {
+          contentType:  mimeType,
+          cacheControl: "31536000, immutable",  // content-addressed → immutable forever
+          upsert:       false,
         });
+
+      if (uploadError) {
+        const msg         = (uploadError as any).message || "";
+        const alreadyExists = /already exists/i.test(msg) || (uploadError as any).statusCode === "409";
+        if (!alreadyExists) {
+          console.error("Storage upload error:", uploadError);
+          return err({ error: "Storage upload failed", detail: msg }, 500);
+        }
+        // Storage object exists (concurrent upload race) — fall through and get URL
       }
+
+      const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(casPath);
+      publicUrl = pub.publicUrl;
     }
 
-    const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
-    const publicUrl = pub.publicUrl;
     const thumbnail = type === "image" ? publicUrl : "";
 
-    const sizeBytes = file.size;
-    const widthInt = widthRaw ? parseInt(widthRaw, 10) : NaN;
-    const heightInt = heightRaw ? parseInt(heightRaw, 10) : NaN;
-    const durSecNum = durationSecRaw ? parseFloat(durationSecRaw) : NaN;
-    const sourceFps = sourceFpsRaw ? parseFloat(sourceFpsRaw) : NaN;
+    // ── Insert media_items row ────────────────────────────────────────────────
+    const widthInt      = widthRaw         ? parseInt(widthRaw, 10)         : NaN;
+    const heightInt     = heightRaw        ? parseInt(heightRaw, 10)        : NaN;
+    const durSecNum     = durationSecRaw   ? parseFloat(durationSecRaw)     : NaN;
+    const sourceFps     = sourceFpsRaw     ? parseFloat(sourceFpsRaw)       : NaN;
     const sourceBitrate = sourceBitrateRaw ? parseInt(sourceBitrateRaw, 10) : NaN;
+
     const insertData: Record<string, unknown> = {
-      name: safeName(name),
+      name:          safeName(name),
       original_name: originalName,
-      md5,
-      mime_type: mimeType,
+      md5:           md5Client || null,
+      sha256,                                           // server-computed ✓
+      mime_type:     mimeType,
       type,
-      url: publicUrl,
+      url:           publicUrl,
       thumbnail,
-      size_bytes: sizeBytes,
-      width: Number.isFinite(widthInt) && widthInt > 0 ? widthInt : null,
-      height: Number.isFinite(heightInt) && heightInt > 0 ? heightInt : null,
-      duration_seconds: Number.isFinite(durSecNum) && durSecNum > 0 ? durSecNum : null,
-      uploaded_by: userId,
+      size_bytes:    sizeBytes,
+      width:         Number.isFinite(widthInt)      && widthInt      > 0 ? widthInt      : null,
+      height:        Number.isFinite(heightInt)     && heightInt     > 0 ? heightInt     : null,
+      duration_seconds: Number.isFinite(durSecNum)  && durSecNum     > 0 ? durSecNum     : null,
+      uploaded_by:   userId,
       design_project_id: projectId && projectId !== "__none__" ? projectId : null,
-      org_id: orgId,
-      // Transcode tracking
+      org_id:        orgId,
       transcode_status: needsTranscode ? "pending_transcode" : "ready",
-      source_fps: Number.isFinite(sourceFps) && sourceFps > 0 ? sourceFps : null,
-      source_bitrate: Number.isFinite(sourceBitrate) && sourceBitrate > 0 ? sourceBitrate : null,
-      source_codec: sourceCodec || null,
+      source_fps:       Number.isFinite(sourceFps)     && sourceFps     > 0 ? sourceFps     : null,
+      source_bitrate:   Number.isFinite(sourceBitrate) && sourceBitrate > 0 ? sourceBitrate : null,
+      source_codec:     sourceCodec    || null,
       source_container: sourceContainer || null,
     };
 
-    const { data, error } = await supabase
+    const { data: inserted, error: insertError } = await supabase
       .from("media_items")
       .insert(insertData)
       .select("id")
       .single();
 
-    if (error) {
-      // Roll back the uploaded object so we don't leak storage on plan-limit failures.
-      await supabase.storage.from(BUCKET).remove([storagePath]).catch(() => {});
-      console.error("Insert error:", error);
-      const msg = error.message || "";
+    if (insertError) {
+      // Roll back storage upload only if we actually uploaded (not reused)
+      if (!globalSha256Res.data?.url) {
+        await supabase.storage.from(BUCKET).remove([casPath]).catch(() => {});
+      }
+      console.error("Insert error:", insertError);
+      const msg = insertError.message || "";
       if (msg.includes("media_capacity_exceeded")) {
-        return new Response(JSON.stringify({ error: "media_capacity_exceeded" }), {
-          status: 413,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return err({ error: "media_capacity_exceeded" }, 413);
       }
-      // Unique-violation on (org_id, md5, size_bytes)
-      if ((error as any).code === "23505" || /media_items_org_md5_size_uniq/.test(msg)) {
-        return new Response(JSON.stringify({ error: "duplicate_file" }), {
-          status: 409,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+      if (
+        (insertError as any).code === "23505" ||
+        /media_items_org_sha256_uniq|media_items_org_md5_size_uniq/.test(msg)
+      ) {
+        return err({ error: "duplicate_file", dedup_by: "db_constraint" }, 409);
       }
-      return new Response(JSON.stringify({ error: "Failed to save media" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return err({ error: "Failed to save media" }, 500);
     }
 
-    return new Response(
-      JSON.stringify({ success: true, id: data.id, url: publicUrl, storage_path: storagePath, transcode_status: needsTranscode ? "pending_transcode" : "ready" }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      },
-    );
-  } catch (err) {
-    console.error("Upload error:", err);
-    return new Response(JSON.stringify({ error: "Upload failed" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    return ok({
+      success:          true,
+      id:               inserted.id,
+      url:              publicUrl,
+      sha256,
+      storage_path:     casPath,
+      transcode_status: needsTranscode ? "pending_transcode" : "ready",
     });
+
+  } catch (e) {
+    console.error("Upload error:", e);
+    return err({ error: "Upload failed" }, 500);
   }
 });
