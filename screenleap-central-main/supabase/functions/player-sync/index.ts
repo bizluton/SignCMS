@@ -1,7 +1,6 @@
 // player-sync — SignCMS Player API
 // Authenticates via device_token, returns screen content + handles heartbeat + log batch
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { BROKER_WS } from "../_shared/mqtt.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -219,14 +218,12 @@ Deno.serve(async (req) => {
     shadowOut = sh ? { desired: sh.desired ?? {}, delta: sh.delta ?? {} } : null;
   }
 
-  // ── MQTT broker info ──────────────────────────────────────────────────────
-  // password = shared device password (MQTT_DEVICE_PASS); all devices use the
-  // same password. The username (screenId) + per-topic ACL scoping provides
-  // isolation between devices.
-  const DEVICE_PASS = Deno.env.get("MQTT_DEVICE_PASS") ?? "";
-  const mqttOut = BROKER_WS
-    ? { broker: BROKER_WS, serial: screenId, password: DEVICE_PASS }
-    : null;
+  // ── Supabase Realtime channel info ─────────────────────────────────────────
+  // Devices subscribe to "screen:{screenId}" to receive real-time commands.
+  // The anonKey is safe to return: Realtime Row-Level Security ensures devices
+  // can only subscribe to their own channel topic.
+  const ANON_KEY    = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  const realtimeOut = { channel: `screen:${screenId}`, apikey: ANON_KEY };
 
   return json({
     ok:            true,
@@ -236,6 +233,6 @@ Deno.serve(async (req) => {
     project:       projectOut,
     announcements: announcements ?? [],
     shadow:        shadowOut,
-    mqtt:          mqttOut,
+    realtime:      realtimeOut,
   });
 });

@@ -1,6 +1,6 @@
 /**
  * SignCMS Player — Electron Main Process
- * Handles: window, tray, config, heartbeat, IPC, MQTT, media disk cache
+ * Handles: window, tray, config, heartbeat, IPC, Realtime, media disk cache
  */
 const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage,
         globalShortcut, dialog, shell, session } = require("electron");
@@ -8,7 +8,7 @@ const path       = require("path");
 const https      = require("https");
 const http       = require("http");
 const fs         = require("fs");
-const mqtt       = require("mqtt");
+const WebSocket  = require("ws");
 const mediaCache = require("./media-cache");
 
 // ── Chromium HTTP disk cache (persists across restarts) ───────────────────────
@@ -55,13 +55,18 @@ let syncTimer    = null;
 let lastSync     = null;       // last successful API response
 let isDev        = process.argv.includes("--dev");
 
-// ─── MQTT state ───────────────────────────────────────────────────────────
-let mqttClient       = null;
-let mqttConnected    = false;
-let mqttHeartbeat    = null;   // setInterval for 60s status ping
-let mqttTopicPrefix  = null;   // e.g. "signcms/{org_id}/screens/{screen_id}"
-let mqttScreenId     = null;
-let mqttOrgId        = null;
+// ─── Supabase Realtime state ──────────────────────────────────────────────
+// Phoenix channels protocol over WebSocket.
+// Topic: "realtime:screen:{screenId}"
+// Receives events: "command", "shadow_delta"
+let realtimeWs        = null;
+let realtimeConnected = false;
+let realtimeHeartbeat = null;   // setInterval for Phoenix heartbeats (30s)
+let realtimeSerial    = null;   // screenId from player-sync
+let realtimeChannel   = null;   // e.g. "screen:{screenId}"
+let realtimeApiKey    = null;   // Supabase anon key for WS auth
+let realtimeRef       = 0;      // incrementing Phoenix message ref counter
+let realtimeReconnect = null;   // reconnect timer
 
 // ─── HTTP helper (no external deps) ────────────────────────────────────────
 function httpPost(url, headers, body) {
@@ -112,226 +117,144 @@ async function playerSync(logBatch = []) {
   }
 }
 
-// ─── MQTT client ──────────────────────────────────────────────────────────
+// ─── Supabase Realtime client (Phoenix channels over WebSocket) ───────────
 //
-// Protocol: Mosquitto (self-hosted)
-// Topics (SignPlayer compatible):
-//   signage/player/{serial}/heartbeat  — device → server, QoS 0, every 15 s
-//   signage/player/{serial}/command    — server → device, QoS 0
-//   signage/player/{serial}/response   — device → server, QoS 0
+// Architecture:
+//   WebSocket URL:  wss://{project}.supabase.co/realtime/v1/websocket?apikey=…&vsn=1.0.0
+//   Channel topic:  "realtime:screen:{screenId}"
+//   Server → device: event "broadcast" with payload.event = "command" | "shadow_delta"
 //
-// Command payload (server → device):
-//   { ts, cls, cmd, data, cid }
+// Phoenix wire format (array):
+//   [join_ref, ref, topic, event, payload]
 //
-// Response payload (device → server):
-//   { ts, cls, cmd, rid, data }
-
-let mqttSerial = null;   // = screenId from player-sync, used as MQTT topic serial
-
-/** Build topic paths */
-const mqttTopic = {
-  hb:  (s) => `signage/player/${s}/heartbeat`,
-  cmd: (s) => `signage/player/${s}/command`,
-  res: (s) => `signage/player/${s}/response`,
-};
+// Offline resilience:
+//   Commands   — device re-syncs via HTTP player-sync on next poll (30 s)
+//   Shadow     — persisted in screen_shadows; device reads it on player-sync
 
 /**
- * Connect (or reconnect) to the Mosquitto broker.
- * Safe to call multiple times — tears down the previous client first.
+ * Connect (or reconnect) to Supabase Realtime.
+ * Safe to call multiple times — tears down the previous socket first.
  *
- * @param {object} mqttCfg   { broker, serial }   from player-sync response
- * @param {string} deviceToken
+ * @param {{ channel: string, apikey: string }} realtimeCfg  from player-sync response
  */
-function connectMqtt(mqttCfg) {
-  if (!mqttCfg?.broker || !mqttCfg?.serial || !mqttCfg?.password) return;
+function connectRealtime(realtimeCfg) {
+  if (!realtimeCfg?.channel || !realtimeCfg?.apikey) return;
 
-  // Already connected to same broker/serial → skip
-  if (mqttClient && mqttConnected &&
-      mqttSerial === mqttCfg.serial &&
-      mqttClient._connectOptions?.href === mqttCfg.broker) return;
+  const serial = realtimeCfg.channel.replace(/^screen:/, "");
 
-  disconnectMqtt();
+  // Already connected to same channel → skip
+  if (realtimeWs && realtimeConnected && realtimeSerial === serial) return;
 
-  const serial    = mqttCfg.serial;
-  mqttSerial      = serial;
-  mqttScreenId    = serial;
+  disconnectRealtime();
 
-  console.log("[MQTT] connecting to", mqttCfg.broker, "serial:", serial);
+  realtimeSerial  = serial;
+  realtimeChannel = realtimeCfg.channel;
+  realtimeApiKey  = realtimeCfg.apikey;
 
-  // LWT — broker auto-publishes this when the TCP connection drops unexpectedly.
-  // Using retain: true so the last known status persists for the dashboard.
-  const lwt = {
-    topic:   `signage/player/${serial}/status`,
-    payload: JSON.stringify({ online: false, serial, ts: Math.floor(Date.now() / 1_000) }),
-    qos:     1,
-    retain:  true,
-  };
+  const cfg    = loadConfig();
+  const wsBase = (cfg.supabaseUrl ?? "https://narhbpojjtnalyfiwxue.supabase.co")
+    .replace(/\/$/, "")
+    .replace(/^https:\/\//i, "wss://")
+    .replace(/^http:\/\//i, "ws://");
+  const wsUrl  = `${wsBase}/realtime/v1/websocket?apikey=${encodeURIComponent(realtimeCfg.apikey)}&vsn=1.0.0`;
 
-  mqttClient = mqtt.connect(mqttCfg.broker, {
-    clientId:        `screen_${serial}_${Date.now()}`,
-    username:        serial,               // screenId (no "screen:" prefix)
-    password:        mqttCfg.password,     // MQTT_DEVICE_PASS from player-sync response
-    clean:           true,
-    reconnectPeriod: 5_000,
-    connectTimeout:  10_000,
-    will:            lwt,
-  });
+  console.log("[Realtime] connecting to", wsBase, "channel:", realtimeCfg.channel);
 
-  mqttClient.on("connect", () => {
-    console.log("[MQTT] connected, serial:", serial);
-    mqttConnected = true;
+  realtimeWs = new WebSocket(wsUrl);
 
-    // Subscribe: command (QoS 1 — server uses QoS 1 for reliable delivery)
-    mqttClient.subscribe(mqttTopic.cmd(serial), { qos: 1 }, (err) => {
-      if (err) console.error("[MQTT] cmd subscribe error:", err.message);
-      else     console.log("[MQTT] subscribed cmd:", mqttTopic.cmd(serial));
-    });
+  realtimeWs.on("open", () => {
+    console.log("[Realtime] socket open — joining realtime:" + realtimeCfg.channel);
+    realtimeConnected = true;
 
-    // Subscribe: shadow/delta (QoS 1, retain) — immediately receive any pending
-    // desired-state diff that arrived while the player was offline
-    mqttClient.subscribe(`signage/player/${serial}/shadow/delta`, { qos: 1 }, (err) => {
-      if (err) console.error("[MQTT] shadow subscribe error:", err.message);
-      else     console.log("[MQTT] subscribed shadow/delta:", serial);
-    });
+    // Join the channel (Phoenix phx_join)
+    realtimeRef++;
+    realtimeWs.send(JSON.stringify([
+      "1",                                          // join_ref
+      String(realtimeRef),                          // ref
+      `realtime:${realtimeCfg.channel}`,            // topic
+      "phx_join",                                   // event
+      { config: { broadcast: { self: false }, presence: { key: "" } } },
+    ]));
 
-    // Publish online status (retained) — overwrites any LWT left by previous crash
-    publishOnlineStatus(true);
+    // Phoenix heartbeat every 30 s (keeps the socket alive)
+    startRealtimeHeartbeat();
 
-    // Switch sync loop to slow fallback (5 min) while MQTT is alive
+    // Switch polling to slow fallback (5 min) while Realtime is alive
     restartSyncLoop(300);
-
-    // Publish first heartbeat immediately, then every 15 s
-    publishHeartbeat();
-    startMqttHeartbeat();
 
     win?.webContents.send("mqtt-status", { connected: true, serial });
   });
 
-  mqttClient.on("message", (topic, payload) => {
-    const raw = payload.toString();
-    if (!raw) return;  // empty payload = retain clear (e.g. shadow cleared)
-
+  realtimeWs.on("message", (data) => {
     let msg;
-    try { msg = JSON.parse(raw); }
-    catch { console.warn("[MQTT] bad payload on", topic, raw); return; }
+    try { msg = JSON.parse(data.toString()); }
+    catch { return; }
 
-    if (topic === mqttTopic.cmd(serial)) {
-      handleMqttCommand(msg);
-    } else if (topic === `signage/player/${serial}/shadow/delta`) {
-      handleShadowDelta(msg);
+    // Phoenix array: [join_ref, ref, topic, event, payload]
+    const [, , , event, payload] = msg;
+
+    if (event === "phx_reply") return;   // join/heartbeat ack — ignore
+
+    if (event === "broadcast" && payload?.type === "broadcast") {
+      const innerEvent   = payload.event;
+      const innerPayload = payload.payload ?? {};
+      if (innerEvent === "command") {
+        handleRealtimeCommand(innerPayload);
+      } else if (innerEvent === "shadow_delta") {
+        handleShadowDelta(innerPayload);
+      }
     }
   });
 
-  mqttClient.on("reconnect", () => {
-    console.log("[MQTT] reconnecting…");
-    mqttConnected = false;
-    win?.webContents.send("mqtt-status", { connected: false });
-  });
-
-  mqttClient.on("close", () => {
-    console.log("[MQTT] disconnected");
-    mqttConnected = false;
-    stopMqttHeartbeat();
-    // Fall back to fast polling while offline
+  realtimeWs.on("close", (code) => {
+    console.log("[Realtime] disconnected, code:", code);
+    realtimeConnected = false;
+    stopRealtimeHeartbeat();
     restartSyncLoop(config.syncInterval ?? 30);
     win?.webContents.send("mqtt-status", { connected: false });
+
+    // Auto-reconnect after 5 s (mirrors old MQTT reconnectPeriod)
+    if (realtimeChannel && realtimeApiKey) {
+      if (realtimeReconnect) clearTimeout(realtimeReconnect);
+      realtimeReconnect = setTimeout(() => {
+        realtimeReconnect = null;
+        connectRealtime({ channel: realtimeChannel, apikey: realtimeApiKey });
+      }, 5_000);
+    }
   });
 
-  mqttClient.on("error", (err) => {
-    console.error("[MQTT] error:", err.message);
+  realtimeWs.on("error", (err) => {
+    console.error("[Realtime] error:", err.message);
   });
 }
 
-function disconnectMqtt() {
-  stopMqttHeartbeat();
-  if (mqttClient) {
-    try { mqttClient.end(true); } catch (_) {}
-    mqttClient    = null;
-    mqttConnected = false;
-    mqttSerial    = null;
+function disconnectRealtime() {
+  stopRealtimeHeartbeat();
+  if (realtimeReconnect) { clearTimeout(realtimeReconnect); realtimeReconnect = null; }
+  if (realtimeWs) {
+    try { realtimeWs.terminate(); } catch (_) {}
+    realtimeWs        = null;
+    realtimeConnected = false;
+    realtimeSerial    = null;
   }
 }
 
-/**
- * Build and publish a heartbeat payload to signage/player/{serial}/heartbeat.
- * Structure matches the SignPlayer Android heartbeat for dashboard compatibility.
- */
-function publishHeartbeat() {
-  if (!mqttClient || !mqttConnected || !mqttSerial) return;
-
-  const now      = Math.floor(Date.now() / 1_000);
-  const uptime   = Math.floor(process.uptime());
-  const appVer   = app.getVersion();
-  const mem      = process.memoryUsage();
-  const memUsed  = (mem.rss / 1_073_741_824).toFixed(2);  // bytes → GB
-
-  const currentSyncId = lastSync?.channel?.id ?? lastSync?.project?.id ?? "";
-
-  const payload = {
-    ts:        now,
-    uptime,
-    activity:  "electron",
-    version_code: parseInt(appVer.replace(/\./g, ""), 10) || 0,
-    version_name: appVer,
-    storage:   "N/A",
-    memory:    `${memUsed} GB / N/A`,
-    screen_on: true,
-    signplayer_status: {
-      version_name: appVer,
-      version_code: parseInt(appVer.replace(/\./g, ""), 10) || 0,
-      type:         "electron",
-      status:       lastSync ? "playing" : "idle",
-      signage_id:   currentSyncId,
-      group_id:     lastSync?.screen?.org_id ?? "",
-      ts:           now,
-    },
-    error_code:    0,
-    error_message: "",
-  };
-
-  mqttClient.publish(mqttTopic.hb(mqttSerial), JSON.stringify(payload), { qos: 0 });
+function startRealtimeHeartbeat() {
+  stopRealtimeHeartbeat();
+  realtimeHeartbeat = setInterval(() => {
+    if (!realtimeWs || realtimeWs.readyState !== WebSocket.OPEN) return;
+    realtimeRef++;
+    realtimeWs.send(JSON.stringify([null, String(realtimeRef), "phoenix", "heartbeat", {}]));
+  }, 30_000);
 }
 
-/**
- * Publish a response to signage/player/{serial}/response.
- * @param {object} cmd  The original command message (must have cls, cmd, cid)
- * @param {object} data Response data
- */
-function publishResponse(cmd, data = {}) {
-  if (!mqttClient || !mqttConnected || !mqttSerial) return;
-  const payload = {
-    ts:  Math.floor(Date.now() / 1_000),
-    cls: cmd.cls ?? "unknown",
-    cmd: cmd.cmd ?? "unknown",
-    rid: cmd.cid ?? "",
-    data: { msg: "okay.", ...data },
-  };
-  mqttClient.publish(mqttTopic.res(mqttSerial), JSON.stringify(payload), { qos: 0 });
-}
-
-/**
- * Publish the device online/offline status to the retained status topic.
- * Called on connect (online=true) and graceful disconnect (online=false).
- * The LWT handles unexpected drops automatically.
- */
-function publishOnlineStatus(online) {
-  if (!mqttClient || !mqttSerial) return;
-  const payload = JSON.stringify({ online, serial: mqttSerial, ts: Math.floor(Date.now() / 1_000) });
-  mqttClient.publish(
-    `signage/player/${mqttSerial}/status`,
-    payload,
-    { qos: 1, retain: true },
-  );
+function stopRealtimeHeartbeat() {
+  if (realtimeHeartbeat) { clearInterval(realtimeHeartbeat); realtimeHeartbeat = null; }
 }
 
 /**
  * Handle a shadow/delta message from the server.
  * Payload: { ts, desired: {...}, delta: {...} }
- *
- * The delta contains only the keys that differ from the device's last
- * reported state.  We trigger an immediate doSync() so the player
- * fetches the updated playlist, then report back to shadow-report
- * so the server can clear the retained message.
  */
 function handleShadowDelta(msg) {
   if (!msg?.delta || Object.keys(msg.delta).length === 0) return;
@@ -350,7 +273,6 @@ function handleShadowDelta(msg) {
 /**
  * HTTP POST to the shadow-report Edge Function so the server knows
  * the device has applied the desired state.
- * Piggybacks the reported state so the server can compute the new delta.
  */
 async function postShadowReport(desired) {
   const cfg = loadConfig();
@@ -375,15 +297,6 @@ async function postShadowReport(desired) {
   }
 }
 
-function startMqttHeartbeat() {
-  stopMqttHeartbeat();
-  mqttHeartbeat = setInterval(() => publishHeartbeat(), 15_000);
-}
-
-function stopMqttHeartbeat() {
-  if (mqttHeartbeat) { clearInterval(mqttHeartbeat); mqttHeartbeat = null; }
-}
-
 /**
  * Handle an inbound command from the server.
  * Payload format: { ts, cls, cmd, data, cid }
@@ -395,45 +308,38 @@ function stopMqttHeartbeat() {
  *   cmd: "reload"         → reload renderer
  * cls: "app"   — application commands (forwarded to renderer)
  */
-function handleMqttCommand(msg) {
-  console.log("[MQTT] command", msg?.cls, msg?.cmd);
+function handleRealtimeCommand(msg) {
+  console.log("[Realtime] command", msg?.cls, msg?.cmd);
   const { cls, cmd } = msg ?? {};
 
   if (cls === "content") {
     switch (cmd) {
       case "sync":
-        publishResponse(msg);
         doSync();
         break;
       case "switch_channel":
       case "emergency_broadcast":
       case "restore":
         win?.webContents.send("mqtt-cmd", msg);
-        publishResponse(msg);
         doSync();
         break;
       default:
         win?.webContents.send("mqtt-cmd", msg);
-        publishResponse(msg, { msg: "unknown content command" });
     }
   } else if (cls === "screen") {
     switch (cmd) {
       case "reload":
-        publishResponse(msg);
         setTimeout(() => win?.webContents.reload(), 500);
         break;
       case "fullscreen":
-        publishResponse(msg);
         win?.setFullScreen(!win?.isFullScreen());
         break;
       default:
         win?.webContents.send("mqtt-cmd", msg);
-        publishResponse(msg, { msg: "unknown screen command" });
     }
   } else {
     // Forward all other classes to renderer
     win?.webContents.send("mqtt-cmd", msg);
-    publishResponse(msg);
   }
 }
 
@@ -509,7 +415,7 @@ function updateTrayMenu() {
 
 /**
  * Start or restart the polling loop with a given interval (seconds).
- * When MQTT is connected we use a long fallback (300s); when not, the
+ * When Realtime is connected we use a long fallback (300s); when not, the
  * user-configured value (default 30s).
  */
 function startSyncLoop(intervalSeconds) {
@@ -539,10 +445,15 @@ async function doSync() {
     win?.webContents.send("sync-data", result);
     updateTrayMenu();
 
-    // ── MQTT: connect (or reconnect) after first successful sync ──────────
-    // result.mqtt = { broker, serial, password }  (password = MQTT_DEVICE_PASS from server)
-    if (result.mqtt?.broker && result.mqtt?.serial && result.mqtt?.password) {
-      connectMqtt(result.mqtt);
+    // ── Realtime: connect (or reconnect) after first successful sync ──────
+    // result.realtime = { channel: "screen:{screenId}", apikey: anonKey }
+    if (result.realtime?.channel && result.realtime?.apikey) {
+      // Persist anonKey so it survives restarts without needing a full sync first
+      if (!config.anonKey) {
+        config.anonKey = result.realtime.apikey;
+        saveConfig(config);
+      }
+      connectRealtime(result.realtime);
     }
   } else {
     win?.webContents.send("sync-error", { time: new Date().toISOString() });
@@ -557,14 +468,14 @@ ipcMain.handle("save-config", (_e, cfg) => {
   saveConfig(cfg);
   config = cfg;
   win?.webContents.send("config-saved");
-  // Disconnect MQTT so it reconnects with potentially new deviceToken
-  disconnectMqtt();
-  // Restart sync; MQTT will reconnect automatically after first successful sync
+  // Disconnect Realtime so it reconnects with potentially new credentials
+  disconnectRealtime();
+  // Restart sync; Realtime will reconnect automatically after first successful sync
   startSyncLoop();
   return { ok: true };
 });
 
-ipcMain.handle("get-mqtt-status", () => ({ connected: mqttConnected }));
+ipcMain.handle("get-mqtt-status", () => ({ connected: realtimeConnected }));
 
 // ── Media disk cache IPC ──────────────────────────────────────────────────
 // cache-get: synchronous check (in-memory index only, very fast)
@@ -680,13 +591,8 @@ app.on("window-all-closed", () => {
 
 app.on("will-quit", () => {
   stopSyncLoop();
-  // Publish offline status before closing the MQTT connection gracefully
-  // (LWT only fires on unexpected drops; this handles clean shutdown)
-  publishOnlineStatus(false);
-  setTimeout(() => {
-    disconnectMqtt();
-    try { globalShortcut.unregisterAll(); } catch (_) {}
-  }, 300);
+  disconnectRealtime();
+  try { globalShortcut.unregisterAll(); } catch (_) {}
 });
 
 // Single instance lock

@@ -1,121 +1,94 @@
 /**
- * MQTT helpers for self-hosted Mosquitto broker.
+ * SignCMS — Real-time push helpers (Supabase Realtime)
  *
- * ── Topics ────────────────────────────────────────────────────────────────
- *   signage/player/{serial}/heartbeat       device→server  QoS 0  15 s
- *   signage/player/{serial}/command         server→device  QoS 1
- *   signage/player/{serial}/response        device→server  QoS 0
- *   signage/player/{serial}/status          device (LWT)   QoS 1  retain
- *   signage/player/{serial}/shadow/delta    server→device  QoS 1  retain
+ * ── Migration: MQTT → Supabase Realtime ──────────────────────────────────────
+ * This module previously used a self-hosted Mosquitto broker.
+ * It now uses the Supabase Realtime REST broadcast API so that no external
+ * broker is needed.  All function signatures are unchanged so importing
+ * Edge Functions require zero modifications.
  *
- * ── Shadow delta (retain + QoS 1) ────────────────────────────────────────
- *   Mosquitto stores the last retained message per topic.
- *   When the device connects and subscribes to shadow/delta it immediately
- *   receives any pending desired-state diff — even if it was offline when
- *   the server wrote the change.  Once the device reports back (reported ==
- *   desired), the server clears the retain by publishing an empty payload.
+ * ── Architecture ─────────────────────────────────────────────────────────────
+ * Server → Device  (commands / shadow delta):
+ *   POST  /realtime/v1/api/broadcast   (service-role key, fire-and-forget)
+ *   Topic: "screen:{screenId}"
+ *   Event: "command"  |  "shadow_delta"
  *
- * ── Broker: mqtt.signcms.net:18884 (TCP MQTT / TLS) ──────────────────────
- *   Port 18884 is a raw TCP MQTT listener with TLS, NOT a WebSocket listener.
- *   URI schemes by client:
- *     Edge Functions / Electron  (npm:mqtt)  →  mqtts://mqtt.signcms.net:18884
- *     Android Paho MqttAsyncClient           →  ssl://mqtt.signcms.net:18884
- *       (MqttManager.toPahoUri() converts mqtts:// → ssl:// automatically)
+ * Device → Server  (heartbeat / logs / shadow report):
+ *   HTTP POST to player-sync / shadow-report Edge Functions (unchanged)
  *
- * ── Environment variables ─────────────────────────────────────────────────
- *   MQTT_BROKER_WS        — broker URL sent to players in player-sync response
- *                           set to: mqtts://mqtt.signcms.net:18884
- *   MQTT_BROKER_WS_SERVER — broker URL used by Edge Functions for publishing
- *                           set to: mqtts://mqtt.signcms.net:18884
- *                           (falls back to MQTT_BROKER_WS if unset)
- *   MQTT_SERVER_USER      — server publisher username  (e.g. signcms-server)
- *   MQTT_SERVER_PASS      — server publisher password
+ * Offline delivery:
+ *   Commands   — device re-syncs via HTTP player-sync on next poll (30 s)
+ *   Shadow     — persisted in screen_shadows; device reads it on player-sync
+ *
+ * ── Channel convention ────────────────────────────────────────────────────────
+ *   Channel name: "screen:{screenId}"
+ *   Supabase Realtime subscribes with anonKey; server broadcasts with service-role key.
  */
 
-// deno-lint-ignore-file no-explicit-any
-import mqtt from "npm:mqtt@5.10.1";
+// ── Realtime REST broadcast ───────────────────────────────────────────────────
 
-/** WebSocket URL returned to players so they know where to connect. */
-export const BROKER_WS: string = Deno.env.get("MQTT_BROKER_WS") ?? "";
-
-const SERVER_BROKER = Deno.env.get("MQTT_BROKER_WS_SERVER") || BROKER_WS;
-const SERVER_USER   = Deno.env.get("MQTT_SERVER_USER")      ?? "";
-const SERVER_PASS   = Deno.env.get("MQTT_SERVER_PASS")      ?? "";
-
-// ── Topic builders ────────────────────────────────────────────────────────
-
-export const topicCommand     = (s: string) => `signage/player/${s}/command`;
-export const topicHeartbeat   = (s: string) => `signage/player/${s}/heartbeat`;
-export const topicResponse    = (s: string) => `signage/player/${s}/response`;
-export const topicStatus      = (s: string) => `signage/player/${s}/status`;
-export const topicShadowDelta = (s: string) => `signage/player/${s}/shadow/delta`;
-
-// ── Low-level publish ─────────────────────────────────────────────────────
-
-interface PubOpts {
-  qos?:    0 | 1 | 2;
-  retain?: boolean;
+interface BroadcastMessage {
+  topic:   string;
+  event:   string;
+  payload: unknown;
 }
 
-/**
- * Publish a message via an ephemeral Mosquitto WebSocket connection.
- * Edge Functions are stateless so we connect → publish → disconnect each time.
- *
- * @param topic   Full MQTT topic string
- * @param payload Object to JSON-encode, or empty string to clear a retain
- * @param opts    { qos, retain }
- */
-export async function mqttPublish(
-  topic:   string,
-  payload: unknown,
-  opts:    PubOpts = {},
-): Promise<boolean> {
-  if (!SERVER_BROKER || !SERVER_USER) return false;
+async function realtimeBroadcast(messages: BroadcastMessage[]): Promise<boolean> {
+  if (messages.length === 0) return true;
 
-  const qos    = opts.qos    ?? 0;
-  const retain = opts.retain ?? false;
-  const raw    = payload === "" ? "" : JSON.stringify(payload);
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  if (!supabaseUrl || !serviceRole) {
+    console.warn("[realtime] SUPABASE_URL or SERVICE_ROLE_KEY not set");
+    return false;
+  }
 
-  return new Promise<boolean>((resolve) => {
-    let settled = false;
-    const finish = (ok: boolean) => { if (!settled) { settled = true; resolve(ok); } };
-
-    const timer = setTimeout(() => {
-      try { client?.end(true); } catch (_) {}
-      finish(false);
-    }, 8_000);
-
-    const client: any = mqtt.connect(SERVER_BROKER, {
-      clientId:        `signcms_srv_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      username:        SERVER_USER,
-      password:        SERVER_PASS,
-      clean:           true,
-      connectTimeout:  5_000,
-      reconnectPeriod: 0,
+  try {
+    const res = await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${serviceRole}`,
+        "apikey":        serviceRole,
+      },
+      body: JSON.stringify({ messages }),
     });
-
-    client.on("connect", () => {
-      client.publish(topic, raw, { qos, retain }, (err: Error | null) => {
-        clearTimeout(timer);
-        client.end(false, {}, () => finish(!err));
-        if (err) console.error("[mqtt] publish err:", err.message);
-      });
-    });
-
-    client.on("error", (err: Error) => {
-      console.error("[mqtt] connect error:", err.message);
-      clearTimeout(timer);
-      try { client.end(true); } catch (_) {}
-      finish(false);
-    });
-  });
+    if (!res.ok) {
+      console.error("[realtime] broadcast HTTP", res.status, await res.text().catch(() => ""));
+    }
+    return res.ok;
+  } catch (e) {
+    console.error("[realtime] broadcast error:", e);
+    return false;
+  }
 }
 
-// ── Command (QoS 1) ───────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+const screenChannel = (screenId: string) => `screen:${screenId}`;
+
+function makeCommand(
+  cls:  string,
+  cmd:  string,
+  data: Record<string, unknown>,
+) {
+  return {
+    ts:  Math.floor(Date.now() / 1_000),
+    cls,
+    cmd,
+    data,
+    cid: crypto.randomUUID(),
+  };
+}
+
+// ── Public API (same signatures as the old MQTT module) ───────────────────────
+
+/** @deprecated No longer needed — Realtime has no broker URL. Always "". */
+export const BROKER_WS = "";
 
 /**
- * Send a structured command to one screen.
- * QoS 1 — broker retries until the device ACKs.
+ * Send a command to a single screen via Realtime broadcast.
+ * Fire-and-forget; offline devices receive it on the next player-sync poll.
  */
 export async function screenCmd(
   serial: string,
@@ -123,19 +96,23 @@ export async function screenCmd(
   cmd:    string,
   data:   Record<string, unknown> = {},
 ): Promise<boolean> {
-  return mqttPublish(
-    topicCommand(serial),
-    { ts: Math.floor(Date.now() / 1_000), cls, cmd, data, cid: crypto.randomUUID() },
-    { qos: 1 },
-  );
+  return realtimeBroadcast([{
+    topic:   screenChannel(serial),
+    event:   "command",
+    payload: makeCommand(cls, cmd, data),
+  }]);
 }
 
 /**
- * Tell a list of screens to re-sync content immediately.
- * _orgId kept for API compatibility — not used in Mosquitto topics.
+ * Notify a list of screens to re-sync content immediately.
  */
 export async function notifySync(_orgId: string, screenIds: string[]): Promise<void> {
-  await Promise.all(screenIds.map((sid) => screenCmd(sid, "content", "sync")));
+  if (screenIds.length === 0) return;
+  await realtimeBroadcast(screenIds.map((sid) => ({
+    topic:   screenChannel(sid),
+    event:   "command",
+    payload: makeCommand("content", "sync", {}),
+  })));
 }
 
 /**
@@ -148,54 +125,25 @@ export async function orgBroadcast(
   cmd:       string,
   data:      Record<string, unknown> = {},
 ): Promise<void> {
-  await Promise.all(screenIds.map((sid) => screenCmd(sid, cls, cmd, data)));
+  if (screenIds.length === 0) return;
+  await realtimeBroadcast(screenIds.map((sid) => ({
+    topic:   screenChannel(sid),
+    event:   "command",
+    payload: makeCommand(cls, cmd, data),
+  })));
 }
 
-// ── Device Shadow helpers (QoS 1, retain) ────────────────────────────────
-
 /**
- * Publish the current shadow delta to the device.
- * Uses retain: true so the device receives it immediately on subscribe,
- * even if it was offline when the server wrote the change.
- *
- * @param serial  Screen ID used as MQTT topic serial
- * @param desired The full desired state object
- * @param delta   Only the keys that differ from reported
+ * Upsert desired state in screen_shadows and push shadow_delta broadcast
+ * to the device if it is online.  Offline devices receive the delta via
+ * player-sync HTTP on reconnect (screen_shadows is the persistent store).
  */
-export async function publishShadowDelta(
+// deno-lint-ignore no-explicit-any
+export async function pushDesiredState(
+  admin:   { from: (t: string) => any },
   serial:  string,
   desired: Record<string, unknown>,
-  delta:   Record<string, unknown>,
-): Promise<boolean> {
-  return mqttPublish(
-    topicShadowDelta(serial),
-    { ts: Math.floor(Date.now() / 1_000), desired, delta },
-    { qos: 1, retain: true },
-  );
-}
-
-/**
- * Clear the retained shadow delta once the device is in sync.
- * Publishing an empty payload with retain: true removes the retained message
- * from the broker — new subscribers will no longer receive a stale delta.
- */
-export async function clearShadowDelta(serial: string): Promise<boolean> {
-  return mqttPublish(topicShadowDelta(serial), "", { qos: 1, retain: true });
-}
-
-/**
- * Upsert desired state in screen_shadows via Supabase admin client,
- * then publish the resulting delta (or clear if already synced).
- *
- * Call this after every server-side state change so the device gets pushed
- * the diff even when it reconnects later.
- */
-export async function pushDesiredState(
-  admin:    { from: (t: string) => any },  // SupabaseClient (service role)
-  serial:   string,
-  desired:  Record<string, unknown>,
 ): Promise<void> {
-  // Upsert desired; the DB trigger auto-computes delta + synced_at
   const { data: shadow, error } = await admin
     .from("screen_shadows")
     .upsert({ screen_id: serial, desired }, { onConflict: "screen_id" })
@@ -207,13 +155,64 @@ export async function pushDesiredState(
     return;
   }
 
-  const delta = shadow?.delta ?? {};
+  const delta = (shadow?.delta ?? {}) as Record<string, unknown>;
+  if (Object.keys(delta).length === 0) return;  // already in sync
 
-  if (Object.keys(delta).length === 0) {
-    // Already in sync — clear any stale retain on the broker
-    await clearShadowDelta(serial);
-  } else {
-    // Push delta so the device gets it on its next subscribe
-    await publishShadowDelta(serial, desired, delta);
-  }
+  // Push delta via Realtime to the device if it is currently connected.
+  // No retain needed: the delta is persisted in screen_shadows.
+  await realtimeBroadcast([{
+    topic:   screenChannel(serial),
+    event:   "shadow_delta",
+    payload: { ts: Math.floor(Date.now() / 1_000), desired, delta },
+  }]);
 }
+
+/**
+ * Legacy: publish shadow delta via Realtime broadcast.
+ * @deprecated Call pushDesiredState() instead; this is kept for shadow-report compatibility.
+ */
+export async function publishShadowDelta(
+  serial:  string,
+  desired: Record<string, unknown>,
+  delta:   Record<string, unknown>,
+): Promise<boolean> {
+  if (Object.keys(delta).length === 0) return true;
+  return realtimeBroadcast([{
+    topic:   screenChannel(serial),
+    event:   "shadow_delta",
+    payload: { ts: Math.floor(Date.now() / 1_000), desired, delta },
+  }]);
+}
+
+/**
+ * Legacy: MQTT had a retained "clear" message; Realtime has no retain.
+ * The screen_shadows delta is cleared by the DB trigger when desired==reported,
+ * so this is a no-op.
+ */
+export async function clearShadowDelta(_serial: string): Promise<boolean> {
+  return true;  // no-op: DB handles delta clearing
+}
+
+/**
+ * Legacy: generic MQTT publish shim.
+ * Extracts screenId from old MQTT topic pattern and re-routes to Realtime.
+ * @deprecated Use screenCmd() or pushDesiredState() instead.
+ */
+export async function mqttPublish(
+  topic:   string,
+  payload: unknown,
+  _opts:   { qos?: number; retain?: boolean } = {},
+): Promise<boolean> {
+  const m = topic.match(/signage\/player\/([^/]+)\//);
+  if (!m) return false;
+  const serial = m[1];
+  const event  = topic.includes("/shadow/delta") ? "shadow_delta" : "command";
+  return realtimeBroadcast([{ topic: screenChannel(serial), event, payload }]);
+}
+
+// ── Legacy topic builders (no longer used — kept for import compat) ───────────
+export const topicCommand     = (_s: string) => "";
+export const topicHeartbeat   = (_s: string) => "";
+export const topicResponse    = (_s: string) => "";
+export const topicStatus      = (_s: string) => "";
+export const topicShadowDelta = (_s: string) => "";
