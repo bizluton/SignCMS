@@ -300,6 +300,8 @@ function renderProject(project) {
     div.style.top    = pct(zone.y);
     div.style.width  = pct(zone.w);
     div.style.height = pct(zone.h);
+    // Apply designer bgColor when it doesn't use CSS variables
+    if (zone.bgColor && !zone.bgColor.includes('var(--')) div.style.background = zone.bgColor;
     stage.appendChild(div);
 
     const player = new ZonePlayer(div, zone.items ?? []);
@@ -349,34 +351,64 @@ async function rerenderMediaSources() {
 // ── Zones normalisation ───────────────────────────────────────────────────────
 // Handles both percentage (0-100) and fractional (0-1) coordinate systems,
 // as well as different key naming conventions from the CMS designer.
+//
+// The designer stores zones as:
+//   [ { _meta:true, bgm:{…}, pages:[…], … },   ← config object (skip)
+//     { id:"z1", x:0, y:0, w:69, h:100, content:{ mediaItems:[…] } },
+//     { id:"z2", x:69, y:0, w:31, h:100, content:{ mediaItems:[…] } } ]
 function normaliseZones(zones) {
   if (!zones) return [];
   const arr = Array.isArray(zones) ? zones : (zones.zones ?? Object.values(zones));
-  return arr.map((z, i) => {
+  // Filter out the _meta config object the designer embeds as the first element
+  const realZones = arr.filter(z => z && typeof z === 'object' && !z._meta && z.id);
+  return realZones.map((z, i) => {
     const x = coerce(z.x ?? z.left  ?? 0);
     const y = coerce(z.y ?? z.top   ?? 0);
     const w = coerce(z.w ?? z.width  ?? z.right  ?? 100);
     const h = coerce(z.h ?? z.height ?? z.bottom ?? 100);
-    const items = z.items ?? z.mediaItems ?? z.media_items ?? z.playlist ?? [];
+    // Items live at different keys depending on the source:
+    //   legacy player format  → z.items
+    //   designer format       → z.content.mediaItems
+    const items = z.items ?? z.mediaItems ?? z.media_items ?? z.playlist
+               ?? z.content?.mediaItems ?? z.content?.items ?? [];
     return {
-      id:    z.id ?? `z${i}`,
-      x: normaliseCoord(x, w),
-      y: normaliseCoord(y, h),
-      w: normaliseSize(w),
-      h: normaliseSize(h),
-      items: items.map(normaliseItem),
+      id:      z.id ?? `z${i}`,
+      x:       normaliseCoord(x),
+      y:       normaliseCoord(y),
+      w:       normaliseSize(w),
+      h:       normaliseSize(h),
+      bgColor: z.bgColor ?? z.content?.bgColor ?? null,
+      items:   items.map(normaliseItem),
     };
   });
 }
 
 function normaliseItem(item) {
+  const type = item.type ?? (item.url?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image');
+
+  // Widgets: the playback URL is in widgetConfig.url, with optional query params
+  let url = item.url ?? item.src ?? '';
+  if (type === 'widget' && item.widgetConfig?.url) {
+    try {
+      const u = new URL(item.widgetConfig.url);
+      if (item.widgetConfig.params) {
+        for (const [k, v] of Object.entries(item.widgetConfig.params)) {
+          if (v !== '' && v != null) u.searchParams.set(k, String(v));
+        }
+      }
+      url = u.toString();
+    } catch { url = item.widgetConfig.url; }
+  }
+
   return {
-    id:    item.id   ?? null,
-    type:  item.type ?? (item.url?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image'),
-    url:   item.url  ?? item.src ?? '',
-    sha256: item.sha256 ?? null,
-    dwell: item.dwell ?? item.dwell_seconds ?? item.dwellSeconds ?? 10,
-    name:  item.name ?? item.media_name ?? '',
+    id:      item.id     ?? null,
+    type,
+    url,
+    sha256:  item.sha256 ?? null,
+    // designer uses "duration"; legacy uses "dwell" / "dwell_seconds"
+    dwell:   item.dwell ?? item.dwell_seconds ?? item.dwellSeconds ?? item.duration ?? 10,
+    name:    item.name  ?? item.media_name ?? '',
+    fitMode: item.fitMode ?? 'contain',
   };
 }
 
@@ -413,13 +445,37 @@ class ZonePlayer {
 
     const src = await this._resolveUrl(item);
 
-    if (item.type === 'video') {
+    // fitMode → CSS object-fit
+    const fitCss = item.fitMode === 'stretch' ? 'fill'
+                 : item.fitMode === 'cover'   ? 'cover' : 'contain';
+
+    if (item.type === 'widget') {
+      // Widgets are rendered as sandboxed iframes
+      const iframe = document.createElement('iframe');
+      iframe.src           = src;
+      iframe.style.width   = '100%';
+      iframe.style.height  = '100%';
+      iframe.style.border  = 'none';
+      iframe.style.display = 'block';
+      iframe.allow         = 'autoplay';
+      iframe.scrolling     = 'no';
+      this._el.appendChild(iframe);
+      this._media = iframe;
+      // Only rotate widgets out if there are other items in the playlist
+      if (this._items.length > 1) {
+        this._timer = setTimeout(() => {
+          this._logPlay(item);
+          this._next();
+        }, (item.dwell || 30) * 1000);
+      }
+    } else if (item.type === 'video') {
       const vid = document.createElement('video');
-      vid.src      = src;
-      vid.autoplay = true;
-      vid.muted    = true;
-      vid.loop     = this._items.length === 1;
+      vid.src         = src;
+      vid.autoplay    = true;
+      vid.muted       = true;
+      vid.loop        = this._items.length === 1;
       vid.playsInline = true;
+      vid.style.objectFit = fitCss;
       vid.addEventListener('ended', () => {
         this._logPlay(item);
         this._next();
@@ -429,8 +485,9 @@ class ZonePlayer {
       this._media = vid;
     } else {
       const img = document.createElement('img');
-      img.src = src;
-      img.alt = item.name || '';
+      img.src             = src;
+      img.alt             = item.name || '';
+      img.style.objectFit = fitCss;
       img.addEventListener('error', () => this._next());
       this._el.appendChild(img);
       this._media = img;
@@ -556,8 +613,8 @@ window.addEventListener('__signUpdateLog', (e) => {
   const { line, done, ok } = e.detail;
   if (line) log(line, ok === false ? 'err' : '');
   if (done) {
-    if (ok) log('✓ New build ready — drag SignCMS Player.app from dist/ to Applications', 'ok');
-    if (!ok) log('✗ Update failed — check Terminal for details', 'err');
+    if (ok)  log('✓ Installing to /Applications — relaunching in 1 s…', 'ok');
+    if (!ok) log('✗ Update failed — see log above for details', 'err');
   }
 });
 
