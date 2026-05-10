@@ -42,17 +42,6 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
 }
 #splash .config-btn:hover { background: #1d4ed8; }
 
-/* ── Announcement overlay ── */
-#announcements {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,.85);
-  border-top: 2px solid #f59e0b;
-  padding: 10px 20px;
-  display: none;
-  z-index: 50;
-}
-#announcements h3 { font-size: .85rem; color: #f59e0b; text-transform: uppercase; letter-spacing: .08em; }
-#announcements p  { font-size: 1rem; margin-top: 4px; }
 
 /* ── HUD overlay (F1 or triple-click) ── */
 #hud {
@@ -132,11 +121,6 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
   <button class="config-btn" onclick="window.player.openSettings()">Open Settings</button>
 </div>
 
-<!-- Announcement overlay -->
-<div id="announcements">
-  <h3 id="ann-subject"></h3>
-  <p id="ann-content"></p>
-</div>
 
 <!-- HUD -->
 <div id="hud">
@@ -180,9 +164,6 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let currentProject     = null;
-let currentAnnouncements = [];
-let annTimer           = null;
-let annIndex           = 0;
 let hudVisible         = false;
 let lastSyncTime       = null;
 let realtimeConnected  = false;
@@ -209,9 +190,6 @@ window.addEventListener('__signSyncData', (e) => {
   const data = e.detail;
   lastSyncTime = new Date().toLocaleTimeString();
   log(`Sync OK — ${data.screen?.name ?? '?'} / ${data.channel?.name ?? '—'}`, 'ok');
-
-  currentAnnouncements = data.announcements ?? [];
-  tickAnnouncement();
 
   if (!data.project) {
     setSplashMsg('No content assigned to this screen.');
@@ -455,24 +433,6 @@ function zonePlayersAdd(id, p) { zonePlayersDestroy(id); zonePlayers.set(id, p);
 function zonePlayersDestroy(id) { zonePlayers.get(id)?.destroy(); zonePlayers.delete(id); }
 function zonePlayersClear() { for (const id of zonePlayers.keys()) zonePlayersDestroy(id); }
 
-// ── Announcements ─────────────────────────────────────────────────────────────
-function tickAnnouncement() {
-  clearTimeout(annTimer);
-  const el = document.getElementById('announcements');
-  const now = Date.now();
-  const active = currentAnnouncements.filter(a => {
-    const s = a.start_at ? new Date(a.start_at).getTime() : 0;
-    const e = a.end_at   ? new Date(a.end_at).getTime()   : Infinity;
-    return now >= s && now <= e;
-  });
-  if (!active.length) { el.style.display = 'none'; return; }
-  const ann = active[annIndex % active.length];
-  document.getElementById('ann-subject').textContent = ann.subject ?? '';
-  document.getElementById('ann-content').textContent = ann.content ?? '';
-  el.style.display = 'block';
-  annIndex++;
-  annTimer = setTimeout(tickAnnouncement, (ann.dwell_seconds ?? 10) * 1000);
-}
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 async function refreshHud() {
