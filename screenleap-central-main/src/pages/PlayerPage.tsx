@@ -127,12 +127,6 @@ export default function PlayerPage() {
   const [bgmIndex, setBgmIndex] = useState(0);
 
   // ===== Smart-trigger override =====
-  // When a smart trigger fires for this screen (or for the org with no
-  // per-screen override), the webhook writes a success row to
-  // `smart_trigger_logs` and the rule's `target_design_project_id` is what
-  // we should temporarily display. We subscribe to realtime inserts on
-  // smart_trigger_logs filtered to this screen, fetch the rule, and apply
-  // an override that takes priority over the regular schedule.
   const [overrideItem, setOverrideItem] = useState<PlaylistItem | null>(null);
   const overrideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastFiredLogIdRef = useRef<string>("");
@@ -155,12 +149,9 @@ export default function PlayerPage() {
   }) => {
     if (!screenId) return;
     if (!logRow.success || !logRow.rule_id) return;
-    // Dedup repeats from realtime + manual fetch races.
     if (lastFiredLogIdRef.current === logRow.id) return;
     lastFiredLogIdRef.current = logRow.id;
 
-    // Scope: accept only logs that target this screen, OR org-scope logs
-    // (screen_id IS NULL) without a per-screen override that disables them.
     if (logRow.screen_id && logRow.screen_id !== screenId) return;
 
     const debugTag = `[smart-trigger][debug_id=${logRow.debug_id ?? "n/a"}]`;
@@ -171,7 +162,6 @@ export default function PlayerPage() {
       trigger_key: logRow.trigger_key,
     });
 
-    // Look up the rule + its target design project.
     const { data: rule } = await supabase
       .from("smart_trigger_rules")
       .select(
@@ -191,8 +181,6 @@ export default function PlayerPage() {
       return;
     }
 
-    // For org-scope rules, double-check there's no per-screen override
-    // disabling it (defense-in-depth; webhook already enforces this).
     if (rule.scope === "org") {
       const { data: ov } = await supabase
         .from("screen_smart_trigger_overrides")
@@ -239,9 +227,6 @@ export default function PlayerPage() {
     }, dur * 1000);
   }, [screenId, t]);
 
-  // Subscribe to smart_trigger_logs inserts that target this screen.
-  // We listen to ALL inserts for this org-screen and filter by success client-side
-  // (Realtime postgres_changes filter only supports a single eq comparator).
   useEffect(() => {
     if (!screenId) return;
     const channel = supabase
@@ -266,8 +251,6 @@ export default function PlayerPage() {
           });
         },
       )
-      // Org-scope rules fire with screen_id = NULL when the webhook caller
-      // omits it; still react to those for this screen's org.
       .on(
         "postgres_changes",
         {
@@ -278,7 +261,6 @@ export default function PlayerPage() {
         },
         (payload) => {
           const row = payload.new as Record<string, unknown>;
-          // Only apply when this screen belongs to the same org as the log.
           if (!screen || row.org_id !== screen.org_id) return;
           applyTriggerOverride({
             id: String(row.id ?? ""),
@@ -296,12 +278,10 @@ export default function PlayerPage() {
     };
   }, [screenId, screen?.org_id, applyTriggerOverride, screen]);
 
-  // Cleanup timer on unmount
   useEffect(() => () => {
     if (overrideTimerRef.current) clearTimeout(overrideTimerRef.current);
   }, []);
 
-  // Fullscreen state listener
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", handler);
@@ -320,7 +300,6 @@ export default function PlayerPage() {
     }
   }, [t]);
 
-  // Wake Lock helpers
   const releaseWakeLock = useCallback(async () => {
     try { await wakeLockRef.current?.release(); } catch { /* noop */ }
     wakeLockRef.current = null;
@@ -352,7 +331,6 @@ export default function PlayerPage() {
     }
   }, [wakeLockOn, acquireWakeLock, releaseWakeLock, t]);
 
-  // Re-acquire Wake Lock when tab returns to visible (browser auto-releases on tab hide)
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "visible" && wakeLockOn && !wakeLockRef.current) {
@@ -363,17 +341,14 @@ export default function PlayerPage() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [wakeLockOn, acquireWakeLock]);
 
-  // Release on unmount
   useEffect(() => () => { releaseWakeLock(); }, [releaseWakeLock]);
 
   const fetchAll = useCallback(async () => {
     if (!screenId) return;
-    // Wait until license has been resolved; never fetch playlist when unlicensed.
     if (licenseLoading) return;
     const scrFields = "id, name, org_id, resolution, default_playback, default_project_id, default_media_id";
     if (licenseInfo && !licenseInfo.licensed) {
       setLoading(false);
-      // Still fetch the screen row so we can show its name in the lockout view.
       const { data: scr } = await supabase.from("screens").select(scrFields).eq("id", screenId).maybeSingle();
       if (scr) setScreen(scr as unknown as ScreenInfo);
       return;
@@ -387,7 +362,6 @@ export default function PlayerPage() {
     }
     setScreen(scr as unknown as ScreenInfo);
 
-    // Resolve default playback item (shown when no active schedule)
     const scrTyped = scr as unknown as ScreenInfo;
     let resolved: PlaylistItem | null = null;
     if (scrTyped.default_playback === "project" && scrTyped.default_project_id) {
@@ -532,14 +506,12 @@ export default function PlayerPage() {
     fetchAll();
   }, [fetchAll]);
 
-  // If the license is revoked while playing, immediately pause to stop video/BGM.
   useEffect(() => {
     if (licenseInfo && !licenseInfo.licensed) {
       setPaused(true);
     }
   }, [licenseInfo?.licensed]);
 
-  // Determine active schedule + current item
   const activeSchedule = useMemo(() => {
     const now = new Date();
     return schedules.find((s) => isScheduleActiveNow(s, now) && s.items.length > 0) ?? null;
@@ -547,14 +519,9 @@ export default function PlayerPage() {
 
   const items = activeSchedule?.items ?? [];
   const scheduledItem = items[currentIndex] ?? null;
-  // Override (smart trigger) takes priority over the scheduled item.
   const currentItem = overrideItem ?? scheduledItem;
   const isOverride = !!overrideItem;
 
-  // BGM resolution priority:
-  //  1. If current item is a design_project AND it has its own BGM tracks → use those.
-  //  2. Otherwise use the schedule-level BGM track.
-  // Volume / audioSource also follow the design item when present.
   const isDesignWithBgm = !!(currentItem && currentItem.media_type === "design" && (currentItem.design_bgm_tracks?.length ?? 0) > 0);
 
   const bgmTracks = isDesignWithBgm
@@ -563,23 +530,17 @@ export default function PlayerPage() {
   const bgmVolume = isDesignWithBgm && typeof currentItem!.design_bgm_volume === "number"
     ? (currentItem!.design_bgm_volume as number)
     : (activeSchedule?.bgm_volume ?? 30);
-  // audioSource: "bgm" → play this BGM; "mute" or any zone-id → silence the BGM track.
-  // (Per-zone audio routing isn't supported in the simple player; non-"bgm" sources => mute BGM.)
   const designAudioSource = isDesignWithBgm ? currentItem!.design_bgm_audio_source : null;
   const designForcesMute = isDesignWithBgm && designAudioSource !== null && designAudioSource !== "bgm";
 
   const currentBgm = bgmTracks[bgmIndex] ?? null;
 
-  // BGM should pause when foreground item is a video (video has priority for sound)
-  // OR when the design project explicitly routes audio elsewhere / mutes.
   const bgmShouldPause = paused || muted || !currentItem || currentItem.media_type === "video" || designForcesMute;
 
-  // Reset BGM index when active schedule OR the current design item changes (different BGM list).
   useEffect(() => {
     setBgmIndex(0);
   }, [activeSchedule?.id, isDesignWithBgm ? currentItem?.id : null]);
 
-  // Sync BGM volume + play/pause state with 200ms fade ramp on track change / pause
   useEffect(() => {
     const a = bgmAudioRef.current;
     if (!a) return;
@@ -607,10 +568,8 @@ export default function PlayerPage() {
     };
 
     if (bgmShouldPause) {
-      // Fade out then pause
       ramp(a.volume, 0, () => { try { a.pause(); } catch { /* ignore */ } });
     } else {
-      // Start muted, play, then fade in to target
       a.volume = 0;
       a.play()
         .then(() => { if (!cancelled) ramp(0, target); })
@@ -623,14 +582,12 @@ export default function PlayerPage() {
     };
   }, [bgmShouldPause, bgmVolume, currentBgm?.id]);
 
-  // Reset index if items list shrinks
   useEffect(() => {
     if (currentIndex >= items.length && items.length > 0) {
       setCurrentIndex(0);
     }
   }, [items.length, currentIndex]);
 
-  // Reset timer when item changes
   useEffect(() => {
     if (!currentItem) return;
     itemStartRef.current = Date.now();
@@ -638,11 +595,10 @@ export default function PlayerPage() {
     setProgress(0);
   }, [currentItem?.id]);
 
-  // Log playback when finishing one item
   const logPlayback = useCallback(async (item: PlaylistItem, durationSec: number) => {
     if (!screen || !item.media_id) return;
     const key = `${item.id}-${itemStartRef.current}`;
-    if (lastLoggedRef.current === key) return; // dedupe
+    if (lastLoggedRef.current === key) return;
     lastLoggedRef.current = key;
     try {
       await supabase.from("playback_logs").insert({
@@ -658,7 +614,6 @@ export default function PlayerPage() {
     }
   }, [screen]);
 
-  // Advance handler
   const advance = useCallback(() => {
     if (!currentItem) return;
     const dur = (Date.now() - itemStartRef.current) / 1000;
@@ -666,7 +621,6 @@ export default function PlayerPage() {
     setCurrentIndex((i) => (items.length > 0 ? (i + 1) % items.length : 0));
   }, [currentItem, items.length, logPlayback]);
 
-  // Tick for image / progress
   useEffect(() => {
     if (paused || !currentItem) return;
     const interval = setInterval(() => {
@@ -676,7 +630,6 @@ export default function PlayerPage() {
       setProgress(pct);
       if (currentItem.media_type !== "video" && elapsed >= currentItem.duration) {
         if (isOverride) {
-          // Override item finished — clear it so the schedule resumes.
           clearOverride();
         } else {
           advance();
@@ -686,7 +639,6 @@ export default function PlayerPage() {
     return () => clearInterval(interval);
   }, [paused, currentItem, advance, isOverride, clearOverride]);
 
-  // Pause/resume video sync
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
@@ -711,8 +663,6 @@ export default function PlayerPage() {
     );
   }
 
-  // Hard-lock the player when the device license is missing or revoked.
-  // This must run BEFORE any playback / network logic continues.
   if (!licenseLoading && licenseInfo && !licenseInfo.licensed) {
     const isRevoked = licenseInfo.status === "revoked";
     const title = isRevoked
@@ -746,9 +696,56 @@ export default function PlayerPage() {
     );
   }
 
+  const stageContent = (() => {
+    const item = currentItem ?? (defaultItem ?? null);
+    if (!item) {
+      return (
+        <div className="text-center text-muted-foreground space-y-2">
+          <p className="text-lg">📺 {t("playerNoSchedule")}</p>
+          <p className="text-sm">{t("playerCreateScheduleHint")}</p>
+        </div>
+      );
+    }
+    if (item.media_type === "design" && item.design_project_id && item.design_zones) {
+      return (
+        <DesignStage
+          key={item.id}
+          project={{ id: item.design_project_id, name: item.media_name, zones: item.design_zones }}
+          resolveMediaUrl={() => null}
+          muted={muted}
+          playing={!paused}
+        />
+      );
+    }
+    if (item.media_type === "video") {
+      return (
+        <video
+          key={item.id}
+          ref={item === currentItem ? videoRef : undefined}
+          src={item.media_url}
+          className="max-w-full max-h-full"
+          autoPlay
+          loop={!currentItem}
+          muted={muted}
+          playsInline
+          onEnded={item === currentItem ? advance : undefined}
+          onError={item === currentItem ? advance : undefined}
+        />
+      );
+    }
+    return (
+      <img
+        key={item.id}
+        src={item.media_url}
+        alt={item.media_name}
+        className="max-w-full max-h-full object-contain"
+        onError={item === currentItem ? advance : undefined}
+      />
+    );
+  })();
+
   return (
-    <div ref={containerRef} className="min-h-screen bg-black flex flex-col">
-      {/* Hidden BGM audio element. Loops within itself; we advance to next track on `ended`. */}
+    <div ref={containerRef} className="h-screen w-screen bg-black relative overflow-hidden">
       {currentBgm && (
         <audio
           key={currentBgm.id}
@@ -761,169 +758,66 @@ export default function PlayerPage() {
         />
       )}
 
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-background/95 backdrop-blur border-b border-border">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/screens")}>
+      <div className="absolute inset-0 flex items-center justify-center">
+        {stageContent}
+      </div>
+
+      <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-3 py-1.5 bg-black/70 backdrop-blur-sm border-b border-white/10">
+        <div className="flex items-center gap-2 min-w-0">
+          <Button variant="ghost" size="sm" className="text-white/80 hover:text-white hover:bg-white/10 shrink-0" onClick={() => navigate("/screens")}>
             <ArrowLeft className="w-4 h-4 mr-1" /> {t("playerBack")}
           </Button>
-          <div>
-            <p className="text-sm font-semibold text-foreground">🖥 {screen.name}</p>
-            <p className="text-xs text-muted-foreground">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white truncate">🖥 {screen.name}</p>
+            <p className="text-xs text-white/60 truncate">
               {isOverride
                 ? `⚡ ${t("playerSmartTriggerBadge")}`
                 : activeSchedule
                 ? t("playerPlaying").replace("{name}", activeSchedule.name)
+                : defaultItem
+                ? t("playerNoActiveSchedule")
                 : t("playerNoActiveSchedule")}
               {items.length > 0 && currentItem && ` · ${currentIndex + 1}/${items.length} · ${currentItem.media_name}`}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 shrink-0">
           {currentBgm && (
-            <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-md bg-primary/10 text-primary text-xs">
-              <Music className="w-3.5 h-3.5" />
-              <span className="max-w-[140px] truncate">{currentBgm.name}</span>
-              <span className="text-[10px] opacity-70">{bgmVolume}%</span>
-              {bgmShouldPause && <span className="text-[10px] opacity-70">·暫停</span>}
+            <div className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded bg-white/10 text-white/70 text-xs">
+              <Music className="w-3 h-3" />
+              <span className="max-w-[100px] truncate">{currentBgm.name}</span>
+              <span className="text-[10px] opacity-60">{bgmVolume}%</span>
             </div>
           )}
-          <Button variant="outline" size="sm" onClick={() => setPaused((p) => !p)} disabled={!currentItem}>
-            {paused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+          <Button variant="ghost" size="sm" className="text-white/80 hover:text-white hover:bg-white/10 h-7 w-7 p-0" onClick={() => setPaused((p) => !p)} disabled={!currentItem}>
+            {paused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
           </Button>
-          <Button variant="outline" size="sm" onClick={advance} disabled={!currentItem}>
-            <SkipForward className="w-4 h-4" />
+          <Button variant="ghost" size="sm" className="text-white/80 hover:text-white hover:bg-white/10 h-7 w-7 p-0" onClick={advance} disabled={!currentItem}>
+            <SkipForward className="w-3.5 h-3.5" />
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setMuted((m) => !m)}>
-            {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+          <Button variant="ghost" size="sm" className="text-white/80 hover:text-white hover:bg-white/10 h-7 w-7 p-0" onClick={() => setMuted((m) => !m)}>
+            {muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={toggleWakeLock}
-            title={wakeLockOn ? t("playerWakeLockOff") : t("playerWakeLockOn")}
-          >
-            {wakeLockOn ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          <Button variant="ghost" size="sm" className="text-white/80 hover:text-white hover:bg-white/10 h-7 w-7 p-0" onClick={toggleWakeLock} title={wakeLockOn ? t("playerWakeLockOff") : t("playerWakeLockOn")}>
+            {wakeLockOn ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={toggleFullscreen}
-            title={isFullscreen ? t("playerExitFullscreen") : t("playerEnterFullscreen")}
-          >
-            {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+          <Button variant="ghost" size="sm" className="text-white/80 hover:text-white hover:bg-white/10 h-7 w-7 p-0" onClick={toggleFullscreen} title={isFullscreen ? t("playerExitFullscreen") : t("playerEnterFullscreen")}>
+            {isFullscreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
           </Button>
         </div>
       </div>
 
-      {/* Stage */}
-      <div className="flex-1 flex items-center justify-center overflow-hidden">
-        {!currentItem && defaultItem ? (
-          // No active schedule — show the screen's default playback content
-          defaultItem.media_type === "design" && defaultItem.design_project_id && defaultItem.design_zones ? (
-            <DesignStage
-              key={defaultItem.id}
-              project={{
-                id: defaultItem.design_project_id,
-                name: defaultItem.media_name,
-                zones: defaultItem.design_zones,
-              }}
-              resolveMediaUrl={() => null}
-              muted={muted}
-              playing={!paused}
-            />
-          ) : defaultItem.media_type === "video" ? (
-            <video
-              key={defaultItem.id}
-              src={defaultItem.media_url}
-              className="max-w-full max-h-full"
-              autoPlay
-              loop
-              muted={muted}
-              playsInline
-            />
-          ) : (
-            <img
-              key={defaultItem.id}
-              src={defaultItem.media_url}
-              alt={defaultItem.media_name}
-              className="max-w-full max-h-full object-contain"
-            />
-          )
-        ) : !currentItem ? (
-          <div className="text-center text-muted-foreground space-y-2">
-            <p className="text-lg">📺 {t("playerNoSchedule")}</p>
-            <p className="text-sm">{t("playerCreateScheduleHint")}</p>
-          </div>
-        ) : currentItem.media_type === "video" ? (
-          <video
-            key={currentItem.id}
-            ref={videoRef}
-            src={currentItem.media_url}
-            className="max-w-full max-h-full"
-            autoPlay
-            muted={muted}
-            playsInline
-            onEnded={advance}
-            onError={advance}
-          />
-        ) : currentItem.media_type === "design" ? (
-          currentItem.design_project_id && currentItem.design_zones ? (
-            <DesignStage
-              key={currentItem.id}
-              project={{
-                id: currentItem.design_project_id,
-                name: currentItem.media_name,
-                zones: currentItem.design_zones,
-              }}
-              resolveMediaUrl={() => null}
-              muted={muted}
-              playing={!paused}
-            />
-          ) : (
-            <div
-              key={currentItem.id}
-              className="flex flex-col items-center justify-center gap-3 text-center px-8 text-foreground"
-            >
-              <div className="w-16 h-16 rounded-2xl bg-primary/15 flex items-center justify-center">
-                <Music className="w-8 h-8 text-primary" />
-              </div>
-              <p className="text-lg font-semibold">{currentItem.media_name}</p>
-              <p className="text-xs text-muted-foreground">
-                {t("playerDesignProject") ?? "設計專案"}
-              </p>
-            </div>
-          )
-        ) : (
-          <img
-            key={currentItem.id}
-            src={currentItem.media_url}
-            alt={currentItem.media_name}
-            className="max-w-full max-h-full object-contain"
-            onError={advance}
-          />
-        )}
-      </div>
-
-      {/* Progress bar */}
       {currentItem && (
-        <div className="px-4 py-2 bg-background/95 border-t border-border">
-          <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+        <div className="absolute bottom-0 left-0 right-0 z-20 px-3 py-1.5 bg-black/70 backdrop-blur-sm border-t border-white/10">
+          <div className="h-1 bg-white/20 rounded-full overflow-hidden">
             <div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} />
           </div>
-          <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
+          <div className="flex items-center justify-between mt-1 text-[10px] text-white/50">
             <span>{Math.floor(elapsedSec)}s / {currentItem.duration}s</span>
             <span>
-              {currentItem.media_type === "video"
-                ? t("playerVideo")
-                : currentItem.media_type === "design"
-                ? (t("playerDesignProject") ?? "設計專案")
-                : t("playerImage")}
-              {" · "}
-              {t("playerSchedule")}：{activeSchedule?.name}
-              {isDesignWithBgm && (
-                <span className="ml-2 text-primary">· BGM override</span>
-              )}
+              {currentItem.media_type === "video" ? t("playerVideo") : currentItem.media_type === "design" ? (t("playerDesignProject") ?? "設計專案") : t("playerImage")}
+              {" · "}{t("playerSchedule")}：{activeSchedule?.name}
+              {isDesignWithBgm && <span className="ml-1.5 text-primary">· BGM</span>}
             </span>
           </div>
         </div>

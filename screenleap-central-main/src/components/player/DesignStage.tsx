@@ -372,7 +372,7 @@ export function WidgetRender({ config }: { config: WidgetConfig | null | undefin
     );
   }
 
-  if ((config.widgetType === "webpage" || config.widgetType === "weather_tw" || config.widgetType === "weather") && config.url) {
+  if ((config.widgetType === "webpage" || config.widgetType === "weather_tw" || config.widgetType === "weather" || config.widgetType === "announcement") && config.url) {
     return <WebpageWidgetRender config={config} />;
   }
 
@@ -445,96 +445,124 @@ export function WidgetRender({ config }: { config: WidgetConfig | null | undefin
   );
 }
 
-/** Per-zone playlist renderer. Cycles through mediaItems by their `duration`. */
+/** Per-zone playlist renderer. Cycles through mediaItems with transitions. */
 function MediaCarousel({
   items,
   resolveMediaUrl,
   muted,
   playing,
-  fitMode = "contain",
+  fitMode = "cover-x",
+  transition = "fade",
+  carouselInterval,
 }: {
   items: MediaItem[];
   resolveMediaUrl: (id: string) => string | null;
   muted: boolean;
   playing: boolean;
   fitMode?: "cover-x" | "cover-y" | "contain" | "stretch";
+  transition?: "fade" | "slide" | "zoom" | "none";
+  carouselInterval?: number;
 }) {
   const [idx, setIdx] = useState(0);
-  const timerRef = useRef<number | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [animating, setAnimating] = useState(false);
 
   const safeItems = useMemo(() => items.filter(Boolean), [items]);
-  const cur = safeItems[idx % Math.max(safeItems.length, 1)];
 
-  // Resolve URL for current media item.
-  const url = useMemo<string | null>(() => {
-    if (!cur) return null;
-    if (cur.type === "widget") return null;
-    // Prefer bundle blob URL by id; fall back to embedded url (data:/http for online preview).
-    if (cur.id && UUID_RE.test(String(cur.id))) {
-      const resolved = resolveMediaUrl(String(cur.id));
-      if (resolved) return resolved;
+  const resolveUrl = (item: MediaItem): string | null => {
+    if (item.type === "widget") return null;
+    if (item.id && UUID_RE.test(String(item.id))) {
+      const r = resolveMediaUrl(String(item.id));
+      if (r) return r;
     }
-    return cur.url || null;
-  }, [cur, resolveMediaUrl]);
+    return item.url || null;
+  };
 
-  // Schedule the next slide based on item duration (default 10s for images).
+  // Schedule the next slide based on per-item or zone-level duration.
   useEffect(() => {
-    if (!playing || !cur || safeItems.length <= 1) return;
-    if (cur.type === "video") return; // video advances on `ended`
-    const ms = Math.max(1, cur.duration || 10) * 1000;
-    if (timerRef.current) window.clearTimeout(timerRef.current);
-    timerRef.current = window.setTimeout(() => {
+    if (!playing || safeItems.length <= 1) return;
+    const cur = safeItems[idx];
+    if (!cur || cur.type === "video") return; // video advances on `ended`
+    const dur = cur.duration ?? carouselInterval ?? 10;
+    const ms = Math.max(1, dur) * 1000;
+    const t = window.setTimeout(() => {
+      setAnimating(true);
       setIdx((i) => (i + 1) % safeItems.length);
+      setTimeout(() => setAnimating(false), 600);
     }, ms);
-    return () => {
-      if (timerRef.current) window.clearTimeout(timerRef.current);
-    };
-  }, [playing, cur, safeItems.length, idx]);
-
-  // Pause/resume video on `playing` toggle.
-  useEffect(() => {
-    const v = videoRef.current;
-    if (!v) return;
-    if (playing) v.play().catch(() => { /* gesture required */ });
-    else { try { v.pause(); } catch { /* noop */ } }
-  }, [playing, url]);
+    return () => window.clearTimeout(t);
+  }, [playing, safeItems.length, idx, carouselInterval]);
 
   if (safeItems.length === 0) return null;
-  if (!cur) return null;
 
-  // Tailwind object-fit class from saved fitMode.
-  const fitClass =
-    fitMode === "cover-x" || fitMode === "cover-y" ? "object-cover"
-    : fitMode === "stretch" ? "object-fill"
-    : "object-contain";
+  const getImgStyle = (eff: string): React.CSSProperties => {
+    if (eff === "cover-y") return { width: "auto", height: "100%", maxWidth: "none", display: "block" };
+    if (eff === "contain") return { width: "100%", height: "100%", objectFit: "contain" as const };
+    if (eff === "stretch") return { width: "100%", height: "100%", objectFit: "fill" as const };
+    // cover-x: fill width, auto height (overflow clipped by container)
+    return { width: "100%", height: "auto", maxHeight: "none", display: "block" };
+  };
 
-  if (cur.type === "widget") {
-    return <WidgetRender config={cur.widgetConfig} />;
-  }
-  if (!url) {
-    return (
-      <div className="w-full h-full flex items-center justify-center text-white/60 text-xs bg-black/40">
-        ✗ missing asset — {cur.name || cur.id}
-      </div>
-    );
-  }
-  if (cur.type === "video") {
-    return (
-      <video
-        ref={videoRef}
-        key={url}
-        src={url}
-        autoPlay={playing}
-        muted={muted || cur.muted}
-        playsInline
-        className={`w-full h-full ${fitClass}`}
-        onEnded={() => setIdx((i) => (i + 1) % safeItems.length)}
-      />
-    );
-  }
-  // image
-  return <img src={url} alt={cur.name || ""} className={`w-full h-full ${fitClass}`} />;
+  const getVideoStyle = (eff: string): React.CSSProperties => ({
+    width: "100%", height: "100%",
+    objectFit: eff === "contain" ? "contain" : eff === "stretch" ? "fill" : "cover",
+    display: "block",
+  });
+
+  const getSlideStyle = (i: number): React.CSSProperties => {
+    const isCurrent = i === idx;
+    const base: React.CSSProperties = {
+      position: "absolute", inset: 0, overflow: "hidden",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      transition: "all 0.6s cubic-bezier(0.4, 0, 0.2, 1)",
+    };
+    if (transition === "none") return { ...base, opacity: isCurrent ? 1 : 0, transition: "none" };
+    if (transition === "slide") return {
+      ...base,
+      opacity: isCurrent ? 1 : 0,
+      transform: isCurrent ? "translateX(0)" : (animating ? "translateX(-100%)" : "translateX(100%)"),
+    };
+    if (transition === "zoom") return {
+      ...base,
+      opacity: isCurrent ? 1 : 0,
+      transform: isCurrent ? "scale(1)" : "scale(1.15)",
+    };
+    // fade (default)
+    return { ...base, opacity: isCurrent ? 1 : 0 };
+  };
+
+  return (
+    <div className="relative w-full h-full overflow-hidden">
+      {safeItems.map((item, i) => {
+        const url = resolveUrl(item);
+        const eff = (item.fitMode ?? fitMode) as string;
+        return (
+          <div key={`${item.id}-${i}`} style={getSlideStyle(i)}>
+            {item.type === "widget" && item.widgetConfig ? (
+              <WidgetRender config={item.widgetConfig} />
+            ) : !url ? (
+              <div className="text-white/40 text-xs">✗ {item.name || item.id}</div>
+            ) : item.type === "video" ? (
+              <video
+                key={url}
+                src={url}
+                autoPlay={playing && i === idx}
+                muted={muted || !!item.muted}
+                playsInline
+                style={getVideoStyle(eff)}
+                onEnded={() => {
+                  setAnimating(true);
+                  setIdx((prev) => (prev + 1) % safeItems.length);
+                  setTimeout(() => setAnimating(false), 600);
+                }}
+              />
+            ) : (
+              <img src={url} alt={item.name || ""} style={getImgStyle(eff)} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /** Render a single zone or overlay's content (color/text/media/widget). */
@@ -585,6 +613,8 @@ function ZoneContentRender({
           muted={muted}
           playing={playing}
           fitMode={content.fitMode}
+          transition={content.carouselTransition}
+          carouselInterval={content.carouselInterval}
         />
       </div>
     );
@@ -619,7 +649,7 @@ export function DesignStage({ project, resolveMediaUrl, muted, playing }: Design
   return (
     <div ref={wrapRef} className="relative w-full h-full flex items-center justify-center bg-black overflow-hidden">
       <div
-        className="relative shrink-0"
+        className="relative shrink-0 overflow-hidden"
         style={{
           width: canvasW,
           height: canvasH,
