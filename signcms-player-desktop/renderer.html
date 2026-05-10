@@ -152,6 +152,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
     <button onclick="doVerify()">Verify CAS</button>
     <button onclick="window.player.openCasDir()">Open CAS Dir</button>
     <button onclick="doRestart()" style="background:#7f1d1d;border-color:#991b1b;color:#fca5a5;">Restart Player</button>
+    <button onclick="doUpdate()"  style="background:#14532d;border-color:#166534;color:#86efac;">Update Software</button>
   </div>
 
   <div class="section-title">Event Log</div>
@@ -545,6 +546,20 @@ function doRestart() {
   log('Restarting player…', 'err');
   setTimeout(() => window.player.restartPlayer(), 300);
 }
+
+function doUpdate() {
+  log('Starting update (git pull + build)…', 'ok');
+  window.player.updateSoftware();
+}
+
+window.addEventListener('__signUpdateLog', (e) => {
+  const { line, done, ok } = e.detail;
+  if (line) log(line, ok === false ? 'err' : '');
+  if (done) {
+    if (ok) log('✓ New build ready — drag SignCMS Player.app from dist/ to Applications', 'ok');
+    if (!ok) log('✗ Update failed — check Terminal for details', 'err');
+  }
+});
 
 // ── Event log (HUD) ───────────────────────────────────────────────────────────
 const logLines = [];

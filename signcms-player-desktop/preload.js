@@ -35,6 +35,7 @@ contextBridge.exposeInMainWorld('player', {
   verifyIntegrity: () => ipcRenderer.invoke('verify-integrity'),
   openCasDir:      () => ipcRenderer.send('open-cas-dir'),
   restartPlayer:   () => ipcRenderer.send('restart-player'),
+  updateSoftware:  () => ipcRenderer.send('update-software'),
 
   getVersion: () => '1.0.0',
 });
@@ -54,3 +55,4 @@ relay('realtime-status',   '__signRealtimeStatus');
 relay('download-progress', '__signDownloadProgress');
 relay('cas-ready',         '__signCasReady');
 relay('verify-progress',   '__signVerifyProgress');
+relay('update-log',        '__signUpdateLog');

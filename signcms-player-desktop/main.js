@@ -1,7 +1,9 @@
 'use strict';
 const { app, BrowserWindow, ipcMain, protocol, shell, Menu } = require('electron');
-const path = require('path');
-const fs   = require('fs');
+const path           = require('path');
+const fs             = require('fs');
+const { spawn }      = require('child_process');
+const os             = require('os');
 
 const ConfigManager    = require('./src/ConfigManager');
 const DownloadService  = require('./src/DownloadService');
@@ -237,6 +239,37 @@ ipcMain.handle('verify-integrity', async () => {
 
 // Open CAS directory in Finder/Explorer
 ipcMain.on('open-cas-dir', () => shell.openPath(downloadService.casDir));
+
+// Update software: git pull → npm run build:mac → open dist/
+ipcMain.on('update-software', () => {
+  const srcDir = path.join(os.homedir(), 'Documents', 'GitHub', 'SignCMS', 'signcms-player-desktop');
+  const env    = {
+    ...process.env,
+    PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || ''),
+  };
+
+  function send(line, done = false, ok = true) {
+    mainWindow?.webContents.send('update-log', { line: line.trim(), done, ok });
+  }
+
+  send('── git pull ──────────────────────');
+
+  const pull = spawn('git', ['pull'], { cwd: srcDir, env });
+  pull.stdout.on('data', (d) => send(d.toString()));
+  pull.stderr.on('data', (d) => send(d.toString()));
+  pull.on('close', (code) => {
+    if (code !== 0) { send('git pull failed', true, false); return; }
+    send('── npm run build:mac ─────────────');
+    const build = spawn('npm', ['run', 'build:mac'], { cwd: srcDir, env });
+    build.stdout.on('data', (d) => send(d.toString()));
+    build.stderr.on('data', (d) => send(d.toString()));
+    build.on('close', (code2) => {
+      if (code2 !== 0) { send('Build failed', true, false); return; }
+      send('Build complete — opening dist/', true, true);
+      shell.openPath(path.join(srcDir, 'dist'));
+    });
+  });
+});
 
 // Restart / relaunch the full application
 ipcMain.on('restart-player', () => {
