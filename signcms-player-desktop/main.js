@@ -276,6 +276,14 @@ ipcMain.on('update-software', () => {
   pull.stderr.on('data', (d) => send(d.toString()));
   pull.on('close', (code) => {
     if (code !== 0) { send('git pull failed', true, false); return; }
+
+    // Clean stale temp dirs so electron-builder never hits ENOENT on old artifacts
+    send('── cleaning dist temp dirs ───────');
+    for (const d of ['mac-universal-arm64-temp', 'mac-universal-x64-temp']) {
+      const p = path.join(srcDir, 'dist', d);
+      try { fs.rmSync(p, { recursive: true, force: true }); } catch {}
+    }
+
     send('── npm run build:mac ─────────────');
     const build = spawn('npm', ['run', 'build:mac'], { cwd: srcDir, env });
     build.stdout.on('data', (d) => send(d.toString()));
