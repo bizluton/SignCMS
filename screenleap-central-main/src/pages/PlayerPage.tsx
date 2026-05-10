@@ -6,6 +6,7 @@ import { Loader2, ArrowLeft, Pause, Play, SkipForward, Volume2, VolumeX, Maximiz
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useScreenLicenseStatus } from "@/hooks/useScreenLicenseStatus";
+import { DesignStage } from "@/components/player/DesignStage";
 
 interface BgmTrack {
   id: string;
@@ -24,6 +25,7 @@ interface PlaylistItem {
   media_url: string;
   // For design-project items: BGM override embedded in the project's zones[0]._meta.
   design_project_id?: string | null;
+  design_zones?: unknown[];
   design_bgm_tracks?: BgmTrack[];
   design_bgm_volume?: number | null;
   design_bgm_audio_source?: string | null;
@@ -34,6 +36,9 @@ interface ScreenInfo {
   name: string;
   org_id: string;
   resolution: string;
+  default_playback: string | null;
+  default_project_id: string | null;
+  default_media_id: string | null;
 }
 
 interface Schedule {
@@ -102,6 +107,7 @@ export default function PlayerPage() {
   const { info: licenseInfo, loading: licenseLoading } = useScreenLicenseStatus(screenId || null);
   const [screen, setScreen] = useState<ScreenInfo | null>(null);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [defaultItem, setDefaultItem] = useState<PlaylistItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -211,6 +217,7 @@ export default function PlayerPage() {
       media_type: "design",
       media_url: "",
       design_project_id: rule.target_design_project_id,
+      design_zones: dp.zones as unknown[] | undefined,
       design_bgm_tracks: bgm.tracks,
       design_bgm_volume: bgm.volume,
       design_bgm_audio_source: bgm.audioSource,
@@ -363,21 +370,68 @@ export default function PlayerPage() {
     if (!screenId) return;
     // Wait until license has been resolved; never fetch playlist when unlicensed.
     if (licenseLoading) return;
+    const scrFields = "id, name, org_id, resolution, default_playback, default_project_id, default_media_id";
     if (licenseInfo && !licenseInfo.licensed) {
       setLoading(false);
       // Still fetch the screen row so we can show its name in the lockout view.
-      const { data: scr } = await supabase.from("screens").select("id, name, org_id, resolution").eq("id", screenId).maybeSingle();
-      if (scr) setScreen(scr);
+      const { data: scr } = await supabase.from("screens").select(scrFields).eq("id", screenId).maybeSingle();
+      if (scr) setScreen(scr as unknown as ScreenInfo);
       return;
     }
     setLoading(true);
-    const { data: scr } = await supabase.from("screens").select("id, name, org_id, resolution").eq("id", screenId).maybeSingle();
+    const { data: scr } = await supabase.from("screens").select(scrFields).eq("id", screenId).maybeSingle();
     if (!scr) {
       toast.error(t("playerScreenNotFound"));
       setLoading(false);
       return;
     }
-    setScreen(scr);
+    setScreen(scr as unknown as ScreenInfo);
+
+    // Resolve default playback item (shown when no active schedule)
+    const scrTyped = scr as unknown as ScreenInfo;
+    let resolved: PlaylistItem | null = null;
+    if (scrTyped.default_playback === "project" && scrTyped.default_project_id) {
+      const { data: dp } = await (supabase as any)
+        .from("design_projects")
+        .select("id, name, zones")
+        .eq("id", scrTyped.default_project_id)
+        .maybeSingle();
+      if (dp) {
+        const bgm = extractDesignBgm(dp.zones);
+        resolved = {
+          id: `default-${dp.id}`,
+          media_id: null,
+          duration: 0,
+          item_type: "design_project",
+          media_name: dp.name || "預設畫面",
+          media_type: "design",
+          media_url: "",
+          design_project_id: dp.id,
+          design_zones: dp.zones as unknown[],
+          design_bgm_tracks: bgm.tracks,
+          design_bgm_volume: bgm.volume,
+          design_bgm_audio_source: bgm.audioSource,
+        };
+      }
+    } else if (scrTyped.default_playback === "media" && scrTyped.default_media_id) {
+      const { data: media } = await (supabase as any)
+        .from("media_items")
+        .select("id, name, type, url")
+        .eq("id", scrTyped.default_media_id)
+        .maybeSingle();
+      if (media) {
+        resolved = {
+          id: `default-${media.id}`,
+          media_id: media.id,
+          duration: 0,
+          item_type: "media",
+          media_name: media.name || "預設畫面",
+          media_type: media.type || "image",
+          media_url: media.url || "",
+        };
+      }
+    }
+    setDefaultItem(resolved);
 
     interface RawScheduleItem {
       id: string;
@@ -444,6 +498,7 @@ export default function PlayerPage() {
               media_type: "design",
               media_url: "",
               design_project_id: it.design_project_id,
+              design_zones: dp?.zones as unknown[] | undefined,
               design_bgm_tracks: bgm.tracks,
               design_bgm_volume: bgm.volume,
               design_bgm_audio_source: bgm.audioSource,
@@ -664,7 +719,7 @@ export default function PlayerPage() {
       ? { zh: "設備授權已撤銷", en: "Device License Revoked", ja: "デバイスライセンスが取り消されました" }[language]
       : { zh: "未授權設備", en: "Unauthorized Device", ja: "未承認のデバイス" }[language];
     const desc = isRevoked
-      ? { zh: "此螢幕的設備授權已被撤銷，已停止播放並禁止連線。請聯繫系統管理員或客服恢復授權。", en: "This screen's device license has been revoked. Playback is stopped and connections are blocked. Contact your administrator to restore the license.", ja: "このスクリーンのデバイスライセンスは取り消されました。再生は停止され、接続もブロックされています。管理者に連絡してライセンスを復元してください。" }[language]
+      ? { zh: "此螢幕的設備授權已被撤銷，已停止播放並禁止連線。請聯絡系統管理員或客服恢復授權。", en: "This screen's device license has been revoked. Playback is stopped and connections are blocked. Contact your administrator to restore the license.", ja: "このスクリーンのデバイスライセンスは取り消されました。再生は停止され、接続もブロックされています。管理者に連絡してライセンスを復元してください。" }[language]
       : { zh: "找不到對應的有效設備授權，無法啟用播放。請先在「設備授權管理」中為此設備建立或啟用授權。", en: "No active device license is bound to this screen. Playback is disabled. Please create or activate a license in Device License Management.", ja: "このスクリーンに有効なデバイスライセンスが見つかりません。「デバイスライセンス管理」で発行・有効化してください。" }[language];
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-background gap-6 p-8 text-center">
@@ -763,7 +818,39 @@ export default function PlayerPage() {
 
       {/* Stage */}
       <div className="flex-1 flex items-center justify-center overflow-hidden">
-        {!currentItem ? (
+        {!currentItem && defaultItem ? (
+          // No active schedule — show the screen's default playback content
+          defaultItem.media_type === "design" && defaultItem.design_project_id && defaultItem.design_zones ? (
+            <DesignStage
+              key={defaultItem.id}
+              project={{
+                id: defaultItem.design_project_id,
+                name: defaultItem.media_name,
+                zones: defaultItem.design_zones,
+              }}
+              resolveMediaUrl={() => null}
+              muted={muted}
+              playing={!paused}
+            />
+          ) : defaultItem.media_type === "video" ? (
+            <video
+              key={defaultItem.id}
+              src={defaultItem.media_url}
+              className="max-w-full max-h-full"
+              autoPlay
+              loop
+              muted={muted}
+              playsInline
+            />
+          ) : (
+            <img
+              key={defaultItem.id}
+              src={defaultItem.media_url}
+              alt={defaultItem.media_name}
+              className="max-w-full max-h-full object-contain"
+            />
+          )
+        ) : !currentItem ? (
           <div className="text-center text-muted-foreground space-y-2">
             <p className="text-lg">📺 {t("playerNoSchedule")}</p>
             <p className="text-sm">{t("playerCreateScheduleHint")}</p>
@@ -781,20 +868,32 @@ export default function PlayerPage() {
             onError={advance}
           />
         ) : currentItem.media_type === "design" ? (
-          <div
-            key={currentItem.id}
-            className="flex flex-col items-center justify-center gap-3 text-center px-8 text-foreground"
-          >
-            <div className="w-16 h-16 rounded-2xl bg-primary/15 flex items-center justify-center">
-              <Music className="w-8 h-8 text-primary" />
+          currentItem.design_project_id && currentItem.design_zones ? (
+            <DesignStage
+              key={currentItem.id}
+              project={{
+                id: currentItem.design_project_id,
+                name: currentItem.media_name,
+                zones: currentItem.design_zones,
+              }}
+              resolveMediaUrl={() => null}
+              muted={muted}
+              playing={!paused}
+            />
+          ) : (
+            <div
+              key={currentItem.id}
+              className="flex flex-col items-center justify-center gap-3 text-center px-8 text-foreground"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-primary/15 flex items-center justify-center">
+                <Music className="w-8 h-8 text-primary" />
+              </div>
+              <p className="text-lg font-semibold">{currentItem.media_name}</p>
+              <p className="text-xs text-muted-foreground">
+                {t("playerDesignProject") ?? "設計專案"}
+              </p>
             </div>
-            <p className="text-lg font-semibold">{currentItem.media_name}</p>
-            <p className="text-xs text-muted-foreground">
-              {t("playerDesignProject") ?? "設計專案"}
-              {(currentItem.design_bgm_tracks?.length ?? 0) > 0 &&
-                ` · BGM × ${currentItem.design_bgm_tracks!.length}`}
-            </p>
-          </div>
+          )
         ) : (
           <img
             key={currentItem.id}
