@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, protocol, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, shell, Menu, session } = require('electron');
 const path           = require('path');
 const fs             = require('fs');
 const { spawn }      = require('child_process');
@@ -36,6 +36,22 @@ app.whenReady().then(() => {
   downloadService = new DownloadService(app.getPath('userData'));
   syncManager     = new PlayerSyncManager();
   realtimeManager = new RealtimeManager();
+
+  // Fix Content-Type for Supabase Storage HTML files (served as text/plain / octet-stream).
+  // Without this, iframes displaying widget .html files show raw HTML source instead of
+  // rendering the page.
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    if (/\.html(\?.*)?$/i.test(details.url)) {
+      const headers = { ...(details.responseHeaders ?? {}) };
+      const ctKey   = Object.keys(headers).find(k => k.toLowerCase() === 'content-type') ?? 'Content-Type';
+      const ctVal   = (headers[ctKey] ?? []).join('').toLowerCase();
+      if (!ctVal.includes('text/html')) {
+        headers[ctKey] = ['text/html; charset=utf-8'];
+        return callback({ responseHeaders: headers });
+      }
+    }
+    callback({});
+  });
 
   // Serve CAS files via  cas://<sha256>
   protocol.registerFileProtocol('cas', (req, cb) => {
