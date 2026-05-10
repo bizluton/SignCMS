@@ -28,6 +28,10 @@ signcms-player-android/app/release/
 supabase/.temp/
 screenleap-central-main/supabase/.temp/
 
+# Wrangler cache (contains Cloudflare account info)
+.wrangler/
+**/.wrangler/
+
 # Claude session files
 .claude/
 **/.claude/
