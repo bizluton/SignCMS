@@ -292,10 +292,14 @@ Deno.serve(async (req) => {
 
   // ── Supabase Realtime channel info ─────────────────────────────────────────
   // Devices subscribe to "screen:{screenId}" to receive real-time commands.
-  // The anonKey is safe to return: Realtime Row-Level Security ensures devices
-  // can only subscribe to their own channel topic.
+  // supabase_url is the direct project URL (not the Worker proxy) so the player
+  // can open a WebSocket directly to Supabase — Workers cannot proxy WebSocket.
   const ANON_KEY    = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-  const realtimeOut = { channel: `screen:${screenId}`, apikey: ANON_KEY };
+  const realtimeOut = {
+    channel:      `screen:${screenId}`,
+    apikey:       ANON_KEY,
+    supabase_url: SUPABASE_URL,
+  };
 
   return json({
     ok:            true,

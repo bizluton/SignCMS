@@ -114,8 +114,11 @@ async function handleSyncResponse(data) {
   mainWindow?.webContents.send('sync-data', data);
 
   // Realtime: (re)subscribe when channel info changes
+  // Use supabase_url from server response (direct Supabase URL) so WebSocket
+  // bypasses the Cloudflare Worker proxy which cannot tunnel WebSocket.
   if (data.realtime?.channel && data.realtime?.apikey) {
-    const supabaseUrl = config.get('serverUrl').replace(/\/functions\/v1\/?$/, '');
+    const supabaseUrl = data.realtime.supabase_url
+      ?? config.get('serverUrl').replace(/\/functions\/v1\/?$/, '');
     realtimeManager.configure({
       supabaseUrl,
       apikey:    data.realtime.apikey,
