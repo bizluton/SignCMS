@@ -105,7 +105,7 @@ Deno.serve(async (req) => {
 
   // ── Resolve active channel ──────────────────────────────────────────────
   const { data: screen } = await admin.from("screens")
-    .select("name, current_channel_id, channel_override_until")
+    .select("name, current_channel_id, channel_override_until, default_playback, default_media_id, default_project_id")
     .eq("id", screenId).maybeSingle();
 
   let channelId: string | null = null;
@@ -206,6 +206,57 @@ Deno.serve(async (req) => {
     }
   }
 
+  // ── Default content (when no channel project is active) ──────────────────
+  // Respects the screen's default_playback setting:
+  //   sleep   → nothing returned; renderer shows black screen
+  //   project → fetch default_project_id and return as project
+  //   media   → fetch default_media_id and return as default_media
+  let defaultMediaOut: { id: string; url: string; sha256: string | null; size: number | null; type: string | null } | null = null;
+
+  if (!projectOut && screen) {
+    if (screen.default_playback === "project" && screen.default_project_id) {
+      const [projMetaRes, assetsRes] = await Promise.all([
+        admin.from("design_projects")
+          .select("id, name, aspect, updated_at")
+          .eq("id", screen.default_project_id).maybeSingle(),
+        admin.from("media_items")
+          .select("url, sha256, size_bytes")
+          .eq("design_project_id", screen.default_project_id)
+          .is("deleted_at", null).limit(500),
+      ]);
+      const projMeta      = projMetaRes.data;
+      const assetManifest: AssetEntry[] = (assetsRes.data ?? []).map((a) => ({
+        url: a.url, sha256: a.sha256 ?? null, size: a.size_bytes ?? null,
+      }));
+      if (projMeta) {
+        const unchanged = projectEtag && projectEtag === projMeta.updated_at;
+        if (unchanged) {
+          projectOut = { ...projMeta, zones_changed: false, asset_manifest: assetManifest };
+        } else {
+          const { data: proj } = await admin.from("design_projects")
+            .select("id, name, aspect, zones, updated_at")
+            .eq("id", screen.default_project_id).maybeSingle();
+          projectOut = proj ? { ...proj, zones_changed: true, asset_manifest: assetManifest } : null;
+        }
+      }
+    } else if (screen.default_playback === "media" && screen.default_media_id) {
+      const { data: mi } = await admin.from("media_items")
+        .select("id, url, sha256, size_bytes, type")
+        .eq("id", screen.default_media_id)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (mi) {
+        defaultMediaOut = {
+          id:     mi.id,
+          url:    mi.url,
+          sha256: mi.sha256     ?? null,
+          size:   mi.size_bytes ?? null,
+          type:   mi.type       ?? null,
+        };
+      }
+    }
+  }
+
   // ── Active announcements ────────────────────────────────────────────────
   const { data: announcements } = await admin.from("announcements")
     .select("id, subject, content, pinned, dwell_seconds, start_at, end_at")
@@ -252,6 +303,7 @@ Deno.serve(async (req) => {
     screen:        { id: screenId, name: screen?.name ?? auth.screen_name, org_id: orgId },
     channel:       channelOut,
     project:       projectOut,
+    default_media: defaultMediaOut,
     announcements: announcements ?? [],
     shadow:        shadowOut,
     realtime:      realtimeOut,

@@ -163,11 +163,12 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
 'use strict';
 
 // ── State ─────────────────────────────────────────────────────────────────────
-let currentProject     = null;
-let hudVisible         = false;
-let lastSyncTime       = null;
-let realtimeConnected  = false;
-let dlDone = 0, dlTotal = 0;
+let currentProject       = null;
+let currentDefaultMediaId = null;
+let hudVisible           = false;
+let lastSyncTime         = null;
+let realtimeConnected    = false;
+let dlDone = 0, dlTotal  = 0;
 
 const zonePlayers = new Map(); // zoneId → ZonePlayer
 
@@ -191,15 +192,30 @@ window.addEventListener('__signSyncData', (e) => {
   lastSyncTime = new Date().toLocaleTimeString();
   log(`Sync OK — ${data.screen?.name ?? '?'} / ${data.channel?.name ?? '—'}`, 'ok');
 
-  if (!data.project) {
-    setSplashMsg('No content assigned to this screen.');
+  if (data.project) {
+    currentDefaultMediaId = null;
+    if (data.project.zones_changed !== false || !currentProject) {
+      currentProject = data.project;
+      renderProject(data.project);
+    }
     return;
   }
 
-  if (data.project.zones_changed !== false || !currentProject) {
-    currentProject = data.project;
-    renderProject(data.project);
+  if (data.default_media) {
+    currentProject = null;
+    if (data.default_media.id !== currentDefaultMediaId) {
+      currentDefaultMediaId = data.default_media.id;
+      renderDefaultMedia(data.default_media);
+    }
+    return;
   }
+
+  // Sleep mode — pure black screen
+  currentProject = null;
+  currentDefaultMediaId = null;
+  zonePlayersClear();
+  document.getElementById('stage').innerHTML = '';
+  hideSplash();
 });
 
 window.addEventListener('__signSyncError', (e) => {
@@ -288,6 +304,37 @@ function renderProject(project) {
     zonePlayersAdd(zone.id, player);
     player.start();
   }
+}
+
+function hideSplash() {
+  document.getElementById('splash').classList.add('hidden');
+}
+
+// Single full-screen asset (default_playback = 'media')
+function renderDefaultMedia(media) {
+  zonePlayersClear();
+  document.getElementById('stage').innerHTML = '';
+  hideSplash();
+
+  const div = document.createElement('div');
+  div.className    = 'zone';
+  div.id           = 'zone-default';
+  div.style.left   = '0%';
+  div.style.top    = '0%';
+  div.style.width  = '100%';
+  div.style.height = '100%';
+  document.getElementById('stage').appendChild(div);
+
+  const item = normaliseItem({
+    id:     media.id,
+    url:    media.url,
+    sha256: media.sha256 ?? null,
+    type:   media.type   ?? null,
+    dwell:  10,
+  });
+  const player = new ZonePlayer(div, [item]);
+  zonePlayersAdd('default', player);
+  player.start();
 }
 
 // When CAS download completes, swap CDN URLs for cas:// in running players
