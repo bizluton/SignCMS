@@ -222,19 +222,54 @@ export default function ScreensPage() {
     fetchIotDevices();
   }, [iotScreen]);
 
-  // Fetch media & design projects for default playback selector
+  // Fetch media & design projects for default playback selector,
+  // and load the screen's current default_playback settings from DB
   useEffect(() => {
     if (!settingsScreen) return;
     const fetchOptions = async () => {
-      const [mediaRes, designRes] = await Promise.all([
+      const [mediaRes, designRes, screenRes] = await Promise.all([
         supabase.from("media_items").select("id, name, type").in("type", ["image", "video"]).is("deleted_at", null).order("created_at", { ascending: false }),
         supabase.from("design_projects").select("id, name").order("created_at", { ascending: false }),
+        supabase.from("screens").select("default_playback, default_media_id, default_project_id, ntp_server, rotation").eq("id", settingsScreen.id).maybeSingle(),
       ]);
       setMediaOptions(mediaRes.data || []);
       setDesignOptions(designRes.data || []);
+      // Populate form with current DB values
+      if (screenRes.data) {
+        const s = screenRes.data;
+        const dbPlayback = s.default_playback ?? "sleep";
+        // DB uses "project"; UI uses "design" — map accordingly
+        const uiPlayback = dbPlayback === "project" ? "design" : dbPlayback as "sleep" | "media" | "design";
+        setSettingsForm((prev) => ({
+          ...prev,
+          ntpServer:      s.ntp_server      ?? "pool.ntp.org",
+          rotation:       String(s.rotation ?? 0),
+          defaultPlayback: uiPlayback,
+          defaultMediaId:  s.default_media_id  ?? "",
+          defaultDesignId: s.default_project_id ?? "",
+        }));
+      }
     };
     fetchOptions();
   }, [settingsScreen]);
+
+  // Save settings dialog → persists to screens table
+  const handleSaveSettings = async () => {
+    if (!settingsScreen) return;
+    // Map UI "design" back to DB "project"
+    const dbPlayback = settingsForm.defaultPlayback === "design" ? "project" : settingsForm.defaultPlayback;
+    const { error } = await supabase.from("screens").update({
+      ntp_server:         settingsForm.ntpServer || "pool.ntp.org",
+      rotation:           parseInt(settingsForm.rotation) || 0,
+      default_playback:   dbPlayback,
+      default_media_id:   dbPlayback === "media"   ? settingsForm.defaultMediaId   || null : null,
+      default_project_id: dbPlayback === "project" ? settingsForm.defaultDesignId  || null : null,
+      updated_at:         new Date().toISOString(),
+    }).eq("id", settingsScreen.id);
+    if (error) { toast.error(error.message); return; }
+    toast.success(t("screenSettingsSaved"));
+    setSettingsScreen(null);
+  };
 
   const [deleteGroupTarget, setDeleteGroupTarget] = useState<string | null>(null);
 
@@ -1605,7 +1640,7 @@ export default function ScreensPage() {
           </div>
           <DialogFooter>
             <DialogClose asChild><Button variant="outline">{t("cancel")}</Button></DialogClose>
-            <Button onClick={() => { toast.success(t("screenSettingsSaved")); setSettingsScreen(null); }}>
+            <Button onClick={handleSaveSettings}>
               {t("save")}
             </Button>
           </DialogFooter>
