@@ -52,7 +52,13 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createMainWindow(); });
+
+// 'activate' can fire before app is ready on macOS (e.g. after app.relaunch).
+// Guard with app.isReady() to avoid "Cannot create BrowserWindow before app is ready".
+app.on('activate', () => {
+  if (!app.isReady()) return;
+  if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+});
 
 // ── Windows ───────────────────────────────────────────────────────────────────
 function createMainWindow() {
