@@ -271,13 +271,30 @@ ipcMain.handle('verify-integrity', async () => {
 // Open CAS directory in Finder/Explorer
 ipcMain.on('open-cas-dir', () => shell.openPath(downloadService.casDir));
 
-// Update software: git pull → build → auto-install to /Applications → relaunch
-ipcMain.on('update-software', () => {
-  const srcDir     = path.join(os.homedir(), 'Documents', 'GitHub', 'SignCMS', 'signcms-player-desktop');
-  const newAppPath = path.join(srcDir, 'dist', 'mac-universal', 'SignCMS Player.app');
-  const installDir = '/Applications/SignCMS Player.app';
-  const helperPath = '/tmp/signcms_update.sh';
-  const env        = {
+// Update software: git pull → repack app.asar only → relaunch
+//
+// ⚠ IMPORTANT: We deliberately do NOT run electron-builder / npm run build:mac here.
+// electron-builder invokes hdiutil to create APFS DMG images, which is a known cause
+// of system-level hangs on macOS (the OS kernel I/O queue blocks). Running it inside
+// the Electron main process makes this worse — the entire system can freeze and become
+// unresponsive, with risk of file-system corruption.
+//
+// Instead we do an asar-only update:
+//   1. git pull  (fast network operation)
+//   2. Extract current app.asar → /tmp   (preserves node_modules/ws, etc.)
+//   3. Overwrite only the JS/HTML source files from the new source tree
+//   4. Repack to a new app.asar  (compress JS only, < 1 second)
+//   5. Helper script swaps the asar in /Applications and relaunches
+//
+// This never touches electron-builder, hdiutil, or large temp dirs.
+ipcMain.on('update-software', async () => {
+  const srcDir      = path.join(os.homedir(), 'Documents', 'GitHub', 'SignCMS', 'signcms-player-desktop');
+  const installDir  = '/Applications/SignCMS Player.app';
+  const asarInApp   = path.join(installDir, 'Contents', 'Resources', 'app.asar');
+  const extractDir  = path.join(os.tmpdir(), 'signcms_asar_extract');
+  const newAsarPath = path.join(os.tmpdir(), 'signcms_app_new.asar');
+  const helperPath  = path.join(os.tmpdir(), 'signcms_asar_swap.sh');
+  const env         = {
     ...process.env,
     PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || ''),
   };
@@ -286,61 +303,71 @@ ipcMain.on('update-software', () => {
     mainWindow?.webContents.send('update-log', { line: line.trim(), done, ok });
   }
 
-  send('── git pull ──────────────────────');
-  const pull = spawn('git', ['pull'], { cwd: srcDir, env });
-  pull.stdout.on('data', (d) => send(d.toString()));
-  pull.stderr.on('data', (d) => send(d.toString()));
-  pull.on('close', (code) => {
-    if (code !== 0) { send('git pull failed', true, false); return; }
+  try {
+    // ── 1. git pull ──────────────────────────────────────────────────────────
+    send('── git pull ──────────────────────');
+    await new Promise((resolve, reject) => {
+      const p = spawn('git', ['pull'], { cwd: srcDir, env });
+      p.stdout.on('data', (d) => send(d.toString()));
+      p.stderr.on('data', (d) => send(d.toString()));
+      p.on('close', (code) => code === 0 ? resolve() : reject(new Error('git pull failed')));
+    });
 
-    // Clean stale temp dirs so electron-builder never hits ENOENT on old artifacts
-    send('── cleaning dist temp dirs ───────');
-    for (const d of ['mac-universal-arm64-temp', 'mac-universal-x64-temp']) {
-      const p = path.join(srcDir, 'dist', d);
-      try { fs.rmSync(p, { recursive: true, force: true }); } catch {}
+    // ── 2. Extract current asar (preserves node_modules from installed build) ──
+    send('── extracting current asar ───────');
+    const asar = require(path.join(srcDir, 'node_modules', '@electron', 'asar'));
+    fs.rmSync(extractDir, { recursive: true, force: true });
+    asar.extractAll(asarInApp, extractDir);
+
+    // ── 3. Copy updated source files over the extract ──────────────────────
+    send('── patching source files ─────────');
+
+    // Top-level files
+    for (const f of ['main.js', 'preload.js', 'renderer.html', 'settings.html', 'package.json']) {
+      const s = path.join(srcDir, f);
+      if (fs.existsSync(s)) fs.copyFileSync(s, path.join(extractDir, f));
     }
 
-    send('── npm run build:mac ─────────────');
-    const build = spawn('npm', ['run', 'build:mac'], { cwd: srcDir, env });
-    build.stdout.on('data', (d) => send(d.toString()));
-    build.stderr.on('data', (d) => send(d.toString()));
-    build.on('close', (code2) => {
-      if (code2 !== 0) { send('Build failed', true, false); return; }
-      send('Installing to /Applications and relaunching…');
+    // src/ directory (ConfigManager, DownloadService, PlayerSyncManager, RealtimeManager)
+    const srcSubDir  = path.join(srcDir, 'src');
+    const destSubDir = path.join(extractDir, 'src');
+    fs.mkdirSync(destSubDir, { recursive: true });
+    for (const f of fs.readdirSync(srcSubDir)) {
+      if (f.endsWith('.js')) fs.copyFileSync(path.join(srcSubDir, f), path.join(destSubDir, f));
+    }
 
-      // Write a detached helper that safely replaces the installed .app.
-      //
-      // WHY NOT  cp -Rf src dst  directly?
-      // macOS cp -R: if dst already exists as a directory it copies src *inside*
-      // dst (creating dst/SignCMS Player.app/), leaving a broken nested bundle.
-      //
-      // Safe strategy:
-      //   1. cp to a temp path first  (if this fails, original is untouched)
-      //   2. rm old bundle
-      //   3. mv temp → final path     (atomic on same filesystem)
-      //   4. open
-      const tempPath = installDir + '.new';
-      const script = [
-        '#!/bin/bash',
-        'set -e',                                   // abort on any error
-        'sleep 2',
-        `rm -rf "${tempPath}"`,                     // clear any leftover temp
-        `cp -R "${newAppPath}" "${tempPath}"`,      // copy to temp (verify complete)
-        `rm -rf "${installDir}"`,                   // remove old bundle
-        `mv "${tempPath}" "${installDir}"`,         // atomic move into place
-        `open "${installDir}"`,
-        'rm -- "$0"',
-      ].join('\n') + '\n';
-
-      fs.writeFileSync(helperPath, script, { mode: 0o755 });
-
-      const helper = spawn('bash', [helperPath], { detached: true, stdio: 'ignore' });
-      helper.unref();
-
-      send('Done — relaunching…', true, true);
-      setTimeout(() => app.exit(0), 600);
+    // ── 4. Repack to new asar ─────────────────────────────────────────────
+    send('── repacking asar ────────────────');
+    fs.rmSync(newAsarPath, { force: true });
+    await asar.createPackageWithOptions(extractDir, newAsarPath, {
+      unpack: '{**/*.node,**/*.dylib,**/*.so}',  // keep native addons unpacked
     });
-  });
+    const asarSize = fs.statSync(newAsarPath).size;
+    send(`   new asar: ${(asarSize / 1024).toFixed(0)} KB`);
+
+    // ── 5. Detached helper: swap asar + relaunch ──────────────────────────
+    send('── swapping asar + relaunching ───');
+    const script = [
+      '#!/bin/bash',
+      'set -e',
+      'sleep 1',
+      // Atomic swap: backup → replace → open
+      `cp -f "${asarInApp}" "${asarInApp}.bak"`,      // keep backup just in case
+      `cp -f "${newAsarPath}" "${asarInApp}"`,         // replace asar (fast file copy)
+      `open "${installDir}"`,
+      `rm -f "${newAsarPath}" "$0"`,
+    ].join('\n') + '\n';
+
+    fs.writeFileSync(helperPath, script, { mode: 0o755 });
+    const helper = spawn('bash', [helperPath], { detached: true, stdio: 'ignore' });
+    helper.unref();
+
+    send('✓ 完成 — 正在重啟…', true, true);
+    setTimeout(() => app.exit(0), 800);
+
+  } catch (e) {
+    send(`✗ 更新失敗：${e.message}`, true, false);
+  }
 });
 
 // Restart / relaunch the full application
