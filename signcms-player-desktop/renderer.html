@@ -326,10 +326,11 @@ function renderProject(project) {
     const div = document.createElement('div');
     div.className   = 'zone';
     div.id          = `zone-${zone.id}`;
-    div.style.left   = pct(zone.x);
-    div.style.top    = pct(zone.y);
-    div.style.width  = pct(zone.w);
-    div.style.height = pct(zone.h);
+    div.style.left    = pct(zone.x);
+    div.style.top     = pct(zone.y);
+    div.style.width   = pct(zone.w);
+    div.style.height  = pct(zone.h);
+    div.style.zIndex  = zone.zIndex ?? 0;
     // Apply designer bgColor when it doesn't use CSS variables
     if (zone.bgColor && !zone.bgColor.includes('var(--')) div.style.background = zone.bgColor;
     stage.appendChild(div);
@@ -383,19 +384,27 @@ async function rerenderMediaSources() {
 // as well as different key naming conventions from the CMS designer.
 //
 // The designer stores zones as:
-//   [ { _meta:true, bgm:{…}, pages:[…], … },   ← config object (skip)
-//     { id:"z1", x:0, y:0, w:69, h:100, content:{ mediaItems:[…] } },
-//     { id:"z2", x:69, y:0, w:31, h:100, content:{ mediaItems:[…] } } ]
+//   [ { _meta:true, bgm:{…}, pages:[…], resolution:{w,h}, … },  ← config object (skip)
+//     { id:"z1", x:0, y:0, w:69, h:100, content:{ mediaItems:[…] } },  ← % coords
+//     { id:"z2", x:69, y:0, w:31, h:100, content:{ mediaItems:[…] } },
+//     { id:"overlay-…", _overlay:true, x:33, y:295, w:168, h:109, … } ] ← PX coords!
+//
+// IMPORTANT: Overlay zones (_overlay:true) use ABSOLUTE PIXEL coordinates on the
+// design canvas (e.g. 3840×2160). They must be converted to percentages using the
+// canvas dimensions stored in _meta.resolution.
+// Regular zones already use 0-100 percentage coordinates.
 function normaliseZones(zones) {
   if (!zones) return [];
   const arr = Array.isArray(zones) ? zones : (zones.zones ?? Object.values(zones));
+
+  // Extract canvas resolution from the _meta object for overlay coordinate conversion
+  const meta    = arr.find(z => z?._meta);
+  const canvasW = meta?.resolution?.width  ?? 1920;
+  const canvasH = meta?.resolution?.height ?? 1080;
+
   // Filter out the _meta config object the designer embeds as the first element
   const realZones = arr.filter(z => z && typeof z === 'object' && !z._meta && z.id);
   return realZones.map((z, i) => {
-    const x = coerce(z.x ?? z.left  ?? 0);
-    const y = coerce(z.y ?? z.top   ?? 0);
-    const w = coerce(z.w ?? z.width  ?? z.right  ?? 100);
-    const h = coerce(z.h ?? z.height ?? z.bottom ?? 100);
     // Items live at different keys depending on the source:
     //   legacy player format  → z.items
     //   designer format       → z.content.mediaItems
@@ -404,12 +413,25 @@ function normaliseZones(zones) {
     // Zone-level fitMode (set via the designer toolbar) acts as a fallback
     // for items that don't have their own per-item fitMode.
     const zoneFitMode = z.fitMode ?? z.content?.fitMode ?? null;
+
+    let x, y, w, h;
+    if (z._overlay) {
+      // Overlay coordinates are absolute pixels on the canvas — convert to %
+      x = (coerce(z.x ?? 0)              / canvasW) * 100;
+      y = (coerce(z.y ?? 0)              / canvasH) * 100;
+      w = (coerce(z.w ?? z.width  ?? 0)  / canvasW) * 100;
+      h = (coerce(z.h ?? z.height ?? 0)  / canvasH) * 100;
+    } else {
+      x = normaliseCoord(coerce(z.x ?? z.left  ?? 0));
+      y = normaliseCoord(coerce(z.y ?? z.top   ?? 0));
+      w = normaliseSize (coerce(z.w ?? z.width  ?? z.right  ?? 100));
+      h = normaliseSize (coerce(z.h ?? z.height ?? z.bottom ?? 100));
+    }
+
     return {
       id:      z.id ?? `z${i}`,
-      x:       normaliseCoord(x),
-      y:       normaliseCoord(y),
-      w:       normaliseSize(w),
-      h:       normaliseSize(h),
+      x, y, w, h,
+      zIndex:  z.zIndex ?? (z._overlay ? 10 : 0),
       bgColor: z.bgColor ?? z.content?.bgColor ?? null,
       items:   items.map(item => normaliseItem(item, zoneFitMode)),
     };
