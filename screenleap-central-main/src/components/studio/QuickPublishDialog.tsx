@@ -311,47 +311,59 @@ export function QuickPublishDialog({
         if (chosen) subMap.set(s.id, chosen.channel_id);
       }
 
-      // 1b. Auto-create "預設頻道" for screens that still have no channel
+      // 1b. Handle screens that have no channel subscription
       const unsubscribed = screenList.filter((s) => !subMap.has(s.id));
+      let directScreens: Screen[] = []; // screens updated directly via default_project_id
+
       if (unsubscribed.length > 0) {
-        // Find an existing org channel first
-        let { data: existingCh } = await supabase
-          .from("channels")
-          .select("id")
-          .eq("org_id", activeOrgId)
-          .eq("enabled", true)
-          .order("sort_order")
-          .limit(1)
-          .maybeSingle();
-
-        // Create one if the org has none
-        if (!existingCh) {
-          const { data: newCh, error: chErr } = await supabase
+        if (scheduleType === "now") {
+          // 「立即播放」：直接設定螢幕的 default_project_id，不建立頻道訂閱。
+          // 建立頻道訂閱會讓原本「無排程預設播放」的螢幕意外變成頻道訂閱螢幕。
+          const { error: directErr } = await supabase
+            .from("screens")
+            .update({ default_playback: "project", default_project_id: project.id })
+            .in("id", unsubscribed.map((s) => s.id));
+          if (directErr) throw directErr;
+          directScreens = unsubscribed;
+        } else {
+          // 日曆 / 每週排程需要 channel_blocks，所以還是需要頻道
+          let { data: existingCh } = await supabase
             .from("channels")
-            .insert({ org_id: activeOrgId, name: "預設頻道", enabled: true })
             .select("id")
-            .single();
-          if (chErr) throw chErr;
-          existingCh = newCh;
-        }
+            .eq("org_id", activeOrgId)
+            .eq("enabled", true)
+            .order("sort_order")
+            .limit(1)
+            .maybeSingle();
 
-        if (existingCh) {
-          const { error: subErr } = await supabase
-            .from("screen_channel_subscriptions")
-            .insert(
-              unsubscribed.map((s) => ({
-                screen_id:  s.id,
-                channel_id: existingCh!.id,
-                is_default: true,
-              }))
-            );
-          if (subErr && subErr.code !== "23505") throw subErr; // ignore dup
-          unsubscribed.forEach((s) => subMap.set(s.id, existingCh!.id));
+          if (!existingCh) {
+            const { data: newCh, error: chErr } = await supabase
+              .from("channels")
+              .insert({ org_id: activeOrgId, name: "預設頻道", enabled: true })
+              .select("id")
+              .single();
+            if (chErr) throw chErr;
+            existingCh = newCh;
+          }
+
+          if (existingCh) {
+            const { error: subErr } = await supabase
+              .from("screen_channel_subscriptions")
+              .insert(
+                unsubscribed.map((s) => ({
+                  screen_id:  s.id,
+                  channel_id: existingCh!.id,
+                  is_default: true,
+                }))
+              );
+            if (subErr && subErr.code !== "23505") throw subErr; // ignore dup
+            unsubscribed.forEach((s) => subMap.set(s.id, existingCh!.id));
+          }
         }
       }
 
       const channelScreens   = screenList.filter((s) => subMap.has(s.id));
-      const noChannelScreens = screenList.filter((s) => !subMap.has(s.id));
+      const noChannelScreens = screenList.filter((s) => !subMap.has(s.id) && !directScreens.includes(s));
 
       if (channelScreens.length === 0) {
         toast.error("無法取得或建立頻道，請重試");
@@ -428,23 +440,43 @@ export function QuickPublishDialog({
           ? new Date(`${format(dateFrom, "yyyy-MM-dd")}T${startTime}:00`).toISOString()
           : null;
 
-      const { error: recError } = await supabase.from("publish_records").insert(
-        channelScreens.map((s) => ({
-          screen_id:    s.id,
-          screen_name:  s.name,
-          channel_id:   subMap.get(s.id) ?? null,
-          channel_name: "",
-          published_by: userId ?? null,
-          status,
-          scheduled_at: scheduledAt,
-        }))
-      );
-      if (recError) throw recError;
+      // Channel-based screens
+      if (channelScreens.length > 0) {
+        const { error: recError } = await supabase.from("publish_records").insert(
+          channelScreens.map((s) => ({
+            screen_id:    s.id,
+            screen_name:  s.name,
+            channel_id:   subMap.get(s.id) ?? null,
+            channel_name: "",
+            published_by: userId ?? null,
+            status,
+            scheduled_at: scheduledAt,
+          }))
+        );
+        if (recError) throw recError;
+      }
 
+      // Directly-updated screens (no channel, "now" only)
+      if (directScreens.length > 0) {
+        const { error: recError } = await supabase.from("publish_records").insert(
+          directScreens.map((s) => ({
+            screen_id:    s.id,
+            screen_name:  s.name,
+            channel_id:   null,
+            channel_name: "",
+            published_by: userId ?? null,
+            status:       "playing",
+            scheduled_at: null,
+          }))
+        );
+        if (recError) throw recError;
+      }
+
+      const totalDone   = channelScreens.length + directScreens.length;
       const skippedNote = noChannelScreens.length > 0
         ? `（${noChannelScreens.length} 台無頻道訂閱已略過）`
         : "";
-      toast.success(`已成功發佈至 ${channelScreens.length} 台螢幕${skippedNote}`);
+      toast.success(`已成功發佈至 ${totalDone} 台螢幕${skippedNote}`);
       onClose();
     } catch (err) {
       console.error("QuickPublish error:", err);
