@@ -636,26 +636,26 @@ const AnnouncementPage = () => {
                         {pinned && <span className="ml-auto text-[10px] text-white/80 shrink-0">📌</span>}
                       </div>
                       {imageUrl && (
-                        <div className={cn("relative", previewMode === "landscape" ? "h-1/2" : "h-2/5")}>
+                        <div className={cn("relative shrink-0", previewMode === "landscape" ? "h-[40%]" : "h-[38%]")}>
                           <img src={imageUrl} alt="" className="w-full h-full object-cover" />
                           <div className="absolute inset-0 bg-gradient-to-b from-transparent to-gray-900/60" />
                         </div>
                       )}
-                      <div className={cn("flex-1 flex flex-col justify-end p-4", imageUrl ? "" : "justify-center")}>
+                      <div className={cn("flex-1 flex flex-col p-3 gap-1", imageUrl ? "justify-start" : "justify-center p-4")}>
                         {previewCat && (
-                          <span className="inline-flex items-center gap-1.5 mb-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: previewCat.color }}>
+                          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-widest" style={{ color: previewCat.color }}>
                             <span className="w-2 h-2 rounded-full inline-block" style={{ background: previewCat.color }} />
                             {previewCat.name}
                           </span>
                         )}
                         {department && (
-                          <span className="text-amber-400 text-[10px] font-bold uppercase tracking-widest mb-1">{deptLabel(department)}</span>
+                          <span className="text-amber-400 text-[10px] font-bold uppercase tracking-widest">{deptLabel(department)}</span>
                         )}
-                        <h3 className={cn("text-white font-black leading-tight mb-2", previewMode === "landscape" ? "text-xl" : "text-base")}>
+                        <h3 className={cn("text-white font-black leading-tight", previewMode === "landscape" ? "text-xl" : "text-base")}>
                           {subject || "…"}
                         </h3>
                         <div
-                          className={cn("text-white/70 line-clamp-3", previewMode === "landscape" ? "text-sm" : "text-xs")}
+                          className={cn("text-white/70 line-clamp-5", previewMode === "landscape" ? "text-sm" : "text-xs")}
                           dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(content || "<p>…</p>") }}
                         />
                         {startDate && endDate && (
