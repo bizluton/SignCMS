@@ -16,17 +16,22 @@ export default {
   async fetch(request) {
     const url = new URL(request.url);
     url.hostname = SUPABASE_HOST;
-    url.protocol = 'https:';
 
-    const proxied = new Request(url.toString(), {
+    // WebSocket upgrade (Supabase Realtime)
+    if (request.headers.get('Upgrade') === 'websocket') {
+      url.protocol = 'wss:';
+      return fetch(new Request(url.toString(), request));
+    }
+
+    // Regular HTTP
+    url.protocol = 'https:';
+    return fetch(new Request(url.toString(), {
       method:  request.method,
       headers: request.headers,
       body:    request.method !== 'GET' && request.method !== 'HEAD'
                  ? request.body
                  : undefined,
       redirect: 'follow',
-    });
-
-    return fetch(proxied);
+    }));
   },
 };
