@@ -40,17 +40,17 @@ body{font-family:'Noto Sans TC',system-ui,'Microsoft JhengHei','PingFang TC',san
 .slide.active{opacity:1;pointer-events:auto}
 
 /* Image strip */
-.img-wrap{flex:0 0 52%;position:relative;overflow:hidden}
+.img-wrap{flex:0 0 40%;position:relative;overflow:hidden}
 .img-wrap img{width:100%;height:100%;object-fit:cover;display:block}
 .img-wrap::after{
-  content:'';position:absolute;bottom:0;left:0;right:0;height:55%;
+  content:'';position:absolute;bottom:0;left:0;right:0;height:40%;
   background:linear-gradient(to bottom,transparent,var(--bg,#0f172a));
 }
 
 /* Text body */
 .body{
-  flex:1;display:flex;flex-direction:column;justify-content:flex-end;
-  padding:.9em 1.8em 1.2em;gap:.45em;
+  flex:1;display:flex;flex-direction:column;justify-content:flex-start;
+  padding:.6em 1.8em .8em;gap:.35em;
 }
 .body.solo{justify-content:center;padding:2em clamp(1.5em,6vw,5em)}
 
@@ -73,7 +73,7 @@ body{font-family:'Noto Sans TC',system-ui,'Microsoft JhengHei','PingFang TC',san
 }
 .content{
   font-size:clamp(.8em,1.6vw,1.15em);line-height:1.65;opacity:.78;
-  display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;
+  display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden;
 }
 .dates{font-size:.7em;opacity:.42;margin-top:.25em}
 
@@ -110,12 +110,12 @@ body{font-family:'Noto Sans TC',system-ui,'Microsoft JhengHei','PingFang TC',san
 <body>
 <div class="board" id="board"></div>
 <script>
-// ── Constants ─────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────────────────────
 var SB_URL  = 'https://narhbpojjtnalyfiwxue.supabase.co';
 var SB_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hcmhicG9qanRuYWx5Zml3eHVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMDAzNTMsImV4cCI6MjA5Mjg3NjM1M30.vGhaM-46pOemCxe-4EQcCBzYVcIv6i3HPCPwzC0bXbw';
 var REFRESH = 5 * 60 * 1000;
 
-// ── Params ────────────────────────────────────────────────────────────────────
+// ── Params ─────────────────────────────────────────────────────────────────────────────────
 var P  = window.__widgetParams || {};
 var QS = new URLSearchParams(location.search);
 function p(k,d){ return P[k] || QS.get(k) || d; }
@@ -144,13 +144,13 @@ var I18N = {
 };
 var L = I18N[lang] || I18N.zh;
 
-// ── State ─────────────────────────────────────────────────────────────────────
+// ── State ─────────────────────────────────────────────────────────────────────────────────
 var items       = [];
 var cur         = 0;
 var dwellTimer  = null;
 var board       = document.getElementById('board');
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers ─────────────────────────────────────────────────────────────────────────────────
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
 function strip(html){
@@ -167,7 +167,7 @@ function fmtDate(iso){
   );
 }
 
-// ── Render ────────────────────────────────────────────────────────────────────
+// ── Render ─────────────────────────────────────────────────────────────────────────────────
 function render(data){
   board.innerHTML = '';
   if(!orgId){
@@ -278,7 +278,7 @@ function setActive(data,idx){
 
 function el(tag,cls){ var e=document.createElement(tag); e.className=cls; return e; }
 
-// ── Fetch ─────────────────────────────────────────────────────────────────────
+// ── Fetch ─────────────────────────────────────────────────────────────────────────────────
 function fetchData(){
   if(!orgId){ render([]); return; }
   var now = new Date().toISOString();
@@ -306,7 +306,7 @@ function fetchData(){
     });
 }
 
-// ── Boot ──────────────────────────────────────────────────────────────────────
+// ── Boot ─────────────────────────────────────────────────────────────────────────────────
 // Immediately show cached data if available
 try{
   var cached = JSON.parse(localStorage.getItem(CACHE)||'[]');
