@@ -869,7 +869,10 @@ async function executeTool(
       const bytes  = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
-      // Unique storage key: orgId/timestamp_random.ext
+      // Storage key uses timestamp+random, NOT SHA-256.
+      // This MCP upload path is an operator/admin tool (not part of the player CAS pipeline).
+      // Players never sync from this path — they use upload-media (SHA-256 keyed) instead.
+      // TODO: migrate to SHA-256 key (compute digest here, check for existing row) to unify storage.
       const ext     = filename.split(".").pop()?.toLowerCase() ?? "bin";
       const fileKey = `${orgId}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 

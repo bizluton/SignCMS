@@ -16,8 +16,8 @@ function json(body: unknown, status = 200) {
 }
 
 interface LogEntry {
-  media_id?:        string;
-  media_name?:      string;
+  media_id?:         string;
+  // media_name is intentionally absent: name is resolved server-side from media_items
   duration_seconds?: number;
 }
 
@@ -77,13 +77,26 @@ Deno.serve(async (req) => {
   }).eq("id", screenId);
 
   // ── Playback log batch ──────────────────────────────────────────────────
+  // media_name is resolved server-side from media_items so renderer-supplied
+  // strings cannot appear in the log. Unresolvable IDs fall back to "".
   if (logBatch.length > 0) {
+    const mediaIds = [...new Set(
+      logBatch.map((l) => l.media_id).filter((id): id is string => !!id)
+    )];
+    const nameMap = new Map<string, string>();
+    if (mediaIds.length > 0) {
+      const { data: items } = await admin
+        .from("media_items")
+        .select("id, name")
+        .in("id", mediaIds);
+      for (const item of items ?? []) nameMap.set(item.id, item.name ?? "");
+    }
     await admin.from("playback_logs").insert(
       logBatch.map((l) => ({
         screen_id:        screenId,
         org_id:           orgId,
         media_id:         l.media_id         ?? null,
-        media_name:       l.media_name        ?? "",
+        media_name:       l.media_id ? (nameMap.get(l.media_id) ?? "") : "",
         duration_seconds: l.duration_seconds  ?? 0,
         played_at:        now.toISOString(),
       }))
