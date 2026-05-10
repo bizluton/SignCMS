@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Queue Display</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:      #0f172a;
+    --text:    #ffffff;
+    --accent:  #f97316;
+    --muted:   rgba(255,255,255,0.55);
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, sans-serif;
+  }
+
+  /* Outer wrapper fills the iframe, centred column */
+  #app {
+    width: 100%; height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3em;
+    padding: 6%;
+    container-type: size;
+  }
+
+  /* ── Header bar ── */
+  #header {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    font-size: 5cqh;
+    font-weight: 600;
+    color: var(--text);
+    width: 100%;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+    padding-bottom: 0.3em;
+    margin-bottom: 0.2em;
+  }
+  #header .dot {
+    width: 0.55em; height: 0.55em;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
+  }
+  #queue-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
+  /* ── Main number ── */
+  #number {
+    font-size: 22cqh;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    color: var(--text);
+    text-align: center;
+  }
+
+  /* ── Sub-label: counter name ── */
+  #counter-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    font-size: 4cqh;
+    color: var(--muted);
+    min-height: 1.2em;
+  }
+
+  /* ── Progress / pagination dots (multi-queue) ── */
+  #dots {
+    display: flex;
+    gap: 4px;
+    margin-top: 0.3em;
+  }
+  #dots span {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.3);
+    transition: background .3s;
+  }
+  #dots span.active { background: var(--accent); }
+
+  /* ── TTS toggle (bottom-right corner) ── */
+  #tts-btn {
+    position: fixed; bottom: 4px; right: 4px;
+    background: none; border: none;
+    color: rgba(255,255,255,0.3);
+    cursor: pointer;
+    font-size: 4cqh;
+    padding: 2px;
+    line-height: 1;
+    transition: color .2s;
+  }
+  #tts-btn:hover { color: rgba(255,255,255,0.7); }
+  #tts-btn.on    { color: var(--accent); }
+
+  /* ── Loading / error state ── */
+  #status {
+    font-size: 4cqh;
+    color: var(--muted);
+    text-align: center;
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="header">
+    <span class="dot"></span>
+    <span id="queue-label">Queue</span>
+  </div>
+  <div id="number">—</div>
+  <div id="counter-row">
+    <span id="counter-label"></span>
+  </div>
+  <div id="dots"></div>
+  <div id="status">connecting…</div>
+</div>
+<button id="tts-btn" title="點擊啟用語音">🔇</button>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+'use strict';
+
+// ── Config from URL search params ──────────────────────────────────────────
+const p           = new URLSearchParams(location.search);
+const ORG_ID      = p.get('orgId')       || '';
+const TTS_LANG    = p.get('ttsLang')     || 'zh-TW';
+const CYCLE_SEC   = parseInt(p.get('cycleSeconds') || '8', 10);
+const BG_COLOR    = p.get('bgColor')     || null;
+const TEXT_COLOR  = p.get('textColor')   || null;
+const ACCENT_COLOR= p.get('accentColor') || null;
+
+if (BG_COLOR)    document.documentElement.style.setProperty('--bg',     BG_COLOR);
+if (TEXT_COLOR)  document.documentElement.style.setProperty('--text',   TEXT_COLOR);
+if (ACCENT_COLOR)document.documentElement.style.setProperty('--accent', ACCENT_COLOR);
+
+// ── Supabase client (anon key — read-only public data via RLS) ────────────
+const { createClient } = window.supabase;
+const sb = createClient(
+  'https://narhbpojjtnalyfiwxue.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hcmhicG9qanRuYWx5Zml3eHVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMDAzNTMsImV4cCI6MjA5Mjg3NjM1M30.vGhaM-46pOemCxe-4EQcCBzYVcIv6i3HPCPwzC0bXbw',
+  { realtime: { params: { eventsPerSecond: 5 } } }
+);
+
+// ── State ──────────────────────────────────────────────────────────────────
+let queues        = [];
+let activeIdx     = 0;
+let latestTicket  = null;
+let ttsEnabled    = false;
+let announcedIds  = new Set();
+let cycleTimer    = null;
+let rtChannel     = null;
+
+// ── DOM refs ───────────────────────────────────────────────────────────────
+const $number  = document.getElementById('number');
+const $label   = document.getElementById('queue-label');
+const $counter = document.getElementById('counter-label');
+const $dots    = document.getElementById('dots');
+const $status  = document.getElementById('status');
+const $ttsBtn  = document.getElementById('tts-btn');
+
+// ── TTS ────────────────────────────────────────────────────────────────────
+$ttsBtn.addEventListener('click', () => {
+  ttsEnabled = !ttsEnabled;
+  $ttsBtn.textContent = ttsEnabled ? '🔊' : '🔇';
+  $ttsBtn.classList.toggle('on', ttsEnabled);
+  if (ttsEnabled && 'speechSynthesis' in window) {
+    const w = new SpeechSynthesisUtterance(' ');
+    w.volume = 0;
+    speechSynthesis.speak(w);
+  }
+});
+
+function speak(text) {
+  if (!ttsEnabled || !('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u  = new SpeechSynthesisUtterance(text);
+  u.lang   = TTS_LANG;
+  u.rate   = 0.9;
+  speechSynthesis.speak(u);
+}
+
+function tryAnnounce(ticket, prefix) {
+  if (announcedIds.has(ticket.id)) return;
+  announcedIds.add(ticket.id);
+  const num     = String(ticket.number).padStart(3, '0');
+  const counter = ticket.counter_name || '';
+  let text;
+  if (TTS_LANG.startsWith('zh'))
+    text = `請 ${prefix}${num} 號，到 ${counter || '服務台'}`;
+  else if (TTS_LANG.startsWith('ja'))
+    text = `${prefix}${num}番のお客様、${counter || 'カウンター'}へどうぞ`;
+  else
+    text = `Now serving ${prefix}${num} at ${counter || 'the counter'}`;
+  speak(text);
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function render() {
+  const q      = queues[activeIdx];
+  const prefix = q?.prefix ?? '';
+  const num    = latestTicket?.number ?? q?.current_number ?? 0;
+  const dispNum = num > 0 ? `${prefix}${String(num).padStart(3, '0')}` : '—';
+
+  $number.textContent  = dispNum;
+  $label.textContent   = q?.queue_name ?? '—';
+  $counter.textContent = latestTicket?.counter_name ?? '';
+
+  // Dots
+  $dots.innerHTML = queues.map((_, i) =>
+    `<span class="${i === activeIdx ? 'active' : ''}"></span>`
+  ).join('');
+}
+
+// ── Realtime subscription for active queue ─────────────────────────────────
+async function subscribeToQueue(qId) {
+  if (rtChannel) { await sb.removeChannel(rtChannel); rtChannel = null; }
+  if (!qId) return;
+
+  // Fetch latest calling ticket immediately
+  const { data } = await sb
+    .from('queue_system_tickets')
+    .select('id, queue_id, number, status, counter_name, called_at')
+    .eq('queue_id', qId)
+    .eq('status', 'calling')
+    .order('called_at', { ascending: false })
+    .limit(1);
+  if (data?.[0]) latestTicket = data[0];
+  render();
+
+  // Subscribe to new/updated tickets
+  rtChannel = sb.channel(`qd-${qId}`)
+    .on('postgres_changes',
+      { event: 'INSERT', schema: 'public', table: 'queue_system_tickets', filter: `queue_id=eq.${qId}` },
+      ({ new: t }) => {
+        if (t.status !== 'calling') return;
+        latestTicket = t;
+        tryAnnounce(t, queues[activeIdx]?.prefix ?? '');
+        render();
+      })
+    .on('postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'queue_system_tickets', filter: `queue_id=eq.${qId}` },
+      ({ new: t }) => {
+        if (t.status !== 'calling') return;
+        latestTicket = t;
+        tryAnnounce(t, queues[activeIdx]?.prefix ?? '');
+        render();
+      })
+    .subscribe();
+}
+
+// ── Queue cycle (when multiple queues) ────────────────────────────────────
+function startCycle() {
+  if (cycleTimer) clearInterval(cycleTimer);
+  if (queues.length <= 1) return;
+  cycleTimer = setInterval(async () => {
+    activeIdx     = (activeIdx + 1) % queues.length;
+    latestTicket  = null;
+    render();
+    await subscribeToQueue(queues[activeIdx]?.id);
+  }, CYCLE_SEC * 1000);
+}
+
+// ── Bootstrap ──────────────────────────────────────────────────────────────
+async function init() {
+  if (!ORG_ID) {
+    $number.textContent = 'N/A';
+    $status.style.display = 'block';
+    $status.textContent = 'orgId missing';
+    return;
+  }
+
+  $status.style.display = 'block';
+
+  const { data, error } = await sb
+    .from('queue_system_queues')
+    .select('id, queue_name, prefix, current_number')
+    .eq('org_id', ORG_ID)
+    .order('created_at');
+
+  $status.style.display = 'none';
+
+  if (error || !data?.length) {
+    $number.textContent = '—';
+    $label.textContent  = error ? 'Error' : 'No queues';
+    return;
+  }
+
+  queues    = data;
+  activeIdx = 0;
+  render();
+
+  await subscribeToQueue(queues[0].id);
+  startCycle();
+}
+
+init();
+</script>
+</body>
+</html>
