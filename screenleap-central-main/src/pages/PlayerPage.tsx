@@ -36,6 +36,9 @@ interface ScreenInfo {
   name: string;
   org_id: string;
   resolution: string;
+  default_playback: string | null;
+  default_project_id: string | null;
+  default_media_id: string | null;
 }
 
 interface Schedule {
@@ -104,6 +107,7 @@ export default function PlayerPage() {
   const { info: licenseInfo, loading: licenseLoading } = useScreenLicenseStatus(screenId || null);
   const [screen, setScreen] = useState<ScreenInfo | null>(null);
   const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [defaultItem, setDefaultItem] = useState<PlaylistItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -366,21 +370,68 @@ export default function PlayerPage() {
     if (!screenId) return;
     // Wait until license has been resolved; never fetch playlist when unlicensed.
     if (licenseLoading) return;
+    const scrFields = "id, name, org_id, resolution, default_playback, default_project_id, default_media_id";
     if (licenseInfo && !licenseInfo.licensed) {
       setLoading(false);
       // Still fetch the screen row so we can show its name in the lockout view.
-      const { data: scr } = await supabase.from("screens").select("id, name, org_id, resolution").eq("id", screenId).maybeSingle();
-      if (scr) setScreen(scr);
+      const { data: scr } = await supabase.from("screens").select(scrFields).eq("id", screenId).maybeSingle();
+      if (scr) setScreen(scr as unknown as ScreenInfo);
       return;
     }
     setLoading(true);
-    const { data: scr } = await supabase.from("screens").select("id, name, org_id, resolution").eq("id", screenId).maybeSingle();
+    const { data: scr } = await supabase.from("screens").select(scrFields).eq("id", screenId).maybeSingle();
     if (!scr) {
       toast.error(t("playerScreenNotFound"));
       setLoading(false);
       return;
     }
-    setScreen(scr);
+    setScreen(scr as unknown as ScreenInfo);
+
+    // Resolve default playback item (shown when no active schedule)
+    const scrTyped = scr as unknown as ScreenInfo;
+    let resolved: PlaylistItem | null = null;
+    if (scrTyped.default_playback === "project" && scrTyped.default_project_id) {
+      const { data: dp } = await (supabase as any)
+        .from("design_projects")
+        .select("id, name, zones")
+        .eq("id", scrTyped.default_project_id)
+        .maybeSingle();
+      if (dp) {
+        const bgm = extractDesignBgm(dp.zones);
+        resolved = {
+          id: `default-${dp.id}`,
+          media_id: null,
+          duration: 0,
+          item_type: "design_project",
+          media_name: dp.name || "預設畫面",
+          media_type: "design",
+          media_url: "",
+          design_project_id: dp.id,
+          design_zones: dp.zones as unknown[],
+          design_bgm_tracks: bgm.tracks,
+          design_bgm_volume: bgm.volume,
+          design_bgm_audio_source: bgm.audioSource,
+        };
+      }
+    } else if (scrTyped.default_playback === "media" && scrTyped.default_media_id) {
+      const { data: media } = await (supabase as any)
+        .from("media_items")
+        .select("id, name, type, url")
+        .eq("id", scrTyped.default_media_id)
+        .maybeSingle();
+      if (media) {
+        resolved = {
+          id: `default-${media.id}`,
+          media_id: media.id,
+          duration: 0,
+          item_type: "media",
+          media_name: media.name || "預設畫面",
+          media_type: media.type || "image",
+          media_url: media.url || "",
+        };
+      }
+    }
+    setDefaultItem(resolved);
 
     interface RawScheduleItem {
       id: string;
@@ -767,7 +818,39 @@ export default function PlayerPage() {
 
       {/* Stage */}
       <div className="flex-1 flex items-center justify-center overflow-hidden">
-        {!currentItem ? (
+        {!currentItem && defaultItem ? (
+          // No active schedule — show the screen's default playback content
+          defaultItem.media_type === "design" && defaultItem.design_project_id && defaultItem.design_zones ? (
+            <DesignStage
+              key={defaultItem.id}
+              project={{
+                id: defaultItem.design_project_id,
+                name: defaultItem.media_name,
+                zones: defaultItem.design_zones,
+              }}
+              resolveMediaUrl={() => null}
+              muted={muted}
+              playing={!paused}
+            />
+          ) : defaultItem.media_type === "video" ? (
+            <video
+              key={defaultItem.id}
+              src={defaultItem.media_url}
+              className="max-w-full max-h-full"
+              autoPlay
+              loop
+              muted={muted}
+              playsInline
+            />
+          ) : (
+            <img
+              key={defaultItem.id}
+              src={defaultItem.media_url}
+              alt={defaultItem.media_name}
+              className="max-w-full max-h-full object-contain"
+            />
+          )
+        ) : !currentItem ? (
           <div className="text-center text-muted-foreground space-y-2">
             <p className="text-lg">📺 {t("playerNoSchedule")}</p>
             <p className="text-sm">{t("playerCreateScheduleHint")}</p>
