@@ -27,6 +27,9 @@ let mainWindow    = null;
 let settingsWindow = null;
 let currentManifest = [];
 
+// Track last realtime config — only (re)connect when channel or URL actually changes
+let lastRealtimeKey = '';
+
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
   config          = new ConfigManager(app.getPath('userData'));
@@ -115,24 +118,29 @@ async function handleSyncResponse(data) {
   // Forward to renderer (non-blocking display update)
   mainWindow?.webContents.send('sync-data', data);
 
-  // Realtime: (re)subscribe when channel info changes
-  // Use supabase_url from server response (direct Supabase URL) so WebSocket
-  // bypasses the Cloudflare Worker proxy which cannot tunnel WebSocket.
+  // Realtime: (re)subscribe only when channel or supabase URL actually changes.
+  // Previously configure() was called every sync cycle which disconnected the
+  // WebSocket each time before it could stabilise.
   if (data.realtime?.channel && data.realtime?.apikey) {
-    const supabaseUrl = data.realtime.supabase_url
+    const supabaseUrl  = data.realtime.supabase_url
       ?? config.get('serverUrl').replace(/\/functions\/v1\/?$/, '');
-    realtimeManager.configure({
-      supabaseUrl,
-      apikey:    data.realtime.apikey,
-      channel:   data.realtime.channel,
-      onCommand: (event, payload) => {
-        mainWindow?.webContents.send('realtime-cmd', { event, payload });
-        if (event === 'content.sync') syncManager.forceSync();
-      },
-      onStatus: (connected) => {
-        mainWindow?.webContents.send('realtime-status', { connected });
-      },
-    });
+    const realtimeKey  = `${supabaseUrl}|${data.realtime.channel}`;
+
+    if (realtimeKey !== lastRealtimeKey) {
+      lastRealtimeKey = realtimeKey;
+      realtimeManager.configure({
+        supabaseUrl,
+        apikey:    data.realtime.apikey,
+        channel:   data.realtime.channel,
+        onCommand: (event, payload) => {
+          mainWindow?.webContents.send('realtime-cmd', { event, payload });
+          if (event === 'content.sync') syncManager.forceSync();
+        },
+        onStatus: (connected) => {
+          mainWindow?.webContents.send('realtime-status', { connected });
+        },
+      });
+    }
   }
 
   // CAS sync — download missing assets in background
@@ -166,6 +174,7 @@ ipcMain.handle('save-config', (_e, cfg) => {
   config.setAll(cfg);
   syncManager.stop();
   realtimeManager.disconnect();
+  lastRealtimeKey = '';          // force reconnect with new credentials
   if (config.isConfigured()) startPlayer();
   return { ok: true };
 });
