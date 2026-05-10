@@ -53,19 +53,27 @@ Deno.serve(async (req) => {
   let logBatch: LogEntry[] = [];
   let shadowReported: Record<string, unknown> | null = null;
   let projectEtag: string | null = null;
+  // disk_status: CAS sync-engine telemetry from Android DownloadService
+  let diskStatus: Record<string, unknown> | null = null;
   try {
     const body = await req.json();
     if (Array.isArray(body?.log_batch))                      logBatch       = body.log_batch.slice(0, 200);
     if (body?.reported && typeof body.reported === "object") shadowReported = body.reported;
     if (typeof body?.project_etag === "string")              projectEtag    = body.project_etag;
+    if (body?.disk_status && typeof body.disk_status === "object") diskStatus = body.disk_status;
   } catch { /* empty body ok */ }
 
-  // ── Heartbeat ───────────────────────────────────────────────────────────
+  // ── Heartbeat + optional disk_status telemetry ─────────────────────────
   await admin.from("screens").update({
-    last_ping_at: now.toISOString(),
-    online:       true,
-    status:       "online",
-    updated_at:   now.toISOString(),
+    last_ping_at:    now.toISOString(),
+    online:          true,
+    status:          "online",
+    updated_at:      now.toISOString(),
+    // Include disk_status only when the player sent it (avoids nulling existing data)
+    ...(diskStatus !== null ? {
+      disk_status:    diskStatus,
+      disk_status_at: now.toISOString(),
+    } : {}),
   }).eq("id", screenId);
 
   // ── Playback log batch ──────────────────────────────────────────────────
