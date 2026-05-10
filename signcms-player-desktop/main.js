@@ -308,12 +308,26 @@ ipcMain.on('update-software', () => {
       if (code2 !== 0) { send('Build failed', true, false); return; }
       send('Installing to /Applications and relaunching…');
 
-      // Write a detached helper that waits for this process to exit,
-      // copies the new .app over the old one, then opens it.
+      // Write a detached helper that safely replaces the installed .app.
+      //
+      // WHY NOT  cp -Rf src dst  directly?
+      // macOS cp -R: if dst already exists as a directory it copies src *inside*
+      // dst (creating dst/SignCMS Player.app/), leaving a broken nested bundle.
+      //
+      // Safe strategy:
+      //   1. cp to a temp path first  (if this fails, original is untouched)
+      //   2. rm old bundle
+      //   3. mv temp → final path     (atomic on same filesystem)
+      //   4. open
+      const tempPath = installDir + '.new';
       const script = [
         '#!/bin/bash',
+        'set -e',                                   // abort on any error
         'sleep 2',
-        `cp -Rf "${newAppPath}" "${installDir}"`,
+        `rm -rf "${tempPath}"`,                     // clear any leftover temp
+        `cp -R "${newAppPath}" "${tempPath}"`,      // copy to temp (verify complete)
+        `rm -rf "${installDir}"`,                   // remove old bundle
+        `mv "${tempPath}" "${installDir}"`,         // atomic move into place
         `open "${installDir}"`,
         'rm -- "$0"',
       ].join('\n') + '\n';
