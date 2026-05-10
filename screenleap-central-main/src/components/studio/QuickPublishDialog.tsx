@@ -365,7 +365,10 @@ export function QuickPublishDialog({
       const channelScreens   = screenList.filter((s) => subMap.has(s.id));
       const noChannelScreens = screenList.filter((s) => !subMap.has(s.id) && !directScreens.includes(s));
 
-      if (channelScreens.length === 0) {
+      // Only bail when there is truly nothing to do — no channel screens AND
+      // no directly-updated screens (e.g. all screens had no subscription and
+      // scheduleType is not "now").
+      if (channelScreens.length === 0 && directScreens.length === 0) {
         toast.error("無法取得或建立頻道，請重試");
         return;
       }
