@@ -6,6 +6,7 @@ import { Loader2, ArrowLeft, Pause, Play, SkipForward, Volume2, VolumeX, Maximiz
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useScreenLicenseStatus } from "@/hooks/useScreenLicenseStatus";
+import { DesignStage } from "@/components/player/DesignStage";
 
 interface BgmTrack {
   id: string;
@@ -24,6 +25,7 @@ interface PlaylistItem {
   media_url: string;
   // For design-project items: BGM override embedded in the project's zones[0]._meta.
   design_project_id?: string | null;
+  design_zones?: unknown[];
   design_bgm_tracks?: BgmTrack[];
   design_bgm_volume?: number | null;
   design_bgm_audio_source?: string | null;
@@ -211,6 +213,7 @@ export default function PlayerPage() {
       media_type: "design",
       media_url: "",
       design_project_id: rule.target_design_project_id,
+      design_zones: dp.zones as unknown[] | undefined,
       design_bgm_tracks: bgm.tracks,
       design_bgm_volume: bgm.volume,
       design_bgm_audio_source: bgm.audioSource,
@@ -444,6 +447,7 @@ export default function PlayerPage() {
               media_type: "design",
               media_url: "",
               design_project_id: it.design_project_id,
+              design_zones: dp?.zones as unknown[] | undefined,
               design_bgm_tracks: bgm.tracks,
               design_bgm_volume: bgm.volume,
               design_bgm_audio_source: bgm.audioSource,
@@ -781,20 +785,32 @@ export default function PlayerPage() {
             onError={advance}
           />
         ) : currentItem.media_type === "design" ? (
-          <div
-            key={currentItem.id}
-            className="flex flex-col items-center justify-center gap-3 text-center px-8 text-foreground"
-          >
-            <div className="w-16 h-16 rounded-2xl bg-primary/15 flex items-center justify-center">
-              <Music className="w-8 h-8 text-primary" />
+          currentItem.design_project_id && currentItem.design_zones ? (
+            <DesignStage
+              key={currentItem.id}
+              project={{
+                id: currentItem.design_project_id,
+                name: currentItem.media_name,
+                zones: currentItem.design_zones,
+              }}
+              resolveMediaUrl={() => null}
+              muted={muted}
+              playing={!paused}
+            />
+          ) : (
+            <div
+              key={currentItem.id}
+              className="flex flex-col items-center justify-center gap-3 text-center px-8 text-foreground"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-primary/15 flex items-center justify-center">
+                <Music className="w-8 h-8 text-primary" />
+              </div>
+              <p className="text-lg font-semibold">{currentItem.media_name}</p>
+              <p className="text-xs text-muted-foreground">
+                {t("playerDesignProject") ?? "設計專案"}
+              </p>
             </div>
-            <p className="text-lg font-semibold">{currentItem.media_name}</p>
-            <p className="text-xs text-muted-foreground">
-              {t("playerDesignProject") ?? "設計專案"}
-              {(currentItem.design_bgm_tracks?.length ?? 0) > 0 &&
-                ` · BGM × ${currentItem.design_bgm_tracks!.length}`}
-            </p>
-          </div>
+          )
         ) : (
           <img
             key={currentItem.id}
