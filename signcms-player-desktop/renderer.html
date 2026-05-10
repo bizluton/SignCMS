@@ -401,6 +401,9 @@ function normaliseZones(zones) {
     //   designer format       → z.content.mediaItems
     const items = z.items ?? z.mediaItems ?? z.media_items ?? z.playlist
                ?? z.content?.mediaItems ?? z.content?.items ?? [];
+    // Zone-level fitMode (set via the designer toolbar) acts as a fallback
+    // for items that don't have their own per-item fitMode.
+    const zoneFitMode = z.fitMode ?? z.content?.fitMode ?? null;
     return {
       id:      z.id ?? `z${i}`,
       x:       normaliseCoord(x),
@@ -408,12 +411,14 @@ function normaliseZones(zones) {
       w:       normaliseSize(w),
       h:       normaliseSize(h),
       bgColor: z.bgColor ?? z.content?.bgColor ?? null,
-      items:   items.map(normaliseItem),
+      items:   items.map(item => normaliseItem(item, zoneFitMode)),
     };
   });
 }
 
-function normaliseItem(item) {
+// zoneFitMode: optional zone-level fitMode from z.content.fitMode, used as
+// fallback when an individual item doesn't carry its own fitMode.
+function normaliseItem(item, zoneFitMode = null) {
   const type = item.type ?? (item.url?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image');
 
   // Widgets: the playback URL is in widgetConfig.url, with optional query params
@@ -438,7 +443,8 @@ function normaliseItem(item) {
     // designer uses "duration"; legacy uses "dwell" / "dwell_seconds"
     dwell:   item.dwell ?? item.dwell_seconds ?? item.dwellSeconds ?? item.duration ?? 10,
     name:    item.name  ?? item.media_name ?? '',
-    fitMode: item.fitMode ?? 'contain',
+    // Priority: per-item fitMode → zone-level fitMode → designer default 'cover-x'
+    fitMode: item.fitMode ?? zoneFitMode ?? 'cover-x',
   };
 }
 
@@ -476,8 +482,13 @@ class ZonePlayer {
     const src = await this._resolveUrl(item);
 
     // fitMode → CSS object-fit
-    const fitCss = item.fitMode === 'stretch' ? 'fill'
-                 : item.fitMode === 'cover'   ? 'cover' : 'contain';
+    // Designer stores: 'cover-x' (橫向填滿) | 'cover-y' (直向填滿) |
+    //                  'contain' (完整顯示)  | 'stretch' (變形填滿)
+    const fitCss = item.fitMode === 'stretch'                                  ? 'fill'
+                 : item.fitMode === 'cover-x' || item.fitMode === 'cover-y' ||
+                   item.fitMode === 'cover'                                    ? 'cover'
+                 : item.fitMode === 'contain'                                  ? 'contain'
+                 :                                                               'cover'; // safe default
 
     if (item.type === 'widget') {
       // Widgets are rendered as sandboxed iframes
