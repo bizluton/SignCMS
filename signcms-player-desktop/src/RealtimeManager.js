@@ -55,7 +55,9 @@ class RealtimeManager {
 
       this._ws.on('message', (raw) => {
         try {
-          const [, , topic, event, payload] = JSON.parse(raw.toString());
+          // Supabase Realtime V1 serializer uses JSON map (object), not array
+          const msg = JSON.parse(raw.toString());
+          const { topic, event, payload } = msg;
           if (event === 'phx_reply' && payload?.status === 'ok') {
             this._connected = true;
             this._onStatus?.(true);
@@ -84,8 +86,9 @@ class RealtimeManager {
   }
 
   _send(joinRef, ref, topic, event, payload) {
+    // Supabase Realtime V1 serializer expects a JSON map, not a Phoenix array
     if (this._ws?.readyState === WebSocket.OPEN)
-      this._ws.send(JSON.stringify([joinRef, ref, topic, event, payload]));
+      this._ws.send(JSON.stringify({ join_ref: joinRef, ref, topic, event, payload }));
   }
 
   get connected() { return this._connected; }
