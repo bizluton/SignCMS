@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>SignCMS Player — Settings</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0f0f0f; color: #e0e0e0;
+  font-size: 13px; height: 100%;
+}
+
+.container { padding: 24px; max-width: 480px; margin: 0 auto; }
+
+h1 {
+  font-size: 16px; font-weight: 600; color: #fff;
+  margin-bottom: 4px;
+}
+.subtitle { color: #555; font-size: 11px; margin-bottom: 24px; }
+
+.section { margin-bottom: 20px; }
+.section-title {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
+  color: #555; margin-bottom: 10px;
+}
+
+.field { margin-bottom: 14px; }
+label  { display: block; color: #888; margin-bottom: 5px; }
+
+input[type="text"], input[type="url"], input[type="number"] {
+  width: 100%; padding: 8px 10px;
+  background: #1a1a1a; border: 1px solid #2a2a2a;
+  border-radius: 5px; color: #e0e0e0; font-size: 13px;
+  outline: none; transition: border-color .15s;
+}
+input:focus { border-color: #3b82f6; }
+
+.hint { font-size: 11px; color: #444; margin-top: 4px; }
+
+.toggle-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 0;
+}
+.toggle-row label { margin: 0; color: #ccc; }
+
+input[type="checkbox"] {
+  width: 16px; height: 16px; accent-color: #3b82f6; cursor: pointer;
+}
+
+.btn-row {
+  display: flex; gap: 10px; margin-top: 24px; justify-content: flex-end;
+}
+
+button {
+  padding: 8px 20px; border-radius: 5px; cursor: pointer;
+  font-size: 13px; font-weight: 500; border: none; transition: background .15s;
+}
+.btn-save   { background: #2563eb; color: #fff; }
+.btn-save:hover { background: #1d4ed8; }
+.btn-cancel { background: #1f2937; color: #9ca3af; border: 1px solid #374151; }
+.btn-cancel:hover { background: #374151; }
+
+.status {
+  margin-top: 14px; padding: 8px 12px;
+  border-radius: 5px; font-size: 12px;
+  display: none;
+}
+.status.ok    { background: #14532d33; color: #4ade80; border: 1px solid #16a34a44; }
+.status.error { background: #7f1d1d33; color: #f87171; border: 1px solid #dc262644; }
+
+.divider { border: none; border-top: 1px solid #1e1e1e; margin: 4px 0 16px; }
+
+.test-row { display: flex; gap: 8px; align-items: flex-end; }
+.test-row input { flex: 1; }
+.btn-test { padding: 8px 14px; background: #1f2937; color: #9ca3af; border: 1px solid #374151; white-space: nowrap; }
+.btn-test:hover { background: #374151; }
+#test-result { font-size: 11px; margin-top: 6px; color: #6b7280; min-height: 16px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Player Settings</h1>
+  <p class="subtitle">Configure the connection to your SignCMS server.</p>
+
+  <div class="section">
+    <div class="section-title">Server</div>
+
+    <div class="field">
+      <label>Server URL <span style="color:#555">(Supabase Edge Functions base)</span></label>
+      <div class="test-row">
+        <input type="url" id="serverUrl"
+          placeholder="https://xxxx.supabase.co/functions/v1">
+      </div>
+      <div class="hint">e.g. https://abcdefgh.supabase.co/functions/v1</div>
+    </div>
+
+    <div class="field">
+      <label>Device Token</label>
+      <input type="text" id="deviceToken" placeholder="Paste device token here" autocomplete="off">
+      <div class="hint">Found in SignCMS → Screens → this device → Device Token</div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-title">Sync</div>
+    <div class="field">
+      <label>Sync interval (seconds)</label>
+      <input type="number" id="syncInterval" min="5" max="300" value="30" style="width:100px">
+      <div class="hint">Default: 30 seconds. Minimum: 5 s.</div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
+    <div class="section-title">Test Connection</div>
+    <button class="btn-test" onclick="testConnection()" id="btn-test">Test Connection</button>
+    <div id="test-result"></div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn-cancel" onclick="window.close()">Cancel</button>
+    <button class="btn-save"   onclick="save()">Save &amp; Restart</button>
+  </div>
+
+  <div class="status" id="status"></div>
+</div>
+
+<script>
+'use strict';
+
+// Load current config
+(async () => {
+  const cfg = await window.player.getConfig();
+  if (!cfg) return;
+  if (cfg.serverUrl)     document.getElementById('serverUrl').value     = cfg.serverUrl;
+  if (cfg.deviceToken)   document.getElementById('deviceToken').value   = cfg.deviceToken;
+  if (cfg.syncIntervalMs) document.getElementById('syncInterval').value = cfg.syncIntervalMs / 1000;
+})();
+
+async function save() {
+  const serverUrl   = document.getElementById('serverUrl').value.trim().replace(/\/$/, '');
+  const deviceToken = document.getElementById('deviceToken').value.trim();
+  const intervalSec = parseInt(document.getElementById('syncInterval').value) || 30;
+
+  if (!serverUrl)   { showStatus('Server URL is required.', 'error'); return; }
+  if (!deviceToken) { showStatus('Device Token is required.', 'error'); return; }
+
+  const result = await window.player.saveConfig({
+    serverUrl,
+    deviceToken,
+    syncIntervalMs: Math.max(5, intervalSec) * 1000,
+  });
+
+  if (result?.ok) {
+    showStatus('Saved. Player restarted.', 'ok');
+    setTimeout(() => window.close(), 800);
+  } else {
+    showStatus('Failed to save.', 'error');
+  }
+}
+
+async function testConnection() {
+  const serverUrl   = document.getElementById('serverUrl').value.trim().replace(/\/$/, '');
+  const deviceToken = document.getElementById('deviceToken').value.trim();
+  const el          = document.getElementById('test-result');
+  const btn         = document.getElementById('btn-test');
+
+  if (!serverUrl || !deviceToken) {
+    el.textContent = 'Enter server URL and device token first.';
+    el.style.color  = '#f87171';
+    return;
+  }
+
+  btn.disabled    = true;
+  btn.textContent = 'Testing…';
+  el.textContent  = '';
+
+  const result = await window.player.testConnection({ serverUrl, deviceToken });
+  btn.disabled    = false;
+  btn.textContent = 'Test Connection';
+
+  if (result.ok) {
+    el.style.color  = '#4ade80';
+    el.textContent  = `✓ Connected — screen: "${result.screenName}", org: ${result.orgId}`;
+  } else {
+    el.style.color  = '#f87171';
+    el.textContent  = `✗ ${result.error}`;
+  }
+}
+
+function showStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent   = msg;
+  el.className     = `status ${type}`;
+  el.style.display = 'block';
+  if (type === 'ok') setTimeout(() => el.style.display = 'none', 3000);
+}
+</script>
+</body>
+</html>

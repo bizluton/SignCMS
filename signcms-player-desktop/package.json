@@ -1,0 +1,46 @@
+{
+  "name": "signcms-player-desktop",
+  "version": "1.0.0",
+  "description": "SignCMS Desktop Player — Windows / macOS testing & validation",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev":   "NODE_ENV=development electron .",
+    "build:win": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac --universal"
+  },
+  "build": {
+    "appId": "com.signcms.player.desktop",
+    "productName": "SignCMS Player",
+    "copyright": "Copyright © 2026 SignCMS",
+    "directories": { "output": "dist" },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.html",
+      "settings.html",
+      "src/**"
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "assets/icon.ico"
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["universal"] }],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.business"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true
+    }
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  }
+}

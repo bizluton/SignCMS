@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SignCMS Player</title>
+<style>
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #fff; font-family: system-ui, sans-serif; }
+
+/* ── Zone layout ── */
+#stage { position: absolute; inset: 0; }
+
+.zone {
+  position: absolute;
+  overflow: hidden;
+  background: #111;
+}
+.zone video, .zone img {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.zone video { object-fit: cover; }
+
+/* ── No-content splash ── */
+#splash {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: #0a0a0a;
+  gap: 16px;
+}
+#splash.hidden { display: none; }
+#splash h1 { font-size: 2rem; font-weight: 300; color: #fff; }
+#splash p  { color: #666; font-size: 0.9rem; }
+#splash .config-btn {
+  margin-top: 12px; padding: 10px 28px;
+  background: #2563eb; color: #fff; border: none;
+  border-radius: 6px; cursor: pointer; font-size: 0.9rem;
+}
+#splash .config-btn:hover { background: #1d4ed8; }
+
+/* ── Announcement overlay ── */
+#announcements {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,.85);
+  border-top: 2px solid #f59e0b;
+  padding: 10px 20px;
+  display: none;
+  z-index: 50;
+}
+#announcements h3 { font-size: .85rem; color: #f59e0b; text-transform: uppercase; letter-spacing: .08em; }
+#announcements p  { font-size: 1rem; margin-top: 4px; }
+
+/* ── HUD overlay (F1 or triple-click) ── */
+#hud {
+  position: fixed; top: 0; right: 0;
+  width: 340px;
+  background: rgba(0,0,0,.9);
+  border-left: 1px solid #333;
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px;
+  z-index: 100;
+  display: none;
+  font-size: 12px;
+}
+#hud.visible { display: block; }
+#hud h2 { font-size: 13px; font-weight: 600; color: #f0f0f0; margin-bottom: 12px; letter-spacing: .05em; }
+#hud .row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #222; }
+#hud .row .label { color: #888; }
+#hud .row .val   { color: #e0e0e0; text-align: right; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#hud .pill {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; margin-left: 4px;
+}
+#hud .pill.ok    { background: #16a34a22; color: #4ade80; }
+#hud .pill.warn  { background: #d9770622; color: #fb923c; }
+#hud .pill.error { background: #dc262622; color: #f87171; }
+#hud .pill.info  { background: #2563eb22; color: #60a5fa; }
+#hud .pill.grey  { background: #33333366; color: #9ca3af; }
+
+#hud .section-title { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; margin: 12px 0 4px; }
+
+#hud .btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+#hud button {
+  flex: 1; min-width: 80px; padding: 6px 10px;
+  background: #1f2937; border: 1px solid #374151;
+  color: #d1d5db; border-radius: 5px; cursor: pointer; font-size: 11px;
+}
+#hud button:hover { background: #374151; }
+
+#hud #log-container {
+  margin-top: 10px; max-height: 220px; overflow-y: auto;
+  font-size: 10px; color: #6b7280;
+  font-family: 'SF Mono', 'Cascadia Code', monospace;
+}
+#hud #log-container div { padding: 2px 0; border-bottom: 1px solid #111; }
+#hud #log-container .err { color: #f87171; }
+#hud #log-container .ok  { color: #4ade80; }
+
+#progress-bar {
+  position: fixed; top: 0; left: 0; right: 0; height: 3px;
+  background: transparent; z-index: 200;
+  pointer-events: none;
+}
+#progress-bar .fill {
+  height: 100%; width: 0%; background: #3b82f6;
+  transition: width .2s;
+}
+
+#hud-hint {
+  position: fixed; bottom: 8px; right: 8px;
+  font-size: 10px; color: #333; pointer-events: none;
+  z-index: 50;
+}
+</style>
+</head>
+<body>
+
+<div id="progress-bar"><div class="fill" id="pb-fill"></div></div>
+
+<!-- Content area -->
+<div id="stage"></div>
+
+<!-- No-content splash -->
+<div id="splash">
+  <h1>SignCMS Player</h1>
+  <p id="splash-msg">Connecting to server…</p>
+  <button class="config-btn" onclick="window.player.openSettings()">Open Settings</button>
+</div>
+
+<!-- Announcement overlay -->
+<div id="announcements">
+  <h3 id="ann-subject"></h3>
+  <p id="ann-content"></p>
+</div>
+
+<!-- HUD -->
+<div id="hud">
+  <h2>SignCMS HUD <span id="hud-ver" style="color:#555;font-weight:400"></span></h2>
+
+  <div class="section-title">Connection</div>
+  <div class="row"><span class="label">Server</span><span class="val" id="h-server">—</span></div>
+  <div class="row"><span class="label">Device Token</span><span class="val" id="h-token">—</span></div>
+  <div class="row"><span class="label">Screen</span><span class="val" id="h-screen">—</span></div>
+  <div class="row"><span class="label">Sync</span><span class="val" id="h-sync">—</span></div>
+  <div class="row"><span class="label">Realtime</span><span class="val" id="h-rt">—</span></div>
+
+  <div class="section-title">Content</div>
+  <div class="row"><span class="label">Channel</span><span class="val" id="h-channel">—</span></div>
+  <div class="row"><span class="label">Project</span><span class="val" id="h-project">—</span></div>
+  <div class="row"><span class="label">Last Sync</span><span class="val" id="h-last-sync">—</span></div>
+
+  <div class="section-title">CAS Cache</div>
+  <div class="row"><span class="label">Sync</span><span class="val" id="h-cas-pct">—</span></div>
+  <div class="row"><span class="label">Files</span><span class="val" id="h-cas-files">—</span></div>
+  <div class="row"><span class="label">Size on Disk</span><span class="val" id="h-cas-size">—</span></div>
+  <div class="row"><span class="label">Failures</span><span class="val" id="h-cas-fail">—</span></div>
+  <div class="row"><span class="label">Cache Dir</span><span class="val" id="h-cas-dir">—</span></div>
+
+  <div class="btn-row">
+    <button onclick="doForceSync()">Force Sync</button>
+    <button onclick="window.player.openSettings()">Settings</button>
+    <button onclick="refreshHud()">Refresh HUD</button>
+    <button onclick="doVerify()">Verify CAS</button>
+    <button onclick="window.player.openCasDir()">Open CAS Dir</button>
+  </div>
+
+  <div class="section-title">Event Log</div>
+  <div id="log-container"></div>
+</div>
+
+<div id="hud-hint">F1 — HUD</div>
+
+<script>
+'use strict';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let currentProject     = null;
+let currentAnnouncements = [];
+let annTimer           = null;
+let annIndex           = 0;
+let hudVisible         = false;
+let lastSyncTime       = null;
+let realtimeConnected  = false;
+let dlDone = 0, dlTotal = 0;
+
+const zonePlayers = new Map(); // zoneId → ZonePlayer
+
+// ── Startup ───────────────────────────────────────────────────────────────────
+(async () => {
+  const configured = await window.player.isConfigured();
+  if (!configured) {
+    setSplashMsg('Not configured — open Settings to begin.');
+    return;
+  }
+  setSplashMsg('Connecting to SignCMS…');
+})();
+
+function setSplashMsg(msg) {
+  document.getElementById('splash-msg').textContent = msg;
+}
+
+// ── SignCMS events ────────────────────────────────────────────────────────────
+window.addEventListener('__signSyncData', (e) => {
+  const data = e.detail;
+  lastSyncTime = new Date().toLocaleTimeString();
+  log(`Sync OK — ${data.screen?.name ?? '?'} / ${data.channel?.name ?? '—'}`, 'ok');
+
+  currentAnnouncements = data.announcements ?? [];
+  tickAnnouncement();
+
+  if (!data.project) {
+    setSplashMsg('No content assigned to this screen.');
+    return;
+  }
+
+  if (data.project.zones_changed !== false || !currentProject) {
+    currentProject = data.project;
+    renderProject(data.project);
+  }
+});
+
+window.addEventListener('__signSyncError', (e) => {
+  log(`Sync error: ${e.detail}`, 'err');
+  setSplashMsg(`Sync error: ${e.detail}`);
+});
+
+window.addEventListener('__signRealtimeCmd', (e) => {
+  const { event, payload } = e.detail;
+  log(`Realtime: ${event}`);
+  if (event === 'content.sync') window.player.forceSync();
+});
+
+window.addEventListener('__signRealtimeStatus', (e) => {
+  realtimeConnected = e.detail.connected;
+  if (hudVisible) updateHudStatus();
+});
+
+window.addEventListener('__signDownloadProgress', (e) => {
+  dlDone  = e.detail.done;
+  dlTotal = e.detail.total;
+  const pct = dlTotal > 0 ? dlDone / dlTotal : 0;
+  document.getElementById('pb-fill').style.width = (pct * 100) + '%';
+  if (dlDone >= dlTotal) setTimeout(() => {
+    document.getElementById('pb-fill').style.width = '0%';
+  }, 800);
+});
+
+window.addEventListener('__signCasReady', (e) => {
+  log(`CAS ready: ${e.detail.count}/${e.detail.total} files`);
+  if (currentProject) rerenderMediaSources();
+});
+
+window.addEventListener('__signVerifyProgress', (e) => {
+  const { checked, total, sha256, ok } = e.detail;
+  if (!ok) log(`Integrity FAIL: ${sha256.slice(0,16)}…`, 'err');
+  if (checked === total) log(`Integrity check done: ${checked} files`, 'ok');
+});
+
+// ── Keyboard shortcut ─────────────────────────────────────────────────────────
+let clickCount = 0, clickTimer = null;
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'F1') toggleHud();
+});
+document.addEventListener('click', () => {
+  clickCount++;
+  clearTimeout(clickTimer);
+  clickTimer = setTimeout(() => { clickCount = 0; }, 600);
+  if (clickCount >= 3) { clickCount = 0; toggleHud(); }
+});
+
+function toggleHud() {
+  hudVisible = !hudVisible;
+  document.getElementById('hud').classList.toggle('visible', hudVisible);
+  if (hudVisible) refreshHud();
+}
+
+// ── Zone rendering ────────────────────────────────────────────────────────────
+function renderProject(project) {
+  const stage  = document.getElementById('stage');
+  const splash = document.getElementById('splash');
+
+  // Destroy old zone players
+  zonePlayersClear();
+  stage.innerHTML = '';
+  splash.classList.add('hidden');
+
+  const zones = normaliseZones(project.zones);
+  if (!zones.length) {
+    splash.classList.remove('hidden');
+    setSplashMsg('Project has no zones.');
+    return;
+  }
+
+  for (const zone of zones) {
+    const div = document.createElement('div');
+    div.className   = 'zone';
+    div.id          = `zone-${zone.id}`;
+    div.style.left   = pct(zone.x);
+    div.style.top    = pct(zone.y);
+    div.style.width  = pct(zone.w);
+    div.style.height = pct(zone.h);
+    stage.appendChild(div);
+
+    const player = new ZonePlayer(div, zone.items ?? []);
+    zonePlayersAdd(zone.id, player);
+    player.start();
+  }
+}
+
+// When CAS download completes, swap CDN URLs for cas:// in running players
+async function rerenderMediaSources() {
+  for (const [, player] of zonePlayers) {
+    await player.refreshCurrentSource();
+  }
+}
+
+// ── Zones normalisation ───────────────────────────────────────────────────────
+// Handles both percentage (0-100) and fractional (0-1) coordinate systems,
+// as well as different key naming conventions from the CMS designer.
+function normaliseZones(zones) {
+  if (!zones) return [];
+  const arr = Array.isArray(zones) ? zones : (zones.zones ?? Object.values(zones));
+  return arr.map((z, i) => {
+    const x = coerce(z.x ?? z.left  ?? 0);
+    const y = coerce(z.y ?? z.top   ?? 0);
+    const w = coerce(z.w ?? z.width  ?? z.right  ?? 100);
+    const h = coerce(z.h ?? z.height ?? z.bottom ?? 100);
+    const items = z.items ?? z.mediaItems ?? z.media_items ?? z.playlist ?? [];
+    return {
+      id:    z.id ?? `z${i}`,
+      x: normaliseCoord(x, w),
+      y: normaliseCoord(y, h),
+      w: normaliseSize(w),
+      h: normaliseSize(h),
+      items: items.map(normaliseItem),
+    };
+  });
+}
+
+function normaliseItem(item) {
+  return {
+    id:    item.id   ?? null,
+    type:  item.type ?? (item.url?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image'),
+    url:   item.url  ?? item.src ?? '',
+    sha256: item.sha256 ?? null,
+    dwell: item.dwell ?? item.dwell_seconds ?? item.dwellSeconds ?? 10,
+    name:  item.name ?? item.media_name ?? '',
+  };
+}
+
+function coerce(v) { return typeof v === 'string' ? parseFloat(v) || 0 : (v ?? 0); }
+
+// If value > 1 assume it's already a percentage 0-100; else multiply by 100
+function normaliseCoord(v) { return v > 1 ? v : v * 100; }
+function normaliseSize(v)  { return v > 1 ? v : v * 100; }
+
+function pct(v) { return v + '%'; }
+
+// ── ZonePlayer ─────────────────────────────────────────────────────────────────
+class ZonePlayer {
+  constructor(el, items) {
+    this._el      = el;
+    this._items   = items;
+    this._index   = 0;
+    this._timer   = null;
+    this._media   = null;
+  }
+
+  start() {
+    if (!this._items.length) { this._el.style.background = '#111'; return; }
+    this._playIndex(0);
+  }
+
+  async _playIndex(i) {
+    if (!this._items.length) return;
+    this._index = i % this._items.length;
+    const item  = this._items[this._index];
+    clearTimeout(this._timer);
+    this._el.innerHTML = '';
+    this._media = null;
+
+    const src = await this._resolveUrl(item);
+
+    if (item.type === 'video') {
+      const vid = document.createElement('video');
+      vid.src      = src;
+      vid.autoplay = true;
+      vid.muted    = true;
+      vid.loop     = this._items.length === 1;
+      vid.playsInline = true;
+      vid.addEventListener('ended', () => {
+        this._logPlay(item);
+        this._next();
+      });
+      vid.addEventListener('error', () => this._next());
+      this._el.appendChild(vid);
+      this._media = vid;
+    } else {
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = item.name || '';
+      img.addEventListener('error', () => this._next());
+      this._el.appendChild(img);
+      this._media = img;
+      this._timer = setTimeout(() => {
+        this._logPlay(item);
+        this._next();
+      }, (item.dwell || 10) * 1000);
+    }
+  }
+
+  _next() {
+    this._playIndex((this._index + 1) % this._items.length);
+  }
+
+  async refreshCurrentSource() {
+    if (!this._media || !this._items.length) return;
+    const item = this._items[this._index];
+    const src  = await this._resolveUrl(item);
+    if (src !== this._media.src) this._media.src = src;
+  }
+
+  async _resolveUrl(item) {
+    if (item.sha256) {
+      const local = await window.player.getCachedUrl(item.url);
+      if (local) return local;
+    }
+    return item.url;
+  }
+
+  _logPlay(item) {
+    if (!item.id) return;
+    window.player.addLog(JSON.stringify({
+      media_id:         item.id,
+      duration_seconds: item.type === 'video' ? Math.round(this._media?.duration ?? 0) : item.dwell,
+    }));
+  }
+
+  destroy() {
+    clearTimeout(this._timer);
+    if (this._media) {
+      if (this._media.tagName === 'VIDEO') this._media.pause();
+      this._media.src = '';
+    }
+    this._el.innerHTML = '';
+  }
+}
+
+function zonePlayersAdd(id, p) { zonePlayersDestroy(id); zonePlayers.set(id, p); }
+function zonePlayersDestroy(id) { zonePlayers.get(id)?.destroy(); zonePlayers.delete(id); }
+function zonePlayersClear() { for (const id of zonePlayers.keys()) zonePlayersDestroy(id); }
+
+// ── Announcements ─────────────────────────────────────────────────────────────
+function tickAnnouncement() {
+  clearTimeout(annTimer);
+  const el = document.getElementById('announcements');
+  const now = Date.now();
+  const active = currentAnnouncements.filter(a => {
+    const s = a.start_at ? new Date(a.start_at).getTime() : 0;
+    const e = a.end_at   ? new Date(a.end_at).getTime()   : Infinity;
+    return now >= s && now <= e;
+  });
+  if (!active.length) { el.style.display = 'none'; return; }
+  const ann = active[annIndex % active.length];
+  document.getElementById('ann-subject').textContent = ann.subject ?? '';
+  document.getElementById('ann-content').textContent = ann.content ?? '';
+  el.style.display = 'block';
+  annIndex++;
+  annTimer = setTimeout(tickAnnouncement, (ann.dwell_seconds ?? 10) * 1000);
+}
+
+// ── HUD ───────────────────────────────────────────────────────────────────────
+async function refreshHud() {
+  const stats = await window.player.getCacheStats();
+  if (!stats) return;
+
+  set('h-server',  stats.serverUrl ?? '—');
+  set('h-token',   stats.deviceToken ?? '—');
+  set('h-screen',  stats.screenName ?? '—');
+  set('h-channel', stats.channelName ?? '—');
+  set('h-project', stats.projectName ?? '—');
+  set('h-last-sync', stats.lastSyncAt ? new Date(stats.lastSyncAt).toLocaleTimeString() : lastSyncTime ?? '—');
+  set('h-cas-files', `${stats.casFileCount} files`);
+  set('h-cas-size',  fmtBytes(stats.casTotalBytes));
+  set('h-cas-dir',   stats.casDirPath ?? '—');
+  set('h-cas-fail',  stats.manifestFailed > 0
+    ? `<span class="pill error">${stats.manifestFailed} failed</span>` : `<span class="pill ok">none</span>`);
+
+  const pct = stats.syncPct;
+  set('h-cas-pct', pct !== null
+    ? `<span class="pill ${pct === 100 ? 'ok' : 'warn'}">${pct}%</span>` : '—');
+
+  updateHudStatus();
+}
+
+function updateHudStatus() {
+  set('h-sync', lastSyncTime
+    ? `<span class="pill ok">last ${lastSyncTime}</span>`
+    : '<span class="pill grey">waiting</span>');
+  set('h-rt', realtimeConnected
+    ? '<span class="pill ok">connected</span>'
+    : '<span class="pill warn">disconnected</span>');
+  document.getElementById('hud-ver').textContent = 'v1.0.0';
+}
+
+function set(id, html) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = html;
+}
+
+function fmtBytes(b) {
+  if (!b) return '0 B';
+  const units = ['B','KB','MB','GB'];
+  let i = 0;
+  while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
+  return b.toFixed(1) + ' ' + units[i];
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────────
+function doForceSync() {
+  log('Force sync triggered…');
+  window.player.forceSync();
+}
+
+async function doVerify() {
+  log('Integrity check started…');
+  const res = await window.player.verifyIntegrity();
+  log(`Integrity check done: ${res.checked} checked, ${res.failed} failed`, res.failed > 0 ? 'err' : 'ok');
+}
+
+// ── Event log (HUD) ───────────────────────────────────────────────────────────
+const logLines = [];
+function log(msg, cls = '') {
+  const time = new Date().toLocaleTimeString();
+  logLines.unshift({ msg, cls, time });
+  if (logLines.length > 100) logLines.pop();
+  if (hudVisible) renderLog();
+}
+function renderLog() {
+  const c = document.getElementById('log-container');
+  c.innerHTML = logLines.slice(0, 40).map(l =>
+    `<div class="${l.cls}">${l.time} ${escHtml(l.msg)}</div>`
+  ).join('');
+}
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+
+</script>
+</body>
+</html>

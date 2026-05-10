@@ -1,0 +1,3 @@
+[submodule "signcms-player-android"]
+	path = signcms-player-android
+	url = https://github.com/bizluton/signcms-player-android.git
