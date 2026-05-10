@@ -237,7 +237,9 @@ ipcMain.on('open-cas-dir', () => shell.openPath(downloadService.casDir));
 
 // Restart / relaunch the full application
 ipcMain.on('restart-player', () => {
-  app.relaunch();
+  // app.relaunch works for packaged builds; for dev (electron .) it also works
+  // because execPath is the electron binary and argv contains the app path.
+  app.relaunch({ args: process.argv.slice(1) });
   app.exit(0);
 });
 
