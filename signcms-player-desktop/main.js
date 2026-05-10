@@ -235,6 +235,12 @@ ipcMain.handle('verify-integrity', async () => {
 // Open CAS directory in Finder/Explorer
 ipcMain.on('open-cas-dir', () => shell.openPath(downloadService.casDir));
 
+// Restart / relaunch the full application
+ipcMain.on('restart-player', () => {
+  app.relaunch();
+  app.exit(0);
+});
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function extractSha256(url) {
   if (!url) return null;

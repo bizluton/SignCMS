@@ -151,6 +151,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
     <button onclick="refreshHud()">Refresh HUD</button>
     <button onclick="doVerify()">Verify CAS</button>
     <button onclick="window.player.openCasDir()">Open CAS Dir</button>
+    <button onclick="doRestart()" style="background:#7f1d1d;border-color:#991b1b;color:#fca5a5;">Restart Player</button>
   </div>
 
   <div class="section-title">Event Log</div>
@@ -538,6 +539,11 @@ async function doVerify() {
   log('Integrity check started…');
   const res = await window.player.verifyIntegrity();
   log(`Integrity check done: ${res.checked} checked, ${res.failed} failed`, res.failed > 0 ? 'err' : 'ok');
+}
+
+function doRestart() {
+  log('Restarting player…', 'err');
+  setTimeout(() => window.player.restartPlayer(), 300);
 }
 
 // ── Event log (HUD) ───────────────────────────────────────────────────────────

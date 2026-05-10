@@ -34,6 +34,7 @@ contextBridge.exposeInMainWorld('player', {
   getCacheStats:   () => ipcRenderer.invoke('get-cache-stats'),
   verifyIntegrity: () => ipcRenderer.invoke('verify-integrity'),
   openCasDir:      () => ipcRenderer.send('open-cas-dir'),
+  restartPlayer:   () => ipcRenderer.send('restart-player'),
 
   getVersion: () => '1.0.0',
 });
