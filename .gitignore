@@ -1,0 +1,50 @@
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Node.js
+node_modules/
+npm-debug.log*
+dist/
+.npm/
+
+# Build artifacts
+*.tsbuildinfo
+*.class
+*.apk
+*.aab
+*.aar
+
+# Android build output
+signcms-player-android/app/build/
+signcms-player-android/.gradle/
+signcms-player-android/local.properties
+signcms-player-android/app/release/
+
+# Supabase CLI temp
+supabase/.temp/
+screenleap-central-main/supabase/.temp/
+
+# Claude session files
+.claude/
+**/.claude/
+
+# Zip archives
+*.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
