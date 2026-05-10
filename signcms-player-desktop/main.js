@@ -30,6 +30,9 @@ let currentManifest = [];
 // Track last realtime config — only (re)connect when channel or URL actually changes
 let lastRealtimeKey = '';
 
+// Track current aspect ratio lock ('16:9' | '9:16' | 'free')
+let aspectRatioLock = 'free';
+
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
   config          = new ConfigManager(app.getPath('userData'));
@@ -384,6 +387,23 @@ ipcMain.on('update-software', async () => {
     send(`✗ 更新失敗：${e.message}`, true, false);
   }
 });
+
+// Aspect ratio lock
+// Locks the main window to the given aspect ratio so it resizes proportionally.
+//   '16:9'  → landscape (16/9 ≈ 1.778)
+//   '9:16'  → portrait  (9/16 = 0.5625)
+//   'free'  → release lock (pass 0)
+ipcMain.on('set-aspect-ratio', (_e, ratio) => {
+  aspectRatioLock = ratio;
+  if (!mainWindow) return;
+  switch (ratio) {
+    case '16:9': mainWindow.setAspectRatio(16 / 9); break;
+    case '9:16': mainWindow.setAspectRatio(9  / 16); break;
+    default:     mainWindow.setAspectRatio(0);        break;
+  }
+});
+
+ipcMain.handle('get-aspect-ratio', () => aspectRatioLock);
 
 // Restart / relaunch the full application
 ipcMain.on('restart-player', () => {

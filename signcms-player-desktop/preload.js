@@ -37,6 +37,10 @@ contextBridge.exposeInMainWorld('player', {
   restartPlayer:   () => ipcRenderer.send('restart-player'),
   updateSoftware:  () => ipcRenderer.send('update-software'),
 
+  // Aspect ratio window lock
+  setAspectRatio: (ratio) => ipcRenderer.send('set-aspect-ratio', ratio),
+  getAspectRatio: ()      => ipcRenderer.invoke('get-aspect-ratio'),
+
   getVersion: () => '1.0.0',
 });
 
