@@ -37,20 +37,35 @@ app.whenReady().then(() => {
   syncManager     = new PlayerSyncManager();
   realtimeManager = new RealtimeManager();
 
-  // Fix Content-Type for Supabase Storage HTML files (served as text/plain / octet-stream).
-  // Without this, iframes displaying widget .html files show raw HTML source instead of
-  // rendering the page.
+  // Patch response headers for Supabase Storage HTML widget files.
+  //
+  // Problems solved:
+  // 1. Content-Type: Supabase Storage serves .html as text/plain / octet-stream,
+  //    causing iframes to show raw source instead of rendering.
+  // 2. Content-Security-Policy: Storage CSP headers restrict fetch() inside the
+  //    widget iframe, preventing announcements from loading (black slide area).
+  // 3. X-Frame-Options: Some CDN configs include DENY/SAMEORIGIN, blocking iframes.
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    if (/\.html(\?.*)?$/i.test(details.url)) {
-      const headers = { ...(details.responseHeaders ?? {}) };
-      const ctKey   = Object.keys(headers).find(k => k.toLowerCase() === 'content-type') ?? 'Content-Type';
-      const ctVal   = (headers[ctKey] ?? []).join('').toLowerCase();
-      if (!ctVal.includes('text/html')) {
-        headers[ctKey] = ['text/html; charset=utf-8'];
-        return callback({ responseHeaders: headers });
+    if (!/\.html(\?.*)?$/i.test(details.url)) { callback({}); return; }
+
+    const headers = { ...(details.responseHeaders ?? {}) };
+
+    // Fix Content-Type
+    const ctKey = Object.keys(headers).find(k => k.toLowerCase() === 'content-type') ?? 'Content-Type';
+    const ctVal = (headers[ctKey] ?? []).join('').toLowerCase();
+    if (!ctVal.includes('text/html')) headers[ctKey] = ['text/html; charset=utf-8'];
+
+    // Remove headers that restrict the widget's ability to make fetch requests
+    for (const key of Object.keys(headers)) {
+      const kl = key.toLowerCase();
+      if (kl === 'content-security-policy' ||
+          kl === 'content-security-policy-report-only' ||
+          kl === 'x-frame-options') {
+        delete headers[key];
       }
     }
-    callback({});
+
+    callback({ responseHeaders: headers });
   });
 
   // Serve CAS files via  cas://<sha256>
