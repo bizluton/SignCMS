@@ -255,10 +255,13 @@ ipcMain.handle('verify-integrity', async () => {
 // Open CAS directory in Finder/Explorer
 ipcMain.on('open-cas-dir', () => shell.openPath(downloadService.casDir));
 
-// Update software: git pull → npm run build:mac → open dist/
+// Update software: git pull → build → auto-install to /Applications → relaunch
 ipcMain.on('update-software', () => {
-  const srcDir = path.join(os.homedir(), 'Documents', 'GitHub', 'SignCMS', 'signcms-player-desktop');
-  const env    = {
+  const srcDir     = path.join(os.homedir(), 'Documents', 'GitHub', 'SignCMS', 'signcms-player-desktop');
+  const newAppPath = path.join(srcDir, 'dist', 'mac-universal', 'SignCMS Player.app');
+  const installDir = '/Applications/SignCMS Player.app';
+  const helperPath = '/tmp/signcms_update.sh';
+  const env        = {
     ...process.env,
     PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:' + (process.env.PATH || ''),
   };
@@ -268,7 +271,6 @@ ipcMain.on('update-software', () => {
   }
 
   send('── git pull ──────────────────────');
-
   const pull = spawn('git', ['pull'], { cwd: srcDir, env });
   pull.stdout.on('data', (d) => send(d.toString()));
   pull.stderr.on('data', (d) => send(d.toString()));
@@ -280,8 +282,25 @@ ipcMain.on('update-software', () => {
     build.stderr.on('data', (d) => send(d.toString()));
     build.on('close', (code2) => {
       if (code2 !== 0) { send('Build failed', true, false); return; }
-      send('Build complete — opening dist/', true, true);
-      shell.openPath(path.join(srcDir, 'dist'));
+      send('Installing to /Applications and relaunching…');
+
+      // Write a detached helper that waits for this process to exit,
+      // copies the new .app over the old one, then opens it.
+      const script = [
+        '#!/bin/bash',
+        'sleep 2',
+        `cp -Rf "${newAppPath}" "${installDir}"`,
+        `open "${installDir}"`,
+        'rm -- "$0"',
+      ].join('\n') + '\n';
+
+      fs.writeFileSync(helperPath, script, { mode: 0o755 });
+
+      const helper = spawn('bash', [helperPath], { detached: true, stdio: 'ignore' });
+      helper.unref();
+
+      send('Done — relaunching…', true, true);
+      setTimeout(() => app.exit(0), 600);
     });
   });
 });
