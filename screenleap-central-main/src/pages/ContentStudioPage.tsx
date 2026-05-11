@@ -6138,9 +6138,14 @@ export default function ContentStudioPage() {
       p.id === activePageId ? { ...p, zones, overlays } : p
     );
     const outputPagesSnapshot = { ...outputPages, [ao]: aoPagesSnapshot };
+    // Capture current display-canvas pixel size so the player can convert overlay
+    // absolute-pixel coords (stored relative to this canvas) back to percentages.
+    const _canvasRect = canvasRef.current?.getBoundingClientRect();
     const metaEntry = {
       _meta: true,
       resolution: { id: resolution.id, width: resolution.width, height: resolution.height },
+      displayW: _canvasRect ? Math.round(_canvasRect.width)  : undefined,
+      displayH: _canvasRect ? Math.round(_canvasRect.height) : undefined,
       bgm: { items: bgmItems, volume: bgmVolume, audioSource: bgmAudioSource },
       // New multi-output format
       outputPages: Object.fromEntries(

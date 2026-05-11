@@ -1,7 +1,8 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, protocol, shell, Menu, session } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, shell, Menu, session, net } = require('electron');
 const path           = require('path');
 const fs             = require('fs');
+const crypto         = require('crypto');
 const { spawn }      = require('child_process');
 const os             = require('os');
 
@@ -10,18 +11,23 @@ const DownloadService  = require('./src/DownloadService');
 const PlayerSyncManager = require('./src/PlayerSyncManager');
 const RealtimeManager  = require('./src/RealtimeManager');
 
-// ── Register CAS protocol before app ready ────────────────────────────────────
-// Allows renderer to use  cas://<sha256>  for downloaded assets.
-protocol.registerSchemesAsPrivileged([{
-  scheme: 'cas',
-  privileges: { secure: true, supportFetchAPI: true, corsEnabled: false, stream: true },
-}]);
+// ── Register custom protocols before app ready ────────────────────────────────
+// cas://   — locally cached media assets (keyed by SHA-256 of content)
+// widget:// — locally cached widget HTML files (keyed by SHA-256 of base URL)
+//   widget://  iframes get supportFetchAPI so they can call Supabase realtime.
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'cas',    privileges: { secure: true, supportFetchAPI: true, corsEnabled: false, stream: true }},
+  { scheme: 'widget', privileges: { secure: true, supportFetchAPI: true, corsEnabled: false }},
+]);
 
 // ── Singletons ────────────────────────────────────────────────────────────────
 let config;
 let downloadService;
 let syncManager;
 let realtimeManager;
+
+// Widget HTML cache — populated during sync, served via widget:// scheme
+let widgetCacheDir = null;   // set after app ready (userData path not available before)
 
 let mainWindow    = null;
 let settingsWindow = null;
@@ -39,6 +45,10 @@ app.whenReady().then(() => {
   downloadService = new DownloadService(app.getPath('userData'));
   syncManager     = new PlayerSyncManager();
   realtimeManager = new RealtimeManager();
+
+  // ── Widget HTML cache directory ──────────────────────────────────────────────
+  widgetCacheDir = path.join(app.getPath('userData'), 'widgets');
+  if (!fs.existsSync(widgetCacheDir)) fs.mkdirSync(widgetCacheDir, { recursive: true });
 
   // Patch response headers for Supabase Storage HTML widget files.
   //
@@ -75,6 +85,26 @@ app.whenReady().then(() => {
   protocol.registerFileProtocol('cas', (req, cb) => {
     const sha256 = decodeURIComponent(req.url.replace('cas://', '').replace(/\/$/, ''));
     cb({ path: downloadService.casPath(sha256) });
+  });
+
+  // Serve locally cached widget HTML via  widget://<urlHash>[?params]
+  // The hash is SHA-256 of the base widget URL (without query params).
+  // Query params (orgId, ttsLang, …) are transparently forwarded by the protocol
+  // and accessible inside the iframe via  new URLSearchParams(location.search).
+  protocol.registerBufferProtocol('widget', (req, cb) => {
+    try {
+      const urlObj    = new URL(req.url);
+      const cacheKey  = urlObj.hostname;           // sha256 hex is the hostname part
+      const cachePath = path.join(widgetCacheDir, cacheKey);
+      if (fs.existsSync(cachePath)) {
+        const data = fs.readFileSync(cachePath);
+        cb({ mimeType: 'text/html', data });
+      } else {
+        cb({ error: -6 }); // net::ERR_FILE_NOT_FOUND → renderer falls back to network URL
+      }
+    } catch {
+      cb({ error: -6 });
+    }
   });
 
   createMainWindow();
@@ -187,6 +217,9 @@ async function handleSyncResponse(data) {
   const manifest = data.project?.asset_manifest ?? [];
   currentManifest = manifest;
 
+  // Widget HTML cache — fire-and-forget, never blocks sync
+  syncWidgets(extractWidgetUrls(data.project?.zones ?? []));
+
   if (manifest.length === 0) return;
 
   downloadService.setProgressCallback((done, total, sha256) => {
@@ -204,7 +237,68 @@ async function handleSyncResponse(data) {
   }
 }
 
+// ── Widget cache helpers ───────────────────────────────────────────────────────
+
+// Well-known system widget base URLs — always pre-cached regardless of zone content
+const SYSTEM_WIDGET_URLS = [
+  'https://narhbpojjtnalyfiwxue.supabase.co/storage/v1/object/public/system-widgets/queue_display/index.html',
+  'https://narhbpojjtnalyfiwxue.supabase.co/storage/v1/object/public/system-widgets/announcement_board/index.html',
+];
+
+// Scan flat zones array (from sync data) for widget URLs to cache.
+// Includes SYSTEM_WIDGET_URLS so they're pre-warmed even on first run.
+function extractWidgetUrls(zones) {
+  const urls = new Set(SYSTEM_WIDGET_URLS);
+  if (!Array.isArray(zones)) return urls;
+  for (const z of zones) {
+    if (!z || z._meta) continue;
+    const items = z.content?.mediaItems ?? z.items ?? [];
+    for (const item of items) {
+      if (item.type === 'widget') {
+        const u = item.widgetConfig?.url || item.url;
+        if (u && u.startsWith('http')) urls.add(u.split('?')[0]);
+      }
+    }
+  }
+  return urls;
+}
+
+// Caches each widget base URL once per hour.
+// Uses SHA-256 of the URL as the filename (widget://<hash>).
+async function syncWidgets(urlSet) {
+  if (!widgetCacheDir) return;
+  for (const baseUrl of urlSet) {
+    const cacheKey  = crypto.createHash('sha256').update(baseUrl).digest('hex');
+    const cachePath = path.join(widgetCacheDir, cacheKey);
+    // Skip if cached within the last hour
+    try {
+      const { mtimeMs } = fs.statSync(cachePath);
+      if (Date.now() - mtimeMs < 3_600_000) continue;
+    } catch { /* not cached yet */ }
+    try {
+      const resp = await net.fetch(baseUrl);
+      if (resp.ok) {
+        const text = await resp.text();
+        fs.writeFileSync(cachePath, text, 'utf8');
+        console.log('[Widget] cached', baseUrl.split('/').pop(), '→', cacheKey.slice(0, 12));
+      }
+    } catch (e) {
+      console.warn('[Widget] cache failed:', baseUrl, e.message);
+    }
+  }
+}
+
 // ── IPC handlers ──────────────────────────────────────────────────────────────
+
+// Widget cache: renderer passes the base URL, gets back a widget:// URL or null
+ipcMain.handle('get-widget-url', (_e, baseUrl) => {
+  if (!widgetCacheDir || !baseUrl) return null;
+  try {
+    const cacheKey  = crypto.createHash('sha256').update(baseUrl.split('?')[0]).digest('hex');
+    const cachePath = path.join(widgetCacheDir, cacheKey);
+    return fs.existsSync(cachePath) ? `widget://${cacheKey}` : null;
+  } catch { return null; }
+});
 
 // Config
 ipcMain.handle('get-config',    () => config.getAll());

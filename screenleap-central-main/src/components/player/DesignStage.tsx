@@ -628,6 +628,14 @@ export function DesignStage({ project, resolveMediaUrl, muted, playing }: Design
   const { w: canvasW, h: canvasH } = useMemo(() => readMeta(project.zones), [project]);
   const { zones, overlays } = useMemo(() => splitZones(project.zones), [project]);
 
+  // Overlay coords are stored in display-canvas pixels (designer caps preview height at 540 px).
+  // Compute the reference frame so we can convert px → % for canvas-relative positioning.
+  //   overlayRefH = 540  (matches ContentStudioPage maxH)
+  //   overlayRefW = 540 × (canvasW / canvasH)  →  960 for 4K 16:9
+  const overlayRefH = 540;
+  const overlayRefW = Math.round(overlayRefH * canvasW / canvasH);
+
+  // Fit canvas to wrapper while preserving aspect ratio.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
@@ -676,16 +684,16 @@ export function DesignStage({ project, resolveMediaUrl, muted, playing }: Design
             />
           </div>
         ))}
-        {/* Overlays (px positioning relative to canvas) */}
+        {/* Overlays — coords are in display-canvas px, convert to % of the full canvas */}
         {overlays.map((o) => (
           <div
             key={`o-${o.id}`}
             className="absolute overflow-hidden"
             style={{
-              left: o.x,
-              top: o.y,
-              width: o.w,
-              height: o.h,
+              left:   `${(o.x / overlayRefW) * 100}%`,
+              top:    `${(o.y / overlayRefH) * 100}%`,
+              width:  `${(o.w / overlayRefW) * 100}%`,
+              height: `${(o.h / overlayRefH) * 100}%`,
               opacity: typeof o.opacity === "number" ? o.opacity / 100 : 1,
               zIndex: typeof o.zIndex === "number" ? o.zIndex : 10,
             }}

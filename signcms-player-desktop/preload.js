@@ -14,6 +14,11 @@ contextBridge.exposeInMainWorld('player', {
   // Returns a  cas://<sha256>  URL if the file is on disk, otherwise null.
   getCachedUrl: (url) => ipcRenderer.invoke('get-cached-url', url),
 
+  // ── Widget HTML cache lookup ─────────────────────────────────────────────────
+  // Returns a  widget://<urlHash>  URL if the HTML is locally cached, else null.
+  // Pass the base URL only (no query params); caller appends params before use.
+  getWidgetUrl: (baseUrl) => ipcRenderer.invoke('get-widget-url', baseUrl),
+
   // ── Playback log ────────────────────────────────────────────────────────────
   // Only media_id + duration — matches Android contract (no media_name from renderer)
   addLog: (jsonStr) => {

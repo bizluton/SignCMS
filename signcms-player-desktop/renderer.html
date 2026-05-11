@@ -17,12 +17,13 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
   overflow: hidden;
   background: #111;
 }
-.zone video, .zone img {
+/* Default display for zone media — specific fit modes are set via inline styles */
+.zone video, .zone img { display: block; }
+.zone video {
+  position: absolute; inset: 0;
   width: 100%; height: 100%;
-  object-fit: contain;
-  display: block;
+  object-fit: cover;
 }
-.zone video { object-fit: cover; }
 
 /* ── No-content splash ── */
 #splash {
@@ -179,6 +180,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
 // ── State ─────────────────────────────────────────────────────────────────────
 let currentProject       = null;
 let currentDefaultMediaId = null;
+let currentOrgId         = null;   // set from data.screen.org_id on each sync
 let hudVisible           = false;
 let lastSyncTime         = null;
 let realtimeConnected    = false;
@@ -207,7 +209,8 @@ function setSplashMsg(msg) {
 // ── SignCMS events ────────────────────────────────────────────────────────────
 window.addEventListener('__signSyncData', (e) => {
   const data = e.detail;
-  lastSyncTime = new Date().toLocaleTimeString();
+  lastSyncTime  = new Date().toLocaleTimeString();
+  currentOrgId  = data.screen?.org_id ?? null;   // needed for widget URL fallback
   log(`Sync OK — ${data.screen?.name ?? '?'} / ${data.channel?.name ?? '—'}`, 'ok');
 
   // Auto-detect aspect ratio from screen resolution settings (only if not manually set).
@@ -402,6 +405,14 @@ function normaliseZones(zones) {
   const canvasW = meta?.resolution?.width  ?? 1920;
   const canvasH = meta?.resolution?.height ?? 1080;
 
+  // Overlay coordinates are stored in CSS pixels of the designer's display canvas.
+  // The designer caps preview canvas height at 540 px, so the reference frame is:
+  //   overlayRefH = 540
+  //   overlayRefW = 540 × (canvasW / canvasH)  →  960 for 4K 16:9 (3840×2160)
+  // (If the designer later stores explicit displayW/displayH in _meta, prefer those.)
+  const overlayRefH = meta?.displayH ?? 540;
+  const overlayRefW = meta?.displayW ?? Math.round(overlayRefH * canvasW / canvasH);
+
   // Filter out the _meta config object the designer embeds as the first element
   const realZones = arr.filter(z => z && typeof z === 'object' && !z._meta && z.id);
   return realZones.map((z, i) => {
@@ -416,11 +427,11 @@ function normaliseZones(zones) {
 
     let x, y, w, h;
     if (z._overlay) {
-      // Overlay coordinates are absolute pixels on the canvas — convert to %
-      x = (coerce(z.x ?? 0)              / canvasW) * 100;
-      y = (coerce(z.y ?? 0)              / canvasH) * 100;
-      w = (coerce(z.w ?? z.width  ?? 0)  / canvasW) * 100;
-      h = (coerce(z.h ?? z.height ?? 0)  / canvasH) * 100;
+      // Overlay coords are in display-canvas px (designer caps height at 540 px) → convert to %
+      x = (coerce(z.x ?? 0)              / overlayRefW) * 100;
+      y = (coerce(z.y ?? 0)              / overlayRefH) * 100;
+      w = (coerce(z.w ?? z.width  ?? 0)  / overlayRefW) * 100;
+      h = (coerce(z.h ?? z.height ?? 0)  / overlayRefH) * 100;
     } else {
       x = normaliseCoord(coerce(z.x ?? z.left  ?? 0));
       y = normaliseCoord(coerce(z.y ?? z.top   ?? 0));
@@ -455,6 +466,31 @@ function normaliseItem(item, zoneFitMode = null) {
       }
       url = u.toString();
     } catch { url = item.widgetConfig.url; }
+  }
+
+  // Fallback: widget has no stored URL (e.g. older zone saved before URL was in catalog).
+  // Reconstruct from _catalogType + screen org_id captured at sync time.
+  if (type === 'widget' && !url) {
+    const CATALOG_URLS = {
+      'queue-display': 'https://narhbpojjtnalyfiwxue.supabase.co/storage/v1/object/public/system-widgets/queue_display/index.html',
+    };
+    const catalogType = item.widgetConfig?._catalogType ?? item.widgetConfig?.widgetType ?? '';
+    const baseUrl = CATALOG_URLS[catalogType];
+    if (baseUrl) {
+      try {
+        const u   = new URL(baseUrl);
+        const cfg = item.widgetConfig ?? {};
+        // org-scoped params come from the screen's org, not the saved config
+        if (currentOrgId)              u.searchParams.set('orgId',        currentOrgId);
+        // config-level overrides saved inside widgetConfig
+        if (cfg.ttsLang      != null)  u.searchParams.set('ttsLang',      String(cfg.ttsLang));
+        if (cfg.cycleSeconds != null)  u.searchParams.set('cycleSeconds', String(cfg.cycleSeconds));
+        if (cfg.bgColor      != null)  u.searchParams.set('bgColor',      String(cfg.bgColor));
+        if (cfg.textColor    != null)  u.searchParams.set('textColor',    String(cfg.textColor));
+        if (cfg.accentColor  != null)  u.searchParams.set('accentColor',  String(cfg.accentColor));
+        url = u.toString();
+      } catch { /* leave url empty */ }
+    }
   }
 
   return {
@@ -503,14 +539,12 @@ class ZonePlayer {
 
     const src = await this._resolveUrl(item);
 
-    // fitMode → CSS object-fit
+    // fitMode → CSS object-fit (for VIDEO only; images use per-mode absolute CSS below)
     // Designer stores: 'cover-x' (橫向填滿) | 'cover-y' (直向填滿) |
     //                  'contain' (完整顯示)  | 'stretch' (變形填滿)
-    const fitCss = item.fitMode === 'stretch'                                  ? 'fill'
-                 : item.fitMode === 'cover-x' || item.fitMode === 'cover-y' ||
-                   item.fitMode === 'cover'                                    ? 'cover'
-                 : item.fitMode === 'contain'                                  ? 'contain'
-                 :                                                               'cover'; // safe default
+    const fitCss = item.fitMode === 'stretch'  ? 'fill'
+                 : item.fitMode === 'contain'   ? 'contain'
+                 :                               'cover'; // cover-x / cover-y / default → cover
 
     if (item.type === 'widget') {
       // Widgets are rendered as sandboxed iframes
@@ -548,10 +582,35 @@ class ZonePlayer {
       this._media = vid;
     } else {
       const img = document.createElement('img');
-      img.src             = src;
-      img.alt             = item.name || '';
-      img.style.objectFit = fitCss;
+      img.src = src;
+      img.alt = item.name || '';
       img.addEventListener('error', () => this._next());
+
+      // Apply the correct CSS for each designer fitMode value.
+      // .zone has position:absolute + overflow:hidden so children can use
+      // absolute positioning relative to the zone container.
+      switch (item.fitMode) {
+        case 'cover-x':
+          // 橫向填滿 — fill width, height proportional, centre vertically
+          img.style.cssText = 'position:absolute;left:0;top:50%;width:100%;height:auto;transform:translateY(-50%);display:block;';
+          break;
+        case 'cover-y':
+          // 直向填滿 — fill height, width proportional, centre horizontally
+          img.style.cssText = 'position:absolute;top:0;left:50%;height:100%;width:auto;transform:translateX(-50%);display:block;';
+          break;
+        case 'contain':
+          // 完整顯示
+          img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;';
+          break;
+        case 'stretch':
+          // 變形填滿
+          img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block;';
+          break;
+        default:
+          // cover / safe default — fills zone completely from centre
+          img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;';
+      }
+
       this._el.appendChild(img);
       this._media = img;
       this._timer = setTimeout(() => {
@@ -573,6 +632,19 @@ class ZonePlayer {
   }
 
   async _resolveUrl(item) {
+    if (item.type === 'widget') {
+      // Try local widget HTML cache first (widget://<hash>?…params…)
+      const baseUrl = item.url.split('?')[0];
+      if (baseUrl) {
+        const localBase = await window.player.getWidgetUrl?.(baseUrl);
+        if (localBase) {
+          // Preserve query params (orgId, ttsLang, …)
+          const qs = item.url.includes('?') ? '?' + item.url.split('?')[1] : '';
+          return localBase + qs;
+        }
+      }
+      return item.url; // network fallback
+    }
     if (item.sha256) {
       const local = await window.player.getCachedUrl(item.url);
       if (local) return local;

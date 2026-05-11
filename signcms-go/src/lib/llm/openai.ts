@@ -47,11 +47,15 @@ export function openaiAdapter(cfg: LLMConfig): LLMAdapter {
       // Accumulate tool-call arguments across chunks
       const pendingToolCalls: Record<number, { name: string; args: string }> = {};
       let textBuffer = "";
+      let lineBuf    = "";   // accumulate across read() chunks — prevents partial-line drops
 
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        const lines = dec.decode(value).split("\n").filter((l) => l.startsWith("data:"));
+        lineBuf += dec.decode(value, { stream: true });
+        const allLines = lineBuf.split("\n");
+        lineBuf = allLines.pop() ?? "";   // keep the last (possibly incomplete) line
+        const lines = allLines.filter((l) => l.startsWith("data:"));
         for (const line of lines) {
           const raw = line.slice(5).trim();
           if (raw === "[DONE]") { onChunk({ type: "done" }); return; }

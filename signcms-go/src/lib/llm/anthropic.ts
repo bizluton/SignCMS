@@ -64,37 +64,47 @@ export function anthropicAdapter(cfg: LLMConfig): LLMAdapter {
 
       const reader = res.body!.getReader();
       const dec    = new TextDecoder();
+      let lineBuf          = "";   // accumulate across read() chunks
       let pendingToolName  = "";
       let pendingToolInput = "";
+
+      const processLine = (line: string) => {
+        if (!line.startsWith("data:")) return;
+        try {
+          const ev = JSON.parse(line.slice(5).trim());
+          if (ev.type === "content_block_start" && ev.content_block?.type === "tool_use") {
+            pendingToolName  = ev.content_block.name;
+            pendingToolInput = "";
+          } else if (ev.type === "content_block_delta") {
+            if (ev.delta?.type === "text_delta") {
+              onChunk({ type: "text", text: ev.delta.text });
+            } else if (ev.delta?.type === "input_json_delta") {
+              pendingToolInput += ev.delta.partial_json;
+            }
+          } else if (ev.type === "content_block_stop" && pendingToolName) {
+            let args: Record<string, unknown> = {};
+            try { args = JSON.parse(pendingToolInput); } catch { /* leave empty */ }
+            onChunk({ type: "tool_call", toolCall: { name: pendingToolName, arguments: args } });
+            pendingToolName  = "";
+            pendingToolInput = "";
+          } else if (ev.type === "message_stop") {
+            onChunk({ type: "done" });
+          }
+        } catch { /* skip malformed chunks */ }
+      };
 
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
-        const lines = dec.decode(value).split("\n").filter((l) => l.startsWith("data:"));
-        for (const line of lines) {
-          try {
-            const ev = JSON.parse(line.slice(5).trim());
-            if (ev.type === "content_block_start" && ev.content_block?.type === "tool_use") {
-              pendingToolName  = ev.content_block.name;
-              pendingToolInput = "";
-            } else if (ev.type === "content_block_delta") {
-              if (ev.delta?.type === "text_delta") {
-                onChunk({ type: "text", text: ev.delta.text });
-              } else if (ev.delta?.type === "input_json_delta") {
-                pendingToolInput += ev.delta.partial_json;
-              }
-            } else if (ev.type === "content_block_stop" && pendingToolName) {
-              let args: Record<string, unknown> = {};
-              try { args = JSON.parse(pendingToolInput); } catch { /* leave empty */ }
-              onChunk({ type: "tool_call", toolCall: { name: pendingToolName, arguments: args } });
-              pendingToolName  = "";
-              pendingToolInput = "";
-            } else if (ev.type === "message_stop") {
-              onChunk({ type: "done" });
-            }
-          } catch { /* skip malformed chunks */ }
-        }
+        // Append to buffer; use { stream: true } so multi-byte chars across chunks decode correctly
+        lineBuf += dec.decode(value, { stream: true });
+        const lines = lineBuf.split("\n");
+        lineBuf = lines.pop() ?? "";   // last entry may be an incomplete line — keep it
+        for (const line of lines) processLine(line);
       }
+      // Flush any remaining complete line in the buffer
+      for (const line of lineBuf.split("\n")) processLine(line);
+
       onChunk({ type: "done" });
     },
   };

@@ -516,13 +516,41 @@ async function executeTool(
       const mins    = (args.duration_minutes as number) || 0;
       const restoreAt = mins > 0 ? new Date(Date.now() + mins * 60000).toISOString() : null;
 
+      // Verify media belongs to this org
       const { data: media } = await sb.from("media_items")
-        .select("id, name").eq("id", mediaId).maybeSingle();
+        .select("id, name, org_id").eq("id", mediaId).maybeSingle();
       if (!media) throw new Error("Media item not found");
+      if (media.org_id !== orgId) throw new Error("Media item not found in this organisation");
 
+      // Fetch screen names for publish_records
+      const { data: screenRows } = await sb.from("screens")
+        .select("id, name").in("id", screenIds).eq("org_id", orgId);
+      const screenMap = Object.fromEntries(
+        (screenRows || []).map((s: { id: string; name: string }) => [s.id, s.name])
+      );
+
+      // Switch screens: clear channel override, set media as default playback
       await sb.from("screens").update({
+        current_channel_id:    null,
         channel_override_until: restoreAt,
+        default_playback:      "media",
+        default_media_id:      mediaId,
       }).in("id", screenIds).eq("org_id", orgId);
+
+      // Write publish_records so operators can see what was switched
+      const pubInserts = screenIds.map((sid) => ({
+        screen_id:    sid,
+        screen_name:  screenMap[sid] || sid,
+        channel_id:   null,
+        channel_name: `[媒體] ${media.name}`,
+        org_id:       orgId,
+        status:       "playing",
+        published_by: claims.userId,
+      }));
+      await sb.from("publish_records").insert(pubInserts);
+
+      // Notify screens to re-sync immediately (picks up the new default_media_id)
+      await notifySync(orgId, screenIds);
 
       return { affected_count: screenIds.length, media_name: media.name, restore_at: restoreAt };
     }
@@ -819,9 +847,17 @@ async function executeTool(
 
     // ── get_active_overrides ──────────────────────────────────────────────
     case "get_active_overrides": {
+      // NOTE: PostgREST embedded-relation filters (e.g. .eq("screens.org_id", …))
+      // do NOT filter the parent rows — they only nullify the embedded object.
+      // Fix: resolve this org's screen IDs first, then filter overrides by those IDs.
+      const { data: orgScreens } = await sb.from("screens")
+        .select("id").eq("org_id", orgId);
+      const orgScreenIds = (orgScreens || []).map((s: { id: string }) => s.id);
+      if (orgScreenIds.length === 0) return [];
+
       let q = sb.from("screen_smart_trigger_overrides")
-        .select("id, screen_id, rule_id, overrides_enabled, created_at, screens:screen_id(name, org_id)")
-        .eq("screens.org_id", orgId);
+        .select("id, screen_id, rule_id, overrides_enabled, created_at, screens:screen_id(name)")
+        .in("screen_id", orgScreenIds);
       if (args.screen_id) q = q.eq("screen_id", args.screen_id as string);
       const { data, error } = await q;
       if (error) throw error;
