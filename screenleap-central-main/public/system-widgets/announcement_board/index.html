@@ -34,25 +34,25 @@ body{font-family:'Noto Sans TC',system-ui,'Microsoft JhengHei','PingFang TC',san
 .stage{flex:1;position:relative;overflow:hidden}
 .slide{
   position:absolute;inset:0;
-  display:flex;flex-direction:column;
   opacity:0;transition:opacity .9s ease;pointer-events:none;
 }
 .slide.active{opacity:1;pointer-events:auto}
 
-/* Image strip */
-.img-wrap{flex:0 0 40%;position:relative;overflow:hidden}
+/* Image fills entire slide */
+.img-wrap{position:absolute;inset:0;overflow:hidden}
 .img-wrap img{width:100%;height:100%;object-fit:cover;display:block}
 .img-wrap::after{
-  content:'';position:absolute;bottom:0;left:0;right:0;height:40%;
-  background:linear-gradient(to bottom,transparent,var(--bg,#0f172a));
+  content:'';position:absolute;bottom:0;left:0;right:0;height:68%;
+  background:linear-gradient(to bottom,transparent,var(--bg,#0f172a) 80%);
 }
 
-/* Text body */
+/* Text body overlays bottom of image */
 .body{
-  flex:1;display:flex;flex-direction:column;justify-content:flex-start;
-  padding:.3em 1.8em .8em;gap:.25em;
+  position:absolute;bottom:0;left:0;right:0;
+  display:flex;flex-direction:column;justify-content:flex-end;
+  padding:0 1.8em 1.2em;gap:.28em;
 }
-.body.solo{justify-content:center;padding:2em clamp(1.5em,6vw,5em)}
+.body.solo{top:0;justify-content:center;padding:2em clamp(1.5em,6vw,5em)}
 
 .meta{display:flex;align-items:center;gap:.5em;flex-wrap:wrap}
 .cat-badge{
