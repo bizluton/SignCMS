@@ -50,7 +50,7 @@ body{font-family:'Noto Sans TC',system-ui,'Microsoft JhengHei','PingFang TC',san
 /* Text body */
 .body{
   flex:1;display:flex;flex-direction:column;justify-content:flex-start;
-  padding:.6em 1.8em .8em;gap:.35em;
+  padding:.3em 1.8em .8em;gap:.25em;
 }
 .body.solo{justify-content:center;padding:2em clamp(1.5em,6vw,5em)}
 
@@ -204,14 +204,15 @@ function render(data){
     }
     html+='<div class="body'+(hasImg?'':' solo')+'">';
 
-    // Meta row
+    html+='<h2 class="title">'+esc(item.subject)+'</h2>';
+
+    // Meta row (below title)
     html+='<div class="meta">';
     if(cat.name) html+='<span class="cat-badge" style="background:'+esc(cc)+'22;color:'+esc(cc)+';border:1.5px solid '+esc(cc)+'50">'+esc(cat.name)+'</span>';
     if(item.pinned) html+='<span class="pin-badge">'+esc(L.pin)+'</span>';
     if(item.department) html+='<span class="dept">'+esc(item.department)+'</span>';
     html+='</div>';
 
-    html+='<h2 class="title">'+esc(item.subject)+'</h2>';
     if(plain) html+='<p class="content">'+esc(plain)+'</p>';
     html+='<p class="dates">'+fmtDate(item.start_at)+' – '+fmtDate(item.end_at)+'</p>';
     html+='</div>';
