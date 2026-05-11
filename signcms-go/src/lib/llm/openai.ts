@@ -69,10 +69,13 @@ export function openaiAdapter(cfg: LLMConfig): LLMAdapter {
               for (const tc of delta.tool_calls) {
                 const idx = tc.index ?? 0;
                 if (!pendingToolCalls[idx]) {
-                  pendingToolCalls[idx] = { name: tc.function?.name ?? "", args: "" };
+                  pendingToolCalls[idx] = { name: "", args: "" };
                 }
-                if (tc.function?.name)      pendingToolCalls[idx].name  += tc.function.name;
-                if (tc.function?.arguments) pendingToolCalls[idx].args  += tc.function.arguments;
+                // OpenAI sends name only in the first delta chunk for each index — use
+                // assignment (not +=) to avoid accidental double-appending if name
+                // appears in more than one chunk.
+                if (tc.function?.name)      pendingToolCalls[idx].name  = tc.function.name;
+                if (tc.function?.arguments) pendingToolCalls[idx].args += tc.function.arguments;
               }
             }
 

@@ -9,7 +9,7 @@ import { loadSettings, saveSettings, getDefaultModel,
 
 const PROVIDERS: { value: LLMProvider; label: string; models: string[] }[] = [
   { value: "openai",    label: "OpenAI",          models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"] },
-  { value: "anthropic", label: "Anthropic Claude", models: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"] },
+  { value: "anthropic", label: "Anthropic Claude", models: ["claude-opus-4-5", "claude-sonnet-4-5", "claude-haiku-4-5"] },
   { value: "ollama",    label: "Ollama (本地)",    models: ["llama3.2", "mistral", "gemma2", "qwen2.5"] },
   { value: "azure",     label: "Azure OpenAI",     models: ["gpt-4o", "gpt-4-turbo"] },
 ];
