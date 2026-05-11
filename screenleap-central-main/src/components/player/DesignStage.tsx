@@ -255,7 +255,7 @@ function WebpageWidgetRender({ config }: { config: WidgetConfig }) {
   useEffect(() => {
     if (!url) { setSrcDoc(""); return; }
     let cancelled = false;
-    fetch(url)
+    fetch(url, { cache: 'no-cache' })
       .then((r) => r.text())
       .then((html) => {
         if (cancelled) return;
@@ -625,32 +625,19 @@ function ZoneContentRender({
 export function DesignStage({ project, resolveMediaUrl, muted, playing }: DesignStageProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState(1);
-  const [rotated, setRotated] = useState(false);
 
   const { w: canvasW, h: canvasH } = useMemo(() => readMeta(project.zones), [project]);
   const { zones, overlays } = useMemo(() => splitZones(project.zones), [project]);
 
-  // Fit canvas to wrapper. When a landscape canvas is viewed in a portrait
-  // container, rotate -90° so content fills the screen without huge black bars.
   useEffect(() => {
     const el = wrapRef.current;
     if (!el) return;
     const compute = () => {
       const r = el.getBoundingClientRect();
       if (r.width === 0 || r.height === 0) return;
-      const doRotate = r.height > r.width && canvasW > canvasH;
-      if (doRotate) {
-        // After -90° rotation the canvas presents as canvasH wide × canvasW tall.
-        const sx = r.width / canvasH;
-        const sy = r.height / canvasW;
-        setScale(Math.max(0.01, Math.min(sx, sy)));
-        setRotated(true);
-      } else {
-        const sx = r.width / canvasW;
-        const sy = r.height / canvasH;
-        setScale(Math.max(0.01, Math.min(sx, sy)));
-        setRotated(false);
-      }
+      const sx = r.width / canvasW;
+      const sy = r.height / canvasH;
+      setScale(Math.max(0.01, Math.min(sx, sy)));
     };
     compute();
     const ro = new ResizeObserver(compute);
@@ -665,7 +652,7 @@ export function DesignStage({ project, resolveMediaUrl, muted, playing }: Design
         style={{
           width: canvasW,
           height: canvasH,
-          transform: rotated ? `rotate(-90deg) scale(${scale})` : `scale(${scale})`,
+          transform: `scale(${scale})`,
           transformOrigin: "center center",
           background: "#000",
         }}
