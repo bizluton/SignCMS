@@ -498,7 +498,7 @@ function MediaCarousel({
     if (eff === "cover-y") return { width: "auto", height: "100%", maxWidth: "none", display: "block" };
     if (eff === "contain") return { width: "100%", height: "100%", objectFit: "contain" as const };
     if (eff === "stretch") return { width: "100%", height: "100%", objectFit: "fill" as const };
-    return { width: "100%", height: "100%", objectFit: "cover" as const, display: "block" };
+    return { width: "100%", height: "auto", maxHeight: "none", display: "block" };
   };
 
   const getVideoStyle = (eff: string): React.CSSProperties => ({
