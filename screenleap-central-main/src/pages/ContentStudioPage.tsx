@@ -9837,46 +9837,50 @@ export default function ContentStudioPage() {
               </div>
             )}
 
-            {projectTransition.mode === "trigger" && (
-              <div className="space-y-3">
-                <div className="space-y-2">
+            {/* Trigger switch — always visible; works alongside any time mode */}
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
                   <Label className="text-xs font-medium">{t("studioPageTransitionTriggers")}</Label>
-                  <div className="space-y-2 rounded-md border border-border p-3">
-                    {([
-                      { k: "gpio" as const, label: t("studioPageTriggerGpio") },
-                      { k: "remote" as const, label: t("studioPageTriggerRemote") },
-                      { k: "api" as const, label: t("studioPageTriggerApi") },
-                    ]).map((row) => (
-                      <div key={row.k} className="flex items-center justify-between">
-                        <span className="text-sm">{row.label}</span>
-                        <Switch
-                          checked={!!projectTransition.triggers[row.k]}
-                          onCheckedChange={(v) => updateProjectTransition({ triggers: { [row.k]: !!v } as Partial<PageTransition["triggers"]> })}
-                        />
+                  {projectTransition.mode !== "trigger" && (
+                    <span className="text-[10px] text-muted-foreground">{t("studioPageTriggerNote")}</span>
+                  )}
+                </div>
+                <div className="space-y-2 rounded-md border border-border p-3">
+                  {([
+                    { k: "gpio" as const, label: t("studioPageTriggerGpio") },
+                    { k: "remote" as const, label: t("studioPageTriggerRemote") },
+                    { k: "api" as const, label: t("studioPageTriggerApi") },
+                  ]).map((row) => (
+                    <div key={row.k} className="flex items-center justify-between">
+                      <span className="text-sm">{row.label}</span>
+                      <Switch
+                        checked={!!projectTransition.triggers[row.k]}
+                        onCheckedChange={(v) => updateProjectTransition({ triggers: { [row.k]: !!v } as Partial<PageTransition["triggers"]> })}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              {(projectTransition.triggers.gpio || projectTransition.triggers.remote) && pages.length > 0 && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-medium">{t("studioPageTriggerChannels")}</Label>
+                  <div className="rounded-md border border-border divide-y divide-border text-xs">
+                    {pages.map((p, i) => (
+                      <div key={p.id} className="flex items-center justify-between px-3 py-1.5">
+                        <span className="font-medium truncate max-w-[140px]">{p.name}</span>
+                        <span className="text-muted-foreground tabular-nums flex gap-2 shrink-0">
+                          {projectTransition.triggers.gpio && <span>GPIO {i}</span>}
+                          {projectTransition.triggers.remote && <span>{t("studioPageTriggerRemoteCode")} {String(i + 1).padStart(2, "0")}</span>}
+                        </span>
                       </div>
                     ))}
                   </div>
                 </div>
-                {(projectTransition.triggers.gpio || projectTransition.triggers.remote) && pages.length > 0 && (
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-medium">{t("studioPageTriggerChannels")}</Label>
-                    <div className="rounded-md border border-border divide-y divide-border text-xs">
-                      {pages.map((p, i) => (
-                        <div key={p.id} className="flex items-center justify-between px-3 py-1.5">
-                          <span className="font-medium truncate max-w-[140px]">{p.name}</span>
-                          <span className="text-muted-foreground tabular-nums flex gap-2 shrink-0">
-                            {projectTransition.triggers.gpio && <span>GPIO {i}</span>}
-                            {projectTransition.triggers.remote && <span>{t("studioPageTriggerRemoteCode")} {String(i + 1).padStart(2, "0")}</span>}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+              )}
+            </div>
 
-            {pages.length <= 1 && projectTransition.mode !== "trigger" && (
+            {pages.length <= 1 && (projectTransition.mode === "auto" || projectTransition.mode === "fixed") && (
               <div className="text-[11px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
                 {t("studioPageTransitionOnlyMulti")}
               </div>
