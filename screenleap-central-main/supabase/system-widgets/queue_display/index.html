@@ -13,7 +13,7 @@
     --accent:    #f97316;
     --muted:     rgba(255,255,255,0.55);
     --lbl-color: rgba(255,255,255,0.55);
-    /* Font sizes — overridden by JS from URL params (cqi units) */
+    /* Font sizes — overridden by JS from URL params (cqi = container inline-size) */
     --num-size:  22cqi;
     --hdr-size:   5cqi;
     --sub-size:   4cqi;
@@ -27,8 +27,7 @@
     font-family: system-ui, -apple-system, sans-serif;
   }
 
-  /* Outer wrapper — container-type:inline-size so cqi units work correctly
-     regardless of zone aspect ratio (matches React preview behaviour) */
+  /* container-type:inline-size → cqi units scale by WIDTH (matches React preview) */
   #app {
     width: 100%; height: 100%;
     display: flex;
@@ -81,7 +80,7 @@
     min-height: 1.2em;
   }
 
-  /* ── Progress / pagination dots (multi-queue) ── */
+  /* ── Pagination dots ── */
   #dots {
     display: flex;
     gap: 4px;
@@ -95,7 +94,7 @@
   }
   #dots span.active { background: var(--accent); }
 
-  /* ── TTS toggle (bottom-right corner) ── */
+  /* ── TTS toggle ── */
   #tts-btn {
     position: fixed; bottom: 4px; right: 4px;
     background: none; border: none;
@@ -109,7 +108,7 @@
   #tts-btn:hover { color: rgba(255,255,255,0.7); }
   #tts-btn.on    { color: var(--accent); }
 
-  /* ── Loading / error state ── */
+  /* ── Status / error ── */
   #status {
     font-size: var(--sub-size);
     color: var(--muted);
@@ -137,7 +136,7 @@
 <script>
 'use strict';
 
-// ── Config from URL search params ──────────────────────────────────────────
+// ── URL params ─────────────────────────────────────────────────────────────
 const p            = new URLSearchParams(location.search);
 const ORG_ID       = p.get('orgId')       || '';
 const TTS_LANG     = p.get('ttsLang')     || 'zh-TW';
@@ -148,19 +147,17 @@ const ACCENT_COLOR = p.get('accentColor') || null;
 const LABEL_COLOR  = p.get('labelColor')  || null;
 const TEAM_ID      = p.get('teamId')      || '';
 
-// Arrays: support both repeated params (?queueIds=a&queueIds=b)
-// AND comma-joined single param (?queueIds=a,b) from older players
+// Support repeated params (?queueIds=a&queueIds=b) AND comma-joined (?queueIds=a,b)
 const QUEUE_IDS = p.getAll('queueIds')
   .flatMap(v => v.split(',').map(s => s.trim())).filter(Boolean);
 const COUNTER_NAMES = p.getAll('counterNames')
   .flatMap(v => v.split(',').map(s => s.trim())).filter(Boolean);
 
-// Font sizes (cqi units) — match ContentStudio QueueDisplayConfig defaults
 const NUM_SIZE = parseFloat(p.get('numSize')      || '22');
 const HDR_SIZE = parseFloat(p.get('labelSize')    || '5');
 const SUB_SIZE = parseFloat(p.get('subLabelSize') || '4');
 
-// ── Apply CSS variables ────────────────────────────────────────────────────
+// ── CSS variables ──────────────────────────────────────────────────────────
 const R = document.documentElement;
 if (BG_COLOR)     R.style.setProperty('--bg',        BG_COLOR);
 if (TEXT_COLOR)   R.style.setProperty('--text',      TEXT_COLOR);
@@ -170,7 +167,7 @@ R.style.setProperty('--num-size', NUM_SIZE + 'cqi');
 R.style.setProperty('--hdr-size', HDR_SIZE + 'cqi');
 R.style.setProperty('--sub-size', SUB_SIZE + 'cqi');
 
-// ── Supabase client (anon key — read-only public data via RLS) ─────────────
+// ── Supabase ───────────────────────────────────────────────────────────────
 const { createClient } = window.supabase;
 const sb = createClient(
   'https://narhbpojjtnalyfiwxue.supabase.co',
@@ -179,10 +176,10 @@ const sb = createClient(
 );
 
 // ── State ──────────────────────────────────────────────────────────────────
-let queues       = [];
-let activeIdx    = 0;
-let latestTicket = null;
-let ttsEnabled   = false;
+let allQueues  = [];   // all queues from DB, ordered by created_at
+let activeIdx  = 0;    // current index in allQueues
+let ticketMap  = {};   // { [queueId]: latestCallingTicket | null }
+let ttsEnabled = false;
 let announcedIds = new Set();
 let cycleTimer   = null;
 let rtChannel    = null;
@@ -231,117 +228,172 @@ function tryAnnounce(ticket, prefix) {
   speak(text);
 }
 
-// ── Render ─────────────────────────────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+/** Returns true if queue q has any data worth showing */
+function queueHasData(q) {
+  return !!(ticketMap[q.id] || q.current_number > 0);
+}
+
+/** Render the currently-active queue */
 function render() {
-  const q       = queues[activeIdx];
-  const prefix  = q?.prefix ?? '';
-  const num     = latestTicket?.number ?? q?.current_number ?? 0;
+  const q = allQueues[activeIdx];
+  if (!q) return;
+
+  const ticket  = ticketMap[q.id];
+  const prefix  = q.prefix ?? '';
+  const num     = ticket?.number ?? q.current_number ?? 0;
   const dispNum = num > 0 ? `${prefix}${String(num).padStart(3, '0')}` : '—';
 
   $number.textContent  = dispNum;
-  $label.textContent   = q?.queue_name ?? '—';
-  $counter.textContent = latestTicket?.counter_name ?? '';
+  $label.textContent   = q.queue_name ?? '—';
+  $counter.textContent = ticket?.counter_name ?? '';
 
-  $dots.innerHTML = queues.map((_, i) =>
+  // Dots reflect ALL queues; active dot = current
+  $dots.innerHTML = allQueues.map((_, i) =>
     `<span class="${i === activeIdx ? 'active' : ''}"></span>`
   ).join('');
 }
 
-// ── Realtime subscription for the active queue ─────────────────────────────
-async function subscribeToQueue(qId) {
-  if (rtChannel) { await sb.removeChannel(rtChannel); rtChannel = null; }
-  if (!qId) return;
+// ── Realtime ───────────────────────────────────────────────────────────────
 
-  // Fetch the latest 'calling' ticket (optionally filtered by counterNames)
+/** Called on any ticket INSERT or UPDATE — re-fetches latest for that queue */
+async function handleTicketChange(t) {
+  const queue = allQueues.find(q => q.id === t.queue_id);
+  if (!queue) return;
+
+  // Re-fetch the latest 'calling' ticket for this specific queue
   let q = sb
     .from('queue_system_tickets')
     .select('id, queue_id, number, status, counter_name, called_at')
-    .eq('queue_id', qId)
+    .eq('queue_id', t.queue_id)
     .eq('status', 'calling')
     .order('called_at', { ascending: false })
     .limit(1);
   if (COUNTER_NAMES.length > 0) q = q.in('counter_name', COUNTER_NAMES);
   const { data } = await q;
-  latestTicket = data?.[0] ?? null;
-  render();
+  const latest = data?.[0] ?? null;
 
-  // Live subscription — re-render on INSERT / UPDATE
-  rtChannel = sb.channel(`qd-${qId}`)
+  const prev = ticketMap[t.queue_id];
+  ticketMap[t.queue_id] = latest;
+
+  // Announce if a new calling ticket just arrived
+  if (latest && t.status === 'calling' && (!prev || latest.id !== prev.id)) {
+    tryAnnounce(latest, queue.prefix ?? '');
+  }
+
+  // Re-render if this queue is the one currently on screen
+  if (allQueues[activeIdx]?.id === t.queue_id) render();
+}
+
+async function subscribeAll(qIds) {
+  if (rtChannel) { await sb.removeChannel(rtChannel); rtChannel = null; }
+  if (!qIds.length) return;
+
+  // Subscribe to the whole table; filter in JS (simpler than per-queue channels)
+  rtChannel = sb.channel('qd-all')
     .on('postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'queue_system_tickets',
-        filter: `queue_id=eq.${qId}` },
-      ({ new: t }) => {
-        if (t.status !== 'calling') return;
-        if (COUNTER_NAMES.length > 0 && !COUNTER_NAMES.includes(t.counter_name)) return;
-        latestTicket = t;
-        tryAnnounce(t, queues[activeIdx]?.prefix ?? '');
-        render();
-      })
+      { event: 'INSERT', schema: 'public', table: 'queue_system_tickets' },
+      ({ new: t }) => handleTicketChange(t))
     .on('postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'queue_system_tickets',
-        filter: `queue_id=eq.${qId}` },
-      ({ new: t }) => {
-        if (t.status !== 'calling') return;
-        if (COUNTER_NAMES.length > 0 && !COUNTER_NAMES.includes(t.counter_name)) return;
-        latestTicket = t;
-        tryAnnounce(t, queues[activeIdx]?.prefix ?? '');
-        render();
-      })
+      { event: 'UPDATE', schema: 'public', table: 'queue_system_tickets' },
+      ({ new: t }) => handleTicketChange(t))
     .subscribe();
 }
 
-// ── Cycle through queues when multiple are shown ────────────────────────────
+// ── Cycling ────────────────────────────────────────────────────────────────
+
+/** Advance to next queue, skipping queues with no data (if any queue has data) */
+function cycleNext() {
+  const total = allQueues.length;
+  if (total <= 1) return;
+
+  const hasAnyData = allQueues.some(queueHasData);
+  let nextIdx = (activeIdx + 1) % total;
+
+  if (hasAnyData) {
+    // Skip queues with no data; guard against infinite loop
+    for (let i = 0; i < total; i++) {
+      const candidate = (activeIdx + 1 + i) % total;
+      if (queueHasData(allQueues[candidate])) {
+        nextIdx = candidate;
+        break;
+      }
+    }
+  }
+
+  activeIdx = nextIdx;
+  render();
+}
+
 function startCycle() {
   if (cycleTimer) clearInterval(cycleTimer);
-  if (queues.length <= 1) return;
-  cycleTimer = setInterval(async () => {
-    activeIdx    = (activeIdx + 1) % queues.length;
-    latestTicket = null;
-    render();
-    await subscribeToQueue(queues[activeIdx]?.id);
-  }, CYCLE_SEC * 1000);
+  if (allQueues.length <= 1) return;
+  cycleTimer = setInterval(cycleNext, CYCLE_SEC * 1000);
 }
 
 // ── Bootstrap ──────────────────────────────────────────────────────────────
 async function init() {
   if (!ORG_ID) {
-    $number.textContent    = 'N/A';
-    $status.style.display  = 'block';
-    $status.textContent    = 'orgId missing';
+    $number.textContent   = 'N/A';
+    $status.style.display = 'block';
+    $status.textContent   = 'orgId missing';
     return;
   }
 
   $status.style.display = 'block';
 
-  // Build queue query with optional scope filters
-  let query = sb
+  // 1. Load queue list
+  let qQuery = sb
     .from('queue_system_queues')
     .select('id, queue_name, prefix, current_number')
     .eq('org_id', ORG_ID);
 
   if (QUEUE_IDS.length > 0) {
-    // Specific queues — highest priority filter
-    query = query.in('id', QUEUE_IDS);
+    qQuery = qQuery.in('id', QUEUE_IDS);
   } else if (TEAM_ID) {
-    // Team scope
-    query = query.eq('team_id', TEAM_ID);
+    qQuery = qQuery.eq('team_id', TEAM_ID);
   }
-  query = query.order('created_at');
+  qQuery = qQuery.order('created_at');
 
-  const { data, error } = await query;
-
+  const { data: queues, error } = await qQuery;
   $status.style.display = 'none';
 
-  if (error || !data?.length) {
+  if (error || !queues?.length) {
     $number.textContent = '—';
     $label.textContent  = error ? 'Error' : 'No queues';
     return;
   }
 
-  queues    = data;
-  activeIdx = 0;
+  allQueues = queues;
+  const qIds = allQueues.map(q => q.id);
+
+  // 2. Batch-fetch latest calling ticket for ALL queues in one query
+  let tQuery = sb
+    .from('queue_system_tickets')
+    .select('id, queue_id, number, status, counter_name, called_at')
+    .in('queue_id', qIds)
+    .eq('status', 'calling')
+    .order('called_at', { ascending: false });
+  if (COUNTER_NAMES.length > 0) tQuery = tQuery.in('counter_name', COUNTER_NAMES);
+  const { data: tickets } = await tQuery;
+
+  // Build ticketMap: keep only the latest ticket per queue
+  ticketMap = {};
+  for (const t of (tickets ?? [])) {
+    if (!ticketMap[t.queue_id]) ticketMap[t.queue_id] = t;
+  }
+
+  // 3. Start at the first queue that has data; fall back to queue 0
+  const firstWithData = allQueues.find(queueHasData);
+  activeIdx = firstWithData ? allQueues.indexOf(firstWithData) : 0;
+
   render();
-  await subscribeToQueue(queues[0].id);
+
+  // 4. Subscribe realtime for all queues
+  await subscribeAll(qIds);
+
+  // 5. Cycle
   startCycle();
 }
 
