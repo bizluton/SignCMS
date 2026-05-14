@@ -198,6 +198,10 @@ let aspectManuallySet    = false;
 // Multi-layout support — populated when channel has ≥2 allowed projects
 let availableLayouts     = [];   // [{id, name, zones, updated_at}] sorted by sort_order
 let activeLayoutId       = null; // null = follow server's choice; string = manual override
+// Page-level layouts — extracted from _meta.pages inside a single design project
+let pageLayouts          = [];   // [{id, name, zones, overlays}] from _meta.pages
+let activePageId         = null; // currently displayed page; null = use _meta.activePageId default
+let pageAutoTimer        = null; // handle for auto-switch interval
 
 const zonePlayers = new Map(); // zoneId → ZonePlayer
 
@@ -280,6 +284,7 @@ window.addEventListener('__signSyncData', (e) => {
   // Sleep mode — pure black screen
   currentProject = null;
   currentDefaultMediaId = null;
+  pageLayouts = []; activePageId = null; clearTimeout(pageAutoTimer);
   zonePlayersClear();
   document.getElementById('stage').innerHTML = '';
   hideSplash();
@@ -341,7 +346,9 @@ function toggleHud() {
 }
 
 // ── Zone rendering ────────────────────────────────────────────────────────────
-function renderProject(project) {
+// forcePageId: pass when doSwitchPage triggers re-render so the new selection
+// is applied before normaliseZones reads activePageId.
+function renderProject(project, forcePageId = null) {
   const stage  = document.getElementById('stage');
   const splash = document.getElementById('splash');
 
@@ -349,8 +356,36 @@ function renderProject(project) {
   zonePlayersClear();
   stage.innerHTML = '';
   splash.classList.add('hidden');
+  clearTimeout(pageAutoTimer);
 
-  const zones = normaliseZones(project.zones);
+  // ── Extract page-level layouts from _meta.pages ───────────────────────────
+  const zonesArr = Array.isArray(project.zones) ? project.zones : [];
+  const metaObj  = zonesArr.find(z => z?._meta);
+
+  if (metaObj?.pages?.length > 1) {
+    pageLayouts = metaObj.pages;
+
+    // Priority: explicit forcePageId > preserved activePageId (if still valid) >
+    //           designer's last-saved activePageId > first page
+    if (forcePageId && pageLayouts.find(p => p.id === forcePageId)) {
+      activePageId = forcePageId;
+    } else if (!activePageId || !pageLayouts.find(p => p.id === activePageId)) {
+      activePageId = metaObj.activePageId ?? pageLayouts[0]?.id ?? null;
+    }
+
+    // Auto-switch between pages if designer configured it
+    const pt = metaObj.pageTransition;
+    if (pt?.mode === 'auto' && pt.seconds > 0) {
+      startPageAutoSwitch(pt.seconds);
+    }
+  } else {
+    pageLayouts  = [];
+    activePageId = null;
+  }
+
+  if (hudVisible) updateHudLayouts();
+
+  const zones = normaliseZones(project.zones, activePageId);
   if (!zones.length) {
     splash.classList.remove('hidden');
     setSplashMsg('Project has no zones.');
@@ -428,7 +463,9 @@ async function rerenderMediaSources() {
 // design canvas (e.g. 3840×2160). They must be converted to percentages using the
 // canvas dimensions stored in _meta.resolution.
 // Regular zones already use 0-100 percentage coordinates.
-function normaliseZones(zones) {
+// currentPageId: when a project uses the new _meta.pages multi-layout format,
+// pass the desired page ID so only that page's zones are rendered.
+function normaliseZones(zones, currentPageId = null) {
   if (!zones) return [];
   const arr = Array.isArray(zones) ? zones : (zones.zones ?? Object.values(zones));
 
@@ -445,8 +482,21 @@ function normaliseZones(zones) {
   const overlayRefH = meta?.displayH ?? 540;
   const overlayRefW = meta?.displayW ?? Math.round(overlayRefH * canvasW / canvasH);
 
-  // Filter out the _meta config object the designer embeds as the first element
-  const realZones = arr.filter(z => z && typeof z === 'object' && !z._meta && z.id);
+  let realZones;
+
+  if (meta?.pages?.length > 0) {
+    // ── New multi-page format: each page has its own zones + overlays ─────────
+    // Select the target page by ID, fall back to _meta.activePageId or first page.
+    const targetId = currentPageId ?? meta.activePageId ?? meta.pages[0]?.id;
+    const page     = meta.pages.find(p => p.id === targetId) ?? meta.pages[0];
+    // Mark overlay items so the coordinate branch below handles them correctly.
+    const overlayItems = (page?.overlays ?? []).map(o => ({ ...o, _overlay: true }));
+    realZones = [...(page?.zones ?? []), ...overlayItems];
+  } else {
+    // ── Legacy flat format: zones sit directly in the top-level array ─────────
+    realZones = arr.filter(z => z && typeof z === 'object' && !z._meta && z.id);
+  }
+
   return realZones.map((z, i) => {
     // Items live at different keys depending on the source:
     //   legacy player format  → z.items
@@ -760,31 +810,68 @@ function fmtBytes(b) {
   return b.toFixed(1) + ' ' + units[i];
 }
 
-// ── Layout switcher ────────────────────────────────────────────────────────
+// ── Layout / page switcher ─────────────────────────────────────────────────
+// Priority: page-level layouts (within one project) > channel-level layouts
 function updateHudLayouts() {
   const section = document.getElementById('hud-layout-section');
   const btnsEl  = document.getElementById('hud-layout-btns');
   if (!section || !btnsEl) return;
 
-  if (availableLayouts.length < 2) {
+  // Page layouts (from _meta.pages) take priority when present
+  const usingPages = pageLayouts.length >= 2;
+  const layouts    = usingPages ? pageLayouts : availableLayouts;
+  const curId      = usingPages ? activePageId : (activeLayoutId ?? currentProject?.id);
+
+  if (layouts.length < 2) {
     section.style.display = 'none';
     return;
   }
   section.style.display = '';
 
-  const curId = activeLayoutId ?? currentProject?.id;
-  btnsEl.innerHTML = availableLayouts.map((layout, i) => {
-    const active = layout.id === curId;
-    const label  = escHtml((i + 1) + '. ' + layout.name.slice(0, 14));
-    return `<button onclick="doSwitchLayout('${layout.id}')" class="${active ? 'active' : ''}">${label}</button>`;
+  btnsEl.innerHTML = layouts.map((layout, i) => {
+    const active  = layout.id === curId;
+    const label   = escHtml((i + 1) + '. ' + layout.name.slice(0, 14));
+    const handler = usingPages
+      ? `doSwitchPage('${layout.id}')`
+      : `doSwitchLayout('${layout.id}')`;
+    return `<button onclick="${handler}" class="${active ? 'active' : ''}">${label}</button>`;
   }).join('');
 }
 
+// Switch between pages within the current project (page-level layouts)
+function doSwitchPage(pageId) {
+  const page = pageLayouts.find(p => p.id === pageId);
+  if (!page) { log('找不到版型: ' + pageId, 'err'); return; }
+  if (!currentProject) return;
+  clearTimeout(pageAutoTimer);
+  // Re-render with the new page selected
+  renderProject(currentProject, pageId);
+  log(`版型切換 → ${page.name}`, 'ok');
+}
+
+// Auto-advance through pages (pageTransition.mode === "auto")
+function startPageAutoSwitch(seconds) {
+  clearTimeout(pageAutoTimer);
+  if (!seconds || pageLayouts.length < 2) return;
+  pageAutoTimer = setTimeout(() => {
+    if (!currentProject || pageLayouts.length < 2) return;
+    const curIdx  = pageLayouts.findIndex(p => p.id === activePageId);
+    const nextIdx = (curIdx + 1) % pageLayouts.length;
+    const nextId  = pageLayouts[nextIdx].id;
+    // Silent auto-switch — no log entry to avoid log spam
+    activePageId = nextId;
+    renderProject(currentProject, nextId);
+  }, seconds * 1000);
+}
+
+// Switch between different design projects at the channel level
 function doSwitchLayout(layoutId) {
   const layout = availableLayouts.find(l => l.id === layoutId);
   if (!layout) { log('Layout not found', 'err'); return; }
   if (!layout.zones) { log('版型資料尚未載入，請等待下次 Sync', 'err'); return; }
   activeLayoutId = layoutId;
+  activePageId   = null;     // reset page selection when switching to different project
+  clearTimeout(pageAutoTimer);
   currentProject = layout;
   renderProject(layout);
   updateHudLayouts();
