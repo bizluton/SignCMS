@@ -146,6 +146,20 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
     <div id="hud-layout-btns" class="btn-row"></div>
   </div>
 
+  <!-- Page Transition Conditions — visible when project has pageTransition config -->
+  <div id="hud-pagetrans-section" style="display:none">
+    <div class="section-title">版型切換條件</div>
+    <div class="row"><span class="label">模式</span><span class="val" id="h-pt-mode">—</span></div>
+    <div class="row" id="h-pt-countdown-row" style="display:none">
+      <span class="label">倒計時</span><span class="val" id="h-pt-countdown">—</span>
+    </div>
+    <div class="row"><span class="label">觸發</span><span class="val" id="h-pt-triggers">—</span></div>
+    <div id="h-pt-codes-section" style="display:none">
+      <div class="row"><span class="label">遙控碼</span><span class="val" id="h-pt-codes">—</span></div>
+    </div>
+    <div class="btn-row" id="h-pt-btns" style="margin-top:6px"></div>
+  </div>
+
   <div class="section-title">CAS Cache</div>
   <div class="row"><span class="label">Sync</span><span class="val" id="h-cas-pct">—</span></div>
   <div class="row"><span class="label">Files</span><span class="val" id="h-cas-files">—</span></div>
@@ -201,7 +215,14 @@ let activeLayoutId       = null; // null = follow server's choice; string = manu
 // Page-level layouts — extracted from _meta.pages inside a single design project
 let pageLayouts          = [];   // [{id, name, zones, overlays}] from _meta.pages
 let activePageId         = null; // currently displayed page; null = use _meta.activePageId default
-let pageAutoTimer        = null; // handle for auto-switch interval
+// Auto-switch state (pageTransition.mode === 'auto')
+let pageAutoInterval  = null;  // setInterval handle (1-second tick)
+let pageAutoSeconds   = 0;     // full interval configured in pageTransition.seconds
+let pageAutoRemaining = 0;     // seconds left until next page advance
+let pageAutoPaused    = false; // true while user has paused auto-switch
+// Remote-code input buffer (pageTransition.triggers.remote)
+let remoteCodeBuffer  = '';
+let remoteCodeTimer   = null;
 
 const zonePlayers = new Map(); // zoneId → ZonePlayer
 
@@ -284,7 +305,8 @@ window.addEventListener('__signSyncData', (e) => {
   // Sleep mode — pure black screen
   currentProject = null;
   currentDefaultMediaId = null;
-  pageLayouts = []; activePageId = null; clearTimeout(pageAutoTimer);
+  pageLayouts = []; activePageId = null;
+  stopPageAutoSwitch(); pageAutoPaused = false;
   zonePlayersClear();
   document.getElementById('stage').innerHTML = '';
   hideSplash();
@@ -298,7 +320,23 @@ window.addEventListener('__signSyncError', (e) => {
 window.addEventListener('__signRealtimeCmd', (e) => {
   const { event, payload } = e.detail;
   log(`Realtime: ${event}`);
-  if (event === 'content.sync') window.player.forceSync();
+  if (event === 'content.sync') { window.player.forceSync(); return; }
+
+  // page.switch — API-triggered page switch (requires pageTransition.triggers.api === true)
+  if (event === 'page.switch') {
+    const pt = _getCurrentPageTransition();
+    if (!pt?.triggers?.api) { log('page.switch 已忽略（API 觸發未啟用）'); return; }
+    const targetId = payload?.page_id ?? null;
+    if (targetId) {
+      const page = pageLayouts.find(p => p.id === targetId);
+      if (page) { doSwitchPage(targetId); return; }
+    }
+    // Fallback: switch by 0-based index
+    if (typeof payload?.index === 'number') {
+      const page = pageLayouts[payload.index % pageLayouts.length];
+      if (page) doSwitchPage(page.id);
+    }
+  }
 });
 
 window.addEventListener('__signRealtimeStatus', (e) => {
@@ -330,7 +368,27 @@ window.addEventListener('__signVerifyProgress', (e) => {
 // ── Keyboard shortcut ─────────────────────────────────────────────────────────
 let clickCount = 0, clickTimer = null;
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'F1') toggleHud();
+  if (e.key === 'F1') { toggleHud(); return; }
+
+  // Remote-code input: collect digit keypresses and match against pageChannels.
+  // Supports multi-digit codes like "01" — a 400 ms silence fires the match.
+  const pt = _getCurrentPageTransition();
+  if (pt?.triggers?.remote && /^\d$/.test(e.key)) {
+    remoteCodeBuffer += e.key;
+    clearTimeout(remoteCodeTimer);
+    remoteCodeTimer = setTimeout(() => {
+      const code       = remoteCodeBuffer;
+      remoteCodeBuffer = '';
+      const channels   = pt.pageChannels ?? [];
+      const matched    = channels.find(c => c.remoteCode === code);
+      if (matched) {
+        log(`遙控碼 ${code} → ${matched.name}`, 'ok');
+        doSwitchPage(matched.id);
+      } else {
+        log(`遙控碼 ${code} — 無匹配版型`);
+      }
+    }, 400);
+  }
 });
 document.addEventListener('click', () => {
   clickCount++;
@@ -356,7 +414,8 @@ function renderProject(project, forcePageId = null) {
   zonePlayersClear();
   stage.innerHTML = '';
   splash.classList.add('hidden');
-  clearTimeout(pageAutoTimer);
+  // Stop any running auto-switch (startPageAutoSwitch will restart if still needed)
+  stopPageAutoSwitch();
 
   // ── Extract page-level layouts from _meta.pages ───────────────────────────
   const zonesArr = Array.isArray(project.zones) ? project.zones : [];
@@ -375,15 +434,19 @@ function renderProject(project, forcePageId = null) {
 
     // Auto-switch between pages if designer configured it
     const pt = metaObj.pageTransition;
-    if (pt?.mode === 'auto' && pt.seconds > 0) {
+    if (pt?.mode === 'auto' && pt.seconds > 0 && !pageAutoPaused) {
       startPageAutoSwitch(pt.seconds);
+    } else if (pt?.mode === 'auto' && pt.seconds > 0 && pageAutoPaused) {
+      // Keep seconds in sync so Pause → Resume restores correct interval
+      pageAutoSeconds = pt.seconds;
     }
   } else {
     pageLayouts  = [];
     activePageId = null;
+    pageAutoPaused = false;
   }
 
-  if (hudVisible) updateHudLayouts();
+  if (hudVisible) { updateHudLayouts(); updatePageTransHud(); }
 
   const zones = normaliseZones(project.zones, activePageId);
   if (!zones.length) {
@@ -764,6 +827,7 @@ async function refreshHud() {
   if (ar) { currentAspectRatio = ar; }
   updateAspectRatioHud();
   updateHudLayouts();
+  updatePageTransHud();
 
   const stats = await window.player.getCacheStats();
   if (!stats) return;
@@ -838,30 +902,136 @@ function updateHudLayouts() {
   }).join('');
 }
 
+// ── 版型切換條件 HUD section ──────────────────────────────────────────────────
+function updatePageTransHud() {
+  const section = document.getElementById('hud-pagetrans-section');
+  if (!section) return;
+
+  const pt = _getCurrentPageTransition();
+  if (!pt || pageLayouts.length < 2) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+
+  // ── Mode ────────────────────────────────────────────────────────────────────
+  const isAuto = pt.mode === 'auto';
+  set('h-pt-mode', isAuto
+    ? `<span class="pill info">自動 ${pt.seconds}s</span>`
+    : `<span class="pill grey">手動</span>`);
+
+  // ── Countdown (auto mode only) ───────────────────────────────────────────────
+  const countdownRow = document.getElementById('h-pt-countdown-row');
+  if (countdownRow) countdownRow.style.display = isAuto ? '' : 'none';
+  if (isAuto) {
+    const rem  = pageAutoRemaining;
+    const mins = Math.floor(rem / 60).toString().padStart(2, '0');
+    const secs = (rem % 60).toString().padStart(2, '0');
+    const pauseTag = pageAutoPaused ? ' <span class="pill warn">暫停</span>' : '';
+    set('h-pt-countdown', `${mins}:${secs}${pauseTag}`);
+  }
+
+  // ── Active triggers ──────────────────────────────────────────────────────────
+  const trigs = pt.triggers ?? {};
+  const trigParts = [];
+  if (trigs.api)    trigParts.push('<span class="pill info">API</span>');
+  if (trigs.gpio)   trigParts.push('<span class="pill info">GPIO</span>');
+  if (trigs.remote) trigParts.push('<span class="pill info">遙控</span>');
+  set('h-pt-triggers', trigParts.length
+    ? trigParts.join(' ')
+    : '<span class="pill grey">無</span>');
+
+  // ── Remote codes per page ────────────────────────────────────────────────────
+  const codesSection = document.getElementById('h-pt-codes-section');
+  if (codesSection) {
+    const channels = pt.pageChannels ?? [];
+    if (trigs.remote && channels.length > 0) {
+      codesSection.style.display = '';
+      set('h-pt-codes', channels.map(c => {
+        const active = c.id === activePageId;
+        const badge  = active ? ' class="pill ok"' : ' class="pill grey"';
+        return `<span${badge}>${escHtml(c.name)} <b>${escHtml(c.remoteCode ?? '?')}</b></span>`;
+      }).join(' '));
+    } else {
+      codesSection.style.display = 'none';
+    }
+  }
+
+  // ── Control buttons ──────────────────────────────────────────────────────────
+  const btnsEl = document.getElementById('h-pt-btns');
+  if (btnsEl) {
+    if (isAuto) {
+      const label = pageAutoPaused ? '▶ 繼續自動切換' : '⏸ 暫停自動切換';
+      const cls   = pageAutoPaused ? '' : 'active';
+      btnsEl.innerHTML = `<button onclick="doToggleAutoSwitch()" class="${cls}">${label}</button>`;
+    } else {
+      btnsEl.innerHTML = '';
+    }
+  }
+}
+
 // Switch between pages within the current project (page-level layouts)
 function doSwitchPage(pageId) {
   const page = pageLayouts.find(p => p.id === pageId);
   if (!page) { log('找不到版型: ' + pageId, 'err'); return; }
   if (!currentProject) return;
-  clearTimeout(pageAutoTimer);
-  // Re-render with the new page selected
+  // Re-render with the new page selected (renderProject calls stopPageAutoSwitch then restarts)
   renderProject(currentProject, pageId);
   log(`版型切換 → ${page.name}`, 'ok');
 }
 
-// Auto-advance through pages (pageTransition.mode === "auto")
+// ── Page auto-switch engine ────────────────────────────────────────────────────
+
+// Stop the running countdown interval (safe to call when already stopped).
+function stopPageAutoSwitch() {
+  clearInterval(pageAutoInterval);
+  pageAutoInterval  = null;
+  pageAutoRemaining = 0;
+}
+
+// Start (or restart) the 1-second countdown ticker.
+// Preserves pageAutoPaused so the caller decides whether to honour it.
 function startPageAutoSwitch(seconds) {
-  clearTimeout(pageAutoTimer);
+  stopPageAutoSwitch();
   if (!seconds || pageLayouts.length < 2) return;
-  pageAutoTimer = setTimeout(() => {
-    if (!currentProject || pageLayouts.length < 2) return;
-    const curIdx  = pageLayouts.findIndex(p => p.id === activePageId);
-    const nextIdx = (curIdx + 1) % pageLayouts.length;
-    const nextId  = pageLayouts[nextIdx].id;
-    // Silent auto-switch — no log entry to avoid log spam
-    activePageId = nextId;
-    renderProject(currentProject, nextId);
-  }, seconds * 1000);
+  pageAutoSeconds   = seconds;
+  pageAutoRemaining = seconds;
+
+  pageAutoInterval = setInterval(() => {
+    if (pageAutoPaused) return;          // ticks keep running; countdown frozen
+    pageAutoRemaining = Math.max(0, pageAutoRemaining - 1);
+    if (hudVisible) updatePageTransHud();
+    if (pageAutoRemaining <= 0) {
+      if (!currentProject || pageLayouts.length < 2) return;
+      const curIdx  = pageLayouts.findIndex(p => p.id === activePageId);
+      const nextIdx = (curIdx + 1) % pageLayouts.length;
+      const nextId  = pageLayouts[nextIdx].id;
+      activePageId      = nextId;
+      pageAutoRemaining = pageAutoSeconds;  // reset for next cycle
+      // renderProject calls stopPageAutoSwitch → startPageAutoSwitch, which
+      // re-creates the interval — exit this tick cleanly first.
+      setTimeout(() => renderProject(currentProject, nextId), 0);
+    }
+  }, 1000);
+}
+
+// Pause / resume auto-switch (toggled by HUD button)
+function doToggleAutoSwitch() {
+  pageAutoPaused = !pageAutoPaused;
+  // If resuming and the interval was somehow cleared, restart it
+  if (!pageAutoPaused && !pageAutoInterval && pageAutoSeconds > 0 && pageLayouts.length >= 2) {
+    startPageAutoSwitch(pageAutoSeconds);
+  }
+  if (hudVisible) updatePageTransHud();
+  log(pageAutoPaused ? '自動切換已暫停' : '自動切換已恢復', 'ok');
+}
+
+// Return the pageTransition object from the current project's _meta, or null.
+function _getCurrentPageTransition() {
+  if (!currentProject) return null;
+  const zonesArr = Array.isArray(currentProject.zones) ? currentProject.zones : [];
+  const metaObj  = zonesArr.find(z => z?._meta);
+  return metaObj?.pageTransition ?? null;
 }
 
 // Switch between different design projects at the channel level
@@ -871,7 +1041,8 @@ function doSwitchLayout(layoutId) {
   if (!layout.zones) { log('版型資料尚未載入，請等待下次 Sync', 'err'); return; }
   activeLayoutId = layoutId;
   activePageId   = null;     // reset page selection when switching to different project
-  clearTimeout(pageAutoTimer);
+  stopPageAutoSwitch();
+  pageAutoPaused = false;
   currentProject = layout;
   renderProject(layout);
   updateHudLayouts();
