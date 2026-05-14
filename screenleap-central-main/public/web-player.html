@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SignCMS Web Player</title>
+<style>
+/* ── Reset ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #fff; font-family: system-ui, sans-serif; }
+
+/* ── Stage ── */
+#stage { position: absolute; inset: 0; }
+.zone { position: absolute; overflow: hidden; background: #111; }
+.zone video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* ── Splash / Setup screen ── */
+#splash {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: #0a0a0a; gap: 16px;
+}
+#splash.hidden { display: none; }
+#splash h1 { font-size: 2rem; font-weight: 300; color: #fff; }
+#splash p  { color: #666; font-size: 0.9rem; }
+#splash .setup-btn {
+  margin-top: 12px; padding: 10px 28px;
+  background: #2563eb; color: #fff; border: none;
+  border-radius: 6px; cursor: pointer; font-size: 0.9rem;
+}
+#splash .setup-btn:hover { background: #1d4ed8; }
+
+/* ── Settings panel ── */
+#settings-panel {
+  display: none;
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.85);
+  align-items: center; justify-content: center;
+}
+#settings-panel.open { display: flex; }
+.settings-box {
+  background: #1e2130; border: 1px solid #334155;
+  border-radius: 12px; padding: 32px; width: 420px; max-width: 90vw;
+}
+.settings-box h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 20px; color: #f1f5f9; }
+.settings-box label { display: block; font-size: 0.8rem; color: #94a3b8; margin-bottom: 4px; margin-top: 14px; }
+.settings-box input {
+  width: 100%; padding: 8px 12px;
+  background: #0f172a; border: 1px solid #334155;
+  border-radius: 6px; color: #f1f5f9; font-size: 0.9rem; outline: none;
+}
+.settings-box input:focus { border-color: #2563eb; }
+.settings-actions { display: flex; gap: 8px; margin-top: 20px; }
+.settings-actions button {
+  flex: 1; padding: 9px; border: none; border-radius: 6px;
+  cursor: pointer; font-size: 0.9rem;
+}
+.btn-save   { background: #2563eb; color: #fff; }
+.btn-save:hover   { background: #1d4ed8; }
+.btn-cancel { background: #1f2937; color: #9ca3af; }
+.btn-cancel:hover { background: #374151; }
+.settings-box .status-msg { font-size: 0.75rem; color: #64748b; margin-top: 12px; text-align: center; }
+
+/* ── HUD ── */
+#hud {
+  position: fixed; top: 0; right: 0; width: 320px; height: 100%;
+  overflow-y: auto; background: rgba(0,0,0,.92);
+  border-left: 1px solid #333; padding: 16px; z-index: 100;
+  display: none; font-size: 12px;
+}
+#hud.visible { display: block; }
+#hud h2 { font-size: 13px; font-weight: 600; color: #f0f0f0; margin-bottom: 12px; }
+#hud .row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #222; }
+#hud .row .label { color: #888; }
+#hud .row .val   { color: #e0e0e0; text-align: right; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#hud .pill {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 11px; font-weight: 600; margin-left: 4px;
+}
+#hud .pill.ok    { background: #16a34a22; color: #4ade80; }
+#hud .pill.warn  { background: #d9770622; color: #fb923c; }
+#hud .pill.error { background: #dc262622; color: #f87171; }
+#hud .pill.info  { background: #2563eb22; color: #60a5fa; }
+#hud .pill.grey  { background: #33333366; color: #9ca3af; }
+#hud .section-title { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; margin: 12px 0 4px; }
+#hud .btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+#hud button {
+  flex: 1; min-width: 80px; padding: 6px 10px;
+  background: #1f2937; border: 1px solid #374151;
+  color: #d1d5db; border-radius: 5px; cursor: pointer; font-size: 11px;
+}
+#hud button:hover  { background: #374151; }
+#hud button.active { background: #1e3a5f; border-color: #2563eb; color: #93c5fd; }
+#log-container {
+  margin-top: 10px; max-height: 220px; overflow-y: auto;
+  font-size: 10px; color: #6b7280; font-family: monospace;
+}
+#log-container div { padding: 2px 0; border-bottom: 1px solid #111; }
+#log-container .err { color: #f87171; }
+#log-container .ok  { color: #4ade80; }
+
+/* ── Progress bar ── */
+#progress-bar { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 200; pointer-events: none; }
+#pb-fill { height: 100%; width: 0%; background: #3b82f6; transition: width .2s; }
+
+/* ── HUD hint ── */
+#hud-hint { position: fixed; bottom: 8px; right: 8px; font-size: 10px; color: #333; pointer-events: none; z-index: 50; }
+</style>
+</head>
+<body>
+
+<div id="progress-bar"><div id="pb-fill"></div></div>
+<div id="stage"></div>
+
+<!-- Splash / no-content screen -->
+<div id="splash">
+  <h1>SignCMS Player</h1>
+  <p id="splash-msg">Initialising…</p>
+  <button class="setup-btn" onclick="openSettings()">Settings</button>
+</div>
+
+<!-- Settings panel -->
+<div id="settings-panel">
+  <div class="settings-box">
+    <h2>SignCMS Player Settings</h2>
+    <label>Server URL</label>
+    <input id="s-server" type="url" placeholder="https://xxxx.supabase.co/functions/v1" />
+    <div style="font-size:0.72rem;color:#475569;margin-top:3px;">e.g. https://narhbpojjtnalyfiwxue.supabase.co/functions/v1</div>
+    <label>Device Token</label>
+    <input id="s-token" type="text" placeholder="Enter device token" />
+    <div class="settings-actions">
+      <button class="btn-save"   onclick="saveSettings()">Save &amp; Connect</button>
+      <button class="btn-cancel" onclick="closeSettings()">Cancel</button>
+    </div>
+    <div class="status-msg" id="s-status"></div>
+  </div>
+</div>
+
+<!-- HUD -->
+<div id="hud">
+  <h2>SignCMS HUD <span id="hud-ver" style="color:#555;font-weight:400">web</span></h2>
+
+  <div class="section-title">Connection</div>
+  <div class="row"><span class="label">Server</span><span class="val" id="h-server">—</span></div>
+  <div class="row"><span class="label">Token</span><span class="val" id="h-token">—</span></div>
+  <div class="row"><span class="label">Screen</span><span class="val" id="h-screen">—</span></div>
+  <div class="row"><span class="label">Sync</span><span class="val" id="h-sync">—</span></div>
+  <div class="row"><span class="label">Realtime</span><span class="val" id="h-rt">—</span></div>
+
+  <div class="section-title">Content</div>
+  <div class="row"><span class="label">Channel</span><span class="val" id="h-channel">—</span></div>
+  <div class="row"><span class="label">Project</span><span class="val" id="h-project">—</span></div>
+  <div class="row"><span class="label">Last Sync</span><span class="val" id="h-last-sync">—</span></div>
+
+  <!-- Layout switcher -->
+  <div id="hud-layout-section" style="display:none">
+    <div class="section-title">版型切換</div>
+    <div id="hud-layout-btns" class="btn-row"></div>
+  </div>
+
+  <!-- Page transition conditions -->
+  <div id="hud-pagetrans-section" style="display:none">
+    <div class="section-title">版型切換條件</div>
+    <div class="row"><span class="label">模式</span><span class="val" id="h-pt-mode">—</span></div>
+    <div class="row" id="h-pt-countdown-row" style="display:none">
+      <span class="label">倒計時</span><span class="val" id="h-pt-countdown">—</span>
+    </div>
+    <div class="row"><span class="label">觸發</span><span class="val" id="h-pt-triggers">—</span></div>
+    <div id="h-pt-codes-section" style="display:none">
+      <div class="row"><span class="label">遙控碼</span><span class="val" id="h-pt-codes">—</span></div>
+    </div>
+    <div class="btn-row" id="h-pt-btns" style="margin-top:6px"></div>
+  </div>
+
+  <div class="btn-row">
+    <button onclick="doForceSync()">Force Sync</button>
+    <button onclick="openSettings()">Settings</button>
+    <button onclick="refreshHud()">Refresh</button>
+    <button onclick="location.reload()" style="background:#7f1d1d;border-color:#991b1b;color:#fca5a5;">Restart</button>
+  </div>
+
+  <div class="section-title">Event Log</div>
+  <div id="log-container"></div>
+</div>
+
+<div id="hud-hint">F1 — HUD</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Config
+// ─────────────────────────────────────────────────────────────────────────────
+const LS_TOKEN  = 'signcms_token';
+const LS_SERVER = 'signcms_server';
+const DEFAULT_SERVER = 'https://narhbpojjtnalyfiwxue.supabase.co/functions/v1';
+const SYNC_INTERVAL  = 30_000;
+
+function getConfig() {
+  // URL params take priority → save to localStorage for next boot
+  const p = new URLSearchParams(location.search);
+  const urlToken  = p.get('token');
+  const urlServer = p.get('server');
+  if (urlToken)  localStorage.setItem(LS_TOKEN,  urlToken);
+  if (urlServer) localStorage.setItem(LS_SERVER, urlServer);
+
+  return {
+    token:  localStorage.getItem(LS_TOKEN)  || '',
+    server: localStorage.getItem(LS_SERVER) || DEFAULT_SERVER,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// State
+// ─────────────────────────────────────────────────────────────────────────────
+let cfg                   = getConfig();
+let currentProject        = null;
+let currentDefaultMediaId = null;
+let currentOrgId          = null;
+let lastSyncTime          = null;
+let lastProjectUpdatedAt  = null;
+let realtimeConnected     = false;
+let hudVisible            = false;
+let syncTimer             = null;
+let realtimeChannel       = null;
+let sbClient              = null;
+let logBatch              = [];
+
+let availableLayouts   = [];
+let activeLayoutId     = null;
+let pageLayouts        = [];
+let activePageId       = null;
+let pageAutoInterval   = null;
+let pageAutoSeconds    = 0;
+let pageAutoRemaining  = 0;
+let pageAutoPaused     = false;
+let remoteCodeBuffer   = '';
+let remoteCodeTimer    = null;
+
+const zonePlayers = new Map();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bootstrap
+// ─────────────────────────────────────────────────────────────────────────────
+(function init() {
+  if (!cfg.token) {
+    setSplashMsg('Not configured — tap Settings to begin.');
+    openSettings();
+    return;
+  }
+  setSplashMsg('Connecting to SignCMS…');
+  startSync();
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sync manager
+// ─────────────────────────────────────────────────────────────────────────────
+function startSync() {
+  stopSync();
+  doSync();
+  syncTimer = setInterval(doSync, SYNC_INTERVAL);
+}
+
+function stopSync() {
+  if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+}
+
+async function doSync() {
+  if (!cfg.token || !cfg.server) return;
+
+  const body = {};
+  if (lastProjectUpdatedAt) body.project_etag = lastProjectUpdatedAt;
+  if (logBatch.length > 0)  body.log_batch    = logBatch.splice(0);
+
+  try {
+    const res = await fetch(`${cfg.server}/player-sync`, {
+      method:  'POST',
+      headers: {
+        'Content-Type':   'application/json',
+        'x-device-token': cfg.token,
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error ?? 'server returned ok=false');
+    handleSyncData(data);
+  } catch (e) {
+    log(`Sync error: ${e.message}`, 'err');
+    setSplashMsg(`Sync error: ${e.message}`);
+  }
+}
+
+function doForceSync() {
+  log('Force sync…');
+  doSync();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sync response handler
+// ─────────────────────────────────────────────────────────────────────────────
+function handleSyncData(data) {
+  lastSyncTime = new Date().toLocaleTimeString();
+  currentOrgId = data.screen?.org_id ?? null;
+  log(`Sync OK — ${data.screen?.name ?? '?'} / ${data.channel?.name ?? '—'}`, 'ok');
+
+  // Update HUD status fields
+  if (hudVisible) {
+    set('h-server',  cfg.server);
+    set('h-token',   maskToken(cfg.token));
+    set('h-screen',  data.screen?.name  ?? '—');
+    set('h-channel', data.channel?.name ?? '—');
+    set('h-project', data.project?.name ?? '—');
+    set('h-last-sync', lastSyncTime);
+    updateHudStatus();
+  }
+
+  // Realtime: (re)subscribe when channel key changes
+  if (data.realtime?.channel && data.realtime?.apikey) {
+    const sbUrl = data.realtime.supabase_url || 'https://narhbpojjtnalyfiwxue.supabase.co';
+    setupRealtime(sbUrl, data.realtime.apikey, data.realtime.channel);
+  }
+
+  // ── Content rendering ──────────────────────────────────────────────────────
+  if (data.project) {
+    if (data.project.updated_at) lastProjectUpdatedAt = data.project.updated_at;
+
+    // ETag optimisation: restore cached zones when server skips them
+    if (data.project.zones_changed === false && currentProject?.zones)
+      data.project.zones = currentProject.zones;
+
+    if (Array.isArray(data.layouts) && data.layouts.length >= 2) {
+      availableLayouts = data.layouts;
+    } else if (!data.layouts) {
+      availableLayouts = [];
+      activeLayoutId   = null;
+    }
+    if (hudVisible) updateHudLayouts();
+
+    const manualLayout = activeLayoutId
+      ? availableLayouts.find(l => l.id === activeLayoutId) ?? null
+      : null;
+    const toRender = manualLayout ?? data.project;
+
+    const needsRender = !currentProject
+      || currentProject.id !== toRender.id
+      || (!manualLayout && data.project.zones_changed !== false);
+
+    if (needsRender) {
+      currentProject = toRender;
+      renderProject(toRender);
+    }
+    return;
+  }
+
+  if (data.default_media) {
+    currentProject = null;
+    if (data.default_media.id !== currentDefaultMediaId) {
+      currentDefaultMediaId = data.default_media.id;
+      renderDefaultMedia(data.default_media);
+    }
+    return;
+  }
+
+  // Sleep mode
+  currentProject = null;
+  currentDefaultMediaId = null;
+  pageLayouts = []; activePageId = null;
+  stopPageAutoSwitch(); pageAutoPaused = false;
+  zonePlayersClear();
+  document.getElementById('stage').innerHTML = '';
+  hideSplash();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Realtime (Supabase JS channel)
+// ─────────────────────────────────────────────────────────────────────────────
+let _lastRealtimeKey = '';
+
+function setupRealtime(supabaseUrl, apikey, channelName) {
+  const key = `${supabaseUrl}|${channelName}`;
+  if (key === _lastRealtimeKey) return;
+  _lastRealtimeKey = key;
+
+  // Tear down existing
+  if (realtimeChannel && sbClient) {
+    sbClient.removeChannel(realtimeChannel);
+    realtimeChannel = null;
+  }
+
+  sbClient = window.supabase.createClient(supabaseUrl, apikey, {
+    realtime: { params: { eventsPerSecond: 5 } },
+  });
+
+  realtimeChannel = sbClient.channel(channelName)
+    .on('broadcast', { event: '*' }, ({ event, payload }) => {
+      log(`Realtime: ${event}`);
+      handleRealtimeCmd(event, payload ?? {});
+    })
+    .subscribe((status) => {
+      const connected = status === 'SUBSCRIBED';
+      if (connected !== realtimeConnected) {
+        realtimeConnected = connected;
+        if (hudVisible) updateHudStatus();
+        log(`Realtime ${connected ? 'connected' : 'disconnected'}`, connected ? 'ok' : 'warn');
+      }
+    });
+}
+
+function handleRealtimeCmd(event, payload) {
+  if (event === 'content.sync') { doSync(); return; }
+
+  if (event === 'page.switch') {
+    const pt = _getCurrentPageTransition();
+    if (!pt?.triggers?.api) { log('page.switch 已忽略（API 觸發未啟用）'); return; }
+    const targetId = payload?.page_id ?? null;
+    if (targetId) {
+      const page = pageLayouts.find(p => p.id === targetId);
+      if (page) { doSwitchPage(targetId); return; }
+    }
+    if (typeof payload?.index === 'number') {
+      const page = pageLayouts[payload.index % pageLayouts.length];
+      if (page) doSwitchPage(page.id);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zone rendering  (same logic as Electron renderer, minus CAS)
+// ─────────────────────────────────────────────────────────────────────────────
+function renderProject(project, forcePageId = null) {
+  zonePlayersClear();
+  const stage  = document.getElementById('stage');
+  const splash = document.getElementById('splash');
+  stage.innerHTML = '';
+  splash.classList.add('hidden');
+  stopPageAutoSwitch();
+
+  const zonesArr = Array.isArray(project.zones) ? project.zones : [];
+  const metaObj  = zonesArr.find(z => z?._meta);
+
+  if (metaObj?.pages?.length > 1) {
+    pageLayouts = metaObj.pages;
+    if (forcePageId && pageLayouts.find(p => p.id === forcePageId)) {
+      activePageId = forcePageId;
+    } else if (!activePageId || !pageLayouts.find(p => p.id === activePageId)) {
+      activePageId = metaObj.activePageId ?? pageLayouts[0]?.id ?? null;
+    }
+    const pt = metaObj.pageTransition;
+    const autoSecs = pt?.mode === 'fixed' ? (pt.seconds ?? 0)
+                   : pt?.mode === 'auto'  ? _calcPageDuration(activePageId)
+                   : 0;
+    if (autoSecs > 0) {
+      if (!pageAutoPaused) startPageAutoSwitch(autoSecs);
+      else pageAutoSeconds = autoSecs;
+    }
+  } else {
+    pageLayouts  = [];
+    activePageId = null;
+    pageAutoPaused = false;
+  }
+
+  if (hudVisible) { updateHudLayouts(); updatePageTransHud(); }
+
+  const zones = normaliseZones(project.zones, activePageId);
+  if (!zones.length) {
+    splash.classList.remove('hidden');
+    setSplashMsg('Project has no zones.');
+    return;
+  }
+
+  for (const zone of zones) {
+    const div = document.createElement('div');
+    div.className       = 'zone';
+    div.id              = `zone-${zone.id}`;
+    div.style.left      = pct(zone.x);
+    div.style.top       = pct(zone.y);
+    div.style.width     = pct(zone.w);
+    div.style.height    = pct(zone.h);
+    div.style.zIndex    = zone.zIndex ?? 0;
+    if (zone.bgColor && !zone.bgColor.includes('var(--'))
+      div.style.background = zone.bgColor;
+    stage.appendChild(div);
+    const player = new ZonePlayer(div, zone.items ?? []);
+    zonePlayersAdd(zone.id, player);
+    player.start();
+  }
+}
+
+function renderDefaultMedia(media) {
+  zonePlayersClear();
+  document.getElementById('stage').innerHTML = '';
+  hideSplash();
+  const div = document.createElement('div');
+  div.className = 'zone';
+  Object.assign(div.style, { left:'0%', top:'0%', width:'100%', height:'100%' });
+  document.getElementById('stage').appendChild(div);
+  const item   = normaliseItem({ id: media.id, url: media.url, type: media.type ?? null, dwell: 10 });
+  const player = new ZonePlayer(div, [item]);
+  zonePlayersAdd('default', player);
+  player.start();
+}
+
+// ── Zones normalisation ────────────────────────────────────────────────────
+function normaliseZones(zones, currentPageId = null) {
+  if (!zones) return [];
+  const arr = Array.isArray(zones) ? zones : (zones.zones ?? Object.values(zones));
+  const meta      = arr.find(z => z?._meta);
+  const canvasW   = meta?.resolution?.width  ?? 1920;
+  const canvasH   = meta?.resolution?.height ?? 1080;
+  const overlayRefH = meta?.displayH ?? 540;
+  const overlayRefW = meta?.displayW ?? Math.round(overlayRefH * canvasW / canvasH);
+
+  let realZones;
+  if (meta?.pages?.length > 0) {
+    const targetId = currentPageId ?? meta.activePageId ?? meta.pages[0]?.id;
+    const page     = meta.pages.find(p => p.id === targetId) ?? meta.pages[0];
+    const overlayItems = (page?.overlays ?? []).map(o => ({ ...o, _overlay: true }));
+    realZones = [...(page?.zones ?? []), ...overlayItems];
+  } else {
+    realZones = arr.filter(z => z && typeof z === 'object' && !z._meta && z.id);
+  }
+
+  return realZones.map((z, i) => {
+    const items       = z.items ?? z.mediaItems ?? z.media_items ?? z.playlist
+                     ?? z.content?.mediaItems ?? z.content?.items ?? [];
+    const zoneFitMode = z.fitMode ?? z.content?.fitMode ?? null;
+    let x, y, w, h;
+    if (z._overlay) {
+      x = (coerce(z.x ?? 0)             / overlayRefW) * 100;
+      y = (coerce(z.y ?? 0)             / overlayRefH) * 100;
+      w = (coerce(z.w ?? z.width  ?? 0) / overlayRefW) * 100;
+      h = (coerce(z.h ?? z.height ?? 0) / overlayRefH) * 100;
+    } else {
+      x = normaliseCoord(coerce(z.x ?? z.left  ?? 0));
+      y = normaliseCoord(coerce(z.y ?? z.top   ?? 0));
+      w = normaliseSize (coerce(z.w ?? z.width  ?? z.right  ?? 100));
+      h = normaliseSize (coerce(z.h ?? z.height ?? z.bottom ?? 100));
+    }
+    return {
+      id:      z.id ?? `z${i}`,
+      x, y, w, h,
+      zIndex:  z.zIndex ?? (z._overlay ? 10 : 0),
+      bgColor: z.bgColor ?? z.content?.bgColor ?? null,
+      items:   items.map(item => normaliseItem(item, zoneFitMode)),
+    };
+  });
+}
+
+function normaliseItem(item, zoneFitMode = null) {
+  const type = item.type ?? (item.url?.match(/\.(mp4|webm|mov|avi)$/i) ? 'video' : 'image');
+  let url = item.url ?? item.src ?? '';
+
+  if (type === 'widget' && item.widgetConfig?.url) {
+    try {
+      const u = new URL(item.widgetConfig.url);
+      if (item.widgetConfig.params) {
+        for (const [k, v] of Object.entries(item.widgetConfig.params)) {
+          if (v == null || v === '') continue;
+          if (Array.isArray(v)) {
+            for (const elem of v) {
+              if (elem !== '' && elem != null) u.searchParams.append(k, String(elem));
+            }
+          } else {
+            u.searchParams.set(k, String(v));
+          }
+        }
+      }
+      url = u.toString();
+    } catch { url = item.widgetConfig.url; }
+  }
+
+  if (type === 'widget' && !url) {
+    const CATALOG_URLS = {
+      'queue-display': 'https://narhbpojjtnalyfiwxue.supabase.co/storage/v1/object/public/system-widgets/queue_display/index.html',
+    };
+    const catalogType = item.widgetConfig?._catalogType ?? item.widgetConfig?.widgetType ?? '';
+    const baseUrl = CATALOG_URLS[catalogType];
+    if (baseUrl) {
+      try {
+        const u = new URL(baseUrl);
+        if (currentOrgId) u.searchParams.set('orgId', currentOrgId);
+        const cfg2 = item.widgetConfig ?? {};
+        if (cfg2.ttsLang)      u.searchParams.set('ttsLang',      String(cfg2.ttsLang));
+        if (cfg2.cycleSeconds) u.searchParams.set('cycleSeconds', String(cfg2.cycleSeconds));
+        if (cfg2.bgColor)      u.searchParams.set('bgColor',      String(cfg2.bgColor));
+        if (cfg2.textColor)    u.searchParams.set('textColor',    String(cfg2.textColor));
+        if (cfg2.accentColor)  u.searchParams.set('accentColor',  String(cfg2.accentColor));
+        url = u.toString();
+      } catch {}
+    }
+  }
+
+  return {
+    id:      item.id ?? null,
+    type,
+    url,
+    dwell:   item.dwell ?? item.dwell_seconds ?? item.dwellSeconds ?? item.duration ?? 10,
+    name:    item.name ?? item.media_name ?? '',
+    fitMode: item.fitMode ?? zoneFitMode ?? 'cover-x',
+  };
+}
+
+function coerce(v)          { return typeof v === 'string' ? parseFloat(v) || 0 : (v ?? 0); }
+function normaliseCoord(v)  { return v > 1 ? v : v * 100; }
+function normaliseSize(v)   { return v > 1 ? v : v * 100; }
+function pct(v)             { return v + '%'; }
+
+// ── ZonePlayer ──────────────────────────────────────────────────────────────
+class ZonePlayer {
+  constructor(el, items) {
+    this._el    = el;
+    this._items = items;
+    this._index = 0;
+    this._timer = null;
+    this._media = null;
+  }
+
+  start() {
+    if (!this._items.length) { this._el.style.background = '#111'; return; }
+    this._playIndex(0);
+  }
+
+  _playIndex(i) {
+    if (!this._items.length) return;
+    this._index = i % this._items.length;
+    const item  = this._items[this._index];
+    clearTimeout(this._timer);
+    this._el.innerHTML = '';
+    this._media = null;
+
+    const src = item.url || '';
+
+    const fitCss = item.fitMode === 'stretch' ? 'fill'
+                 : item.fitMode === 'contain'  ? 'contain'
+                 :                               'cover';
+
+    if (item.type === 'widget') {
+      const iframe = document.createElement('iframe');
+      iframe.src           = src;
+      iframe.style.cssText = 'width:100%;height:100%;border:none;display:block;';
+      iframe.allow         = 'autoplay';
+      iframe.scrolling     = 'no';
+      this._el.appendChild(iframe);
+      this._media = iframe;
+      if (this._items.length > 1) {
+        this._timer = setTimeout(() => { this._logPlay(item); this._next(); },
+          (item.dwell || 30) * 1000);
+      }
+    } else if (item.type === 'video') {
+      const vid = document.createElement('video');
+      vid.src         = src;
+      vid.autoplay    = true;
+      vid.muted       = true;
+      vid.loop        = this._items.length === 1;
+      vid.playsInline = true;
+      vid.style.objectFit = fitCss;
+      vid.addEventListener('ended', () => { this._logPlay(item); this._next(); });
+      vid.addEventListener('error', () => this._next());
+      this._el.appendChild(vid);
+      this._media = vid;
+    } else {
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = item.name || '';
+      img.addEventListener('error', () => this._next());
+      switch (item.fitMode) {
+        case 'cover-x':
+          img.style.cssText = 'position:absolute;left:0;top:50%;width:100%;height:auto;transform:translateY(-50%);display:block;'; break;
+        case 'cover-y':
+          img.style.cssText = 'position:absolute;top:0;left:50%;height:100%;width:auto;transform:translateX(-50%);display:block;'; break;
+        case 'contain':
+          img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;'; break;
+        case 'stretch':
+          img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:block;'; break;
+        default:
+          img.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;';
+      }
+      this._el.appendChild(img);
+      this._media = img;
+      this._timer = setTimeout(() => { this._logPlay(item); this._next(); },
+        (item.dwell || 10) * 1000);
+    }
+  }
+
+  _next() { this._playIndex((this._index + 1) % this._items.length); }
+
+  _logPlay(item) {
+    if (!item.id) return;
+    logBatch.push({
+      media_id:         item.id,
+      duration_seconds: item.type === 'video'
+        ? Math.round(this._media?.duration ?? 0)
+        : item.dwell,
+    });
+    if (logBatch.length > 200) logBatch.shift();
+  }
+
+  destroy() {
+    clearTimeout(this._timer);
+    if (this._media) {
+      if (this._media.tagName === 'VIDEO') this._media.pause();
+      this._media.src = '';
+    }
+    this._el.innerHTML = '';
+  }
+}
+
+function zonePlayersAdd(id, p)  { zonePlayersDestroy(id); zonePlayers.set(id, p); }
+function zonePlayersDestroy(id) { zonePlayers.get(id)?.destroy(); zonePlayers.delete(id); }
+function zonePlayersClear()     { for (const id of zonePlayers.keys()) zonePlayersDestroy(id); }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Page / layout switching  (same logic as Electron renderer)
+// ─────────────────────────────────────────────────────────────────────────────
+function stopPageAutoSwitch() {
+  clearInterval(pageAutoInterval);
+  pageAutoInterval  = null;
+  pageAutoRemaining = 0;
+}
+
+function startPageAutoSwitch(seconds) {
+  stopPageAutoSwitch();
+  if (!seconds || pageLayouts.length < 2) return;
+  pageAutoSeconds   = seconds;
+  pageAutoRemaining = seconds;
+  pageAutoInterval  = setInterval(() => {
+    if (pageAutoPaused) return;
+    pageAutoRemaining = Math.max(0, pageAutoRemaining - 1);
+    if (hudVisible) updatePageTransHud();
+    if (pageAutoRemaining <= 0) {
+      if (!currentProject || pageLayouts.length < 2) return;
+      const curIdx  = pageLayouts.findIndex(p => p.id === activePageId);
+      const nextId  = pageLayouts[(curIdx + 1) % pageLayouts.length].id;
+      activePageId      = nextId;
+      pageAutoRemaining = pageAutoSeconds;
+      setTimeout(() => renderProject(currentProject, nextId), 0);
+    }
+  }, 1000);
+}
+
+function doToggleAutoSwitch() {
+  pageAutoPaused = !pageAutoPaused;
+  if (!pageAutoPaused && !pageAutoInterval && pageAutoSeconds > 0 && pageLayouts.length >= 2)
+    startPageAutoSwitch(pageAutoSeconds);
+  if (hudVisible) updatePageTransHud();
+  log(pageAutoPaused ? '自動切換已暫停' : '自動切換已恢復', 'ok');
+}
+
+function _getCurrentPageTransition() {
+  if (!currentProject) return null;
+  const zonesArr = Array.isArray(currentProject.zones) ? currentProject.zones : [];
+  const metaObj  = zonesArr.find(z => z?._meta);
+  return metaObj?.pageTransition ?? null;
+}
+
+function _calcPageDuration(pageId) {
+  if (!currentProject) return 300;
+  const zonesArr = Array.isArray(currentProject.zones) ? currentProject.zones : [];
+  const metaObj  = zonesArr.find(z => z?._meta);
+  if (!metaObj?.pages?.length) return 300;
+  const page = metaObj.pages.find(p => p.id === pageId) ?? metaObj.pages[0];
+  if (!page) return 300;
+  const allZones = [...(page.zones ?? []), ...(page.overlays ?? [])];
+  let maxDur = 0;
+  for (const zone of allZones) {
+    const items     = zone.content?.mediaItems ?? zone.items ?? zone.mediaItems ?? [];
+    const zoneTotal = items.reduce((s, it) =>
+      s + (it.duration ?? it.dwell ?? it.dwell_seconds ?? it.dwellSeconds ?? 10), 0);
+    if (zoneTotal > maxDur) maxDur = zoneTotal;
+  }
+  return maxDur > 0 ? maxDur : 300;
+}
+
+function doSwitchPage(pageId) {
+  const page = pageLayouts.find(p => p.id === pageId);
+  if (!page || !currentProject) return;
+  renderProject(currentProject, pageId);
+  log(`版型切換 → ${page.name}`, 'ok');
+}
+
+function doSwitchLayout(layoutId) {
+  const layout = availableLayouts.find(l => l.id === layoutId);
+  if (!layout?.zones) { log('版型資料尚未載入', 'err'); return; }
+  activeLayoutId = layoutId;
+  activePageId   = null;
+  stopPageAutoSwitch(); pageAutoPaused = false;
+  currentProject = layout;
+  renderProject(layout);
+  updateHudLayouts();
+  log(`版型切換 → ${layout.name}`, 'ok');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HUD
+// ─────────────────────────────────────────────────────────────────────────────
+function toggleHud() {
+  hudVisible = !hudVisible;
+  document.getElementById('hud').classList.toggle('visible', hudVisible);
+  if (hudVisible) refreshHud();
+}
+
+function refreshHud() {
+  set('h-server',  cfg.server);
+  set('h-token',   maskToken(cfg.token));
+  set('h-last-sync', lastSyncTime ?? '—');
+  updateHudStatus();
+  updateHudLayouts();
+  updatePageTransHud();
+}
+
+function updateHudStatus() {
+  set('h-sync', lastSyncTime
+    ? `<span class="pill ok">last ${lastSyncTime}</span>`
+    : '<span class="pill grey">waiting</span>');
+  set('h-rt', realtimeConnected
+    ? '<span class="pill ok">connected</span>'
+    : '<span class="pill warn">disconnected</span>');
+}
+
+function updateHudLayouts() {
+  const section = document.getElementById('hud-layout-section');
+  const btnsEl  = document.getElementById('hud-layout-btns');
+  if (!section || !btnsEl) return;
+  const usingPages = pageLayouts.length >= 2;
+  const layouts    = usingPages ? pageLayouts : availableLayouts;
+  const curId      = usingPages ? activePageId : (activeLayoutId ?? currentProject?.id);
+  if (layouts.length < 2) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  btnsEl.innerHTML = layouts.map((l, i) => {
+    const active  = l.id === curId;
+    const label   = escHtml((i + 1) + '. ' + l.name.slice(0, 14));
+    const handler = usingPages ? `doSwitchPage('${l.id}')` : `doSwitchLayout('${l.id}')`;
+    return `<button onclick="${handler}" class="${active ? 'active' : ''}">${label}</button>`;
+  }).join('');
+}
+
+function updatePageTransHud() {
+  const section = document.getElementById('hud-pagetrans-section');
+  if (!section) return;
+  const pt = _getCurrentPageTransition();
+  if (!pt || pageLayouts.length < 2) { section.style.display = 'none'; return; }
+  section.style.display = '';
+
+  const isTimeBased = pt.mode === 'auto' || pt.mode === 'fixed';
+  const modeLabel   = pt.mode === 'auto'  ? `自動（版面時間）`
+                    : pt.mode === 'fixed' ? `固定 ${pt.seconds}s`
+                    :                      `手動/觸發`;
+  set('h-pt-mode', `<span class="pill ${isTimeBased ? 'info' : 'grey'}">${modeLabel}</span>`);
+
+  const countdownRow = document.getElementById('h-pt-countdown-row');
+  if (countdownRow) countdownRow.style.display = isTimeBased ? '' : 'none';
+  if (isTimeBased) {
+    const mins = Math.floor(pageAutoRemaining / 60).toString().padStart(2, '0');
+    const secs = (pageAutoRemaining % 60).toString().padStart(2, '0');
+    const pauseTag = pageAutoPaused ? ' <span class="pill warn">暫停</span>' : '';
+    set('h-pt-countdown', `${mins}:${secs}${pauseTag}`);
+  }
+
+  const trigs = pt.triggers ?? {};
+  const trigParts = [];
+  if (trigs.api)    trigParts.push('<span class="pill info">API</span>');
+  if (trigs.remote) trigParts.push('<span class="pill info">遙控</span>');
+  set('h-pt-triggers', trigParts.length ? trigParts.join(' ') : '<span class="pill grey">無</span>');
+
+  const codesSection = document.getElementById('h-pt-codes-section');
+  if (codesSection) {
+    const channels = pt.pageChannels ?? [];
+    if (trigs.remote && channels.length > 0) {
+      codesSection.style.display = '';
+      set('h-pt-codes', channels.map(c => {
+        const active = c.id === activePageId;
+        return `<span class="pill ${active ? 'ok' : 'grey'}">${escHtml(c.name)} <b>${escHtml(c.remoteCode ?? '?')}</b></span>`;
+      }).join(' '));
+    } else {
+      codesSection.style.display = 'none';
+    }
+  }
+
+  const btnsEl = document.getElementById('h-pt-btns');
+  if (btnsEl) {
+    if (isTimeBased) {
+      const label = pageAutoPaused ? '▶ 繼續自動切換' : '⏸ 暫停自動切換';
+      btnsEl.innerHTML = `<button onclick="doToggleAutoSwitch()" class="${pageAutoPaused ? '' : 'active'}">${label}</button>`;
+    } else {
+      btnsEl.innerHTML = '';
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Settings panel
+// ─────────────────────────────────────────────────────────────────────────────
+function openSettings() {
+  document.getElementById('s-server').value = cfg.server || DEFAULT_SERVER;
+  document.getElementById('s-token').value  = cfg.token  || '';
+  document.getElementById('s-status').textContent = '';
+  document.getElementById('settings-panel').classList.add('open');
+}
+
+function closeSettings() {
+  document.getElementById('settings-panel').classList.remove('open');
+}
+
+function saveSettings() {
+  const server = document.getElementById('s-server').value.trim().replace(/\/$/, '');
+  const token  = document.getElementById('s-token').value.trim();
+  if (!server || !token) {
+    document.getElementById('s-status').textContent = 'Server URL and Device Token are required.';
+    return;
+  }
+  localStorage.setItem(LS_SERVER, server);
+  localStorage.setItem(LS_TOKEN,  token);
+  cfg = { server, token };
+  closeSettings();
+  log('Settings saved — reconnecting…', 'ok');
+  stopSync();
+  startSync();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Keyboard / input
+// ─────────────────────────────────────────────────────────────────────────────
+let _clickCount = 0, _clickTimer = null;
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'F1')     { toggleHud(); return; }
+  if (e.key === 'Escape') { if (hudVisible) toggleHud(); closeSettings(); return; }
+
+  const pt = _getCurrentPageTransition();
+  if (pt?.triggers?.remote && /^\d$/.test(e.key)) {
+    remoteCodeBuffer += e.key;
+    clearTimeout(remoteCodeTimer);
+    remoteCodeTimer = setTimeout(() => {
+      const code = remoteCodeBuffer;
+      remoteCodeBuffer = '';
+      const matched = (pt.pageChannels ?? []).find(c => c.remoteCode === code);
+      if (matched) { log(`遙控碼 ${code} → ${matched.name}`, 'ok'); doSwitchPage(matched.id); }
+      else log(`遙控碼 ${code} — 無匹配`);
+    }, 400);
+  }
+});
+
+document.addEventListener('click', () => {
+  _clickCount++;
+  clearTimeout(_clickTimer);
+  _clickTimer = setTimeout(() => { _clickCount = 0; }, 600);
+  if (_clickCount >= 3) { _clickCount = 0; toggleHud(); }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utilities
+// ─────────────────────────────────────────────────────────────────────────────
+function setSplashMsg(msg) {
+  document.getElementById('splash-msg').textContent = msg;
+}
+function hideSplash() {
+  document.getElementById('splash').classList.add('hidden');
+}
+
+function maskToken(t) {
+  if (!t || t.length < 8) return '—';
+  return t.slice(0, 4) + '…' + t.slice(-4);
+}
+
+function set(id, html) {
+  const el = document.getElementById(id);
+  if (el) el.innerHTML = html;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+const logLines = [];
+function log(msg, cls = '') {
+  const time = new Date().toLocaleTimeString();
+  logLines.unshift({ msg, cls, time });
+  if (logLines.length > 100) logLines.pop();
+  if (hudVisible) renderLog();
+}
+function renderLog() {
+  const c = document.getElementById('log-container');
+  if (!c) return;
+  c.innerHTML = logLines.slice(0, 40).map(l =>
+    `<div class="${l.cls}">${l.time} ${escHtml(l.msg)}</div>`
+  ).join('');
+}
+</script>
+</body>
+</html>
