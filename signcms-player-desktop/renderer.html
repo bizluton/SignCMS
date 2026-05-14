@@ -140,6 +140,12 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
   <div class="row"><span class="label">Project</span><span class="val" id="h-project">—</span></div>
   <div class="row"><span class="label">Last Sync</span><span class="val" id="h-last-sync">—</span></div>
 
+  <!-- Layout Switcher — hidden when channel has only 1 layout -->
+  <div id="hud-layout-section" style="display:none">
+    <div class="section-title">版型切換</div>
+    <div id="hud-layout-btns" class="btn-row"></div>
+  </div>
+
   <div class="section-title">CAS Cache</div>
   <div class="row"><span class="label">Sync</span><span class="val" id="h-cas-pct">—</span></div>
   <div class="row"><span class="label">Files</span><span class="val" id="h-cas-files">—</span></div>
@@ -189,6 +195,9 @@ let dlDone = 0, dlTotal  = 0;
 let currentAspectRatio   = 'free';
 // true after the user has manually chosen a ratio — suppresses auto-detect
 let aspectManuallySet    = false;
+// Multi-layout support — populated when channel has ≥2 allowed projects
+let availableLayouts     = [];   // [{id, name, zones, updated_at}] sorted by sort_order
+let activeLayoutId       = null; // null = follow server's choice; string = manual override
 
 const zonePlayers = new Map(); // zoneId → ZonePlayer
 
@@ -229,9 +238,32 @@ window.addEventListener('__signSyncData', (e) => {
 
   if (data.project) {
     currentDefaultMediaId = null;
-    if (data.project.zones_changed !== false || !currentProject) {
-      currentProject = data.project;
-      renderProject(data.project);
+
+    // ── Multi-layout: update local cache ──────────────────────────────────
+    if (Array.isArray(data.layouts) && data.layouts.length >= 2) {
+      availableLayouts = data.layouts;
+    } else if (!data.layouts) {
+      // Channel dropped to single layout — clear manual override
+      availableLayouts = [];
+      activeLayoutId   = null;
+    }
+    if (hudVisible) updateHudLayouts();
+
+    // ── Determine which layout to render ──────────────────────────────────
+    // If user manually picked one and it still exists → honour it.
+    // Otherwise fall back to the server's currently-active project.
+    const manualLayout = activeLayoutId
+      ? availableLayouts.find(l => l.id === activeLayoutId) ?? null
+      : null;
+    const toRender = manualLayout ?? data.project;
+
+    const needsRender = !currentProject
+      || currentProject.id !== toRender.id
+      || (!manualLayout && data.project.zones_changed !== false);
+
+    if (needsRender) {
+      currentProject = toRender;
+      renderProject(toRender);
     }
     return;
   }
@@ -681,6 +713,7 @@ async function refreshHud() {
   const ar = await window.player.getAspectRatio?.();
   if (ar) { currentAspectRatio = ar; }
   updateAspectRatioHud();
+  updateHudLayouts();
 
   const stats = await window.player.getCacheStats();
   if (!stats) return;
@@ -725,6 +758,37 @@ function fmtBytes(b) {
   let i = 0;
   while (b >= 1024 && i < units.length - 1) { b /= 1024; i++; }
   return b.toFixed(1) + ' ' + units[i];
+}
+
+// ── Layout switcher ────────────────────────────────────────────────────────
+function updateHudLayouts() {
+  const section = document.getElementById('hud-layout-section');
+  const btnsEl  = document.getElementById('hud-layout-btns');
+  if (!section || !btnsEl) return;
+
+  if (availableLayouts.length < 2) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+
+  const curId = activeLayoutId ?? currentProject?.id;
+  btnsEl.innerHTML = availableLayouts.map((layout, i) => {
+    const active = layout.id === curId;
+    const label  = escHtml((i + 1) + '. ' + layout.name.slice(0, 14));
+    return `<button onclick="doSwitchLayout('${layout.id}')" class="${active ? 'active' : ''}">${label}</button>`;
+  }).join('');
+}
+
+function doSwitchLayout(layoutId) {
+  const layout = availableLayouts.find(l => l.id === layoutId);
+  if (!layout) { log('Layout not found', 'err'); return; }
+  if (!layout.zones) { log('版型資料尚未載入，請等待下次 Sync', 'err'); return; }
+  activeLayoutId = layoutId;
+  currentProject = layout;
+  renderProject(layout);
+  updateHudLayouts();
+  log(`版型切換 → ${layout.name}`, 'ok');
 }
 
 // ── Aspect ratio ──────────────────────────────────────────────────────────────

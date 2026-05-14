@@ -132,6 +132,9 @@ Deno.serve(async (req) => {
   // ── Fetch channel + active project ─────────────────────────────────────
   let channelOut = null;
   let projectOut = null;
+  // layoutsOut: all design projects linked via channel_allowed_projects
+  // (only populated when there are ≥2 options so the player can show a switcher).
+  let layoutsOut: Array<{ id: string; name: string; zones: unknown; updated_at: string }> | null = null;
 
   if (channelId) {
     const { data: ch } = await admin.from("channels")
@@ -163,6 +166,16 @@ Deno.serve(async (req) => {
       });
       if (activeBlock?.design_project_id) activeProjectId = activeBlock.design_project_id;
 
+      // ── Allowed layouts (channel_allowed_projects) ─────────────────────────
+      // Fetch in parallel with the active-project query below so it costs no
+      // extra latency.  We only return zones when ≥2 layouts exist so the
+      // player can show a manual switcher in the HUD.
+      const allowedReq = admin
+        .from("channel_allowed_projects")
+        .select("sort_order, design_project_id")
+        .eq("channel_id", channelId)
+        .order("sort_order");
+
       if (activeProjectId) {
         // ── ETag check + asset manifest — run in parallel ─────────────────
         // asset_manifest: all non-deleted media items for this project,
@@ -170,7 +183,7 @@ Deno.serve(async (req) => {
         // hash-based delta sync (CAS Phase 3+).
         // Always returned regardless of zones_changed so the player can
         // warm its cache even when layout content hasn't changed.
-        const [projMetaRes, assetsRes] = await Promise.all([
+        const [projMetaRes, assetsRes, allowedRes] = await Promise.all([
           admin.from("design_projects")
             .select("id, name, aspect, updated_at")
             .eq("id", activeProjectId).maybeSingle(),
@@ -179,6 +192,7 @@ Deno.serve(async (req) => {
             .eq("design_project_id", activeProjectId)
             .is("deleted_at", null)
             .limit(500),
+          allowedReq,
         ]);
 
         const projMeta      = projMetaRes.data;
@@ -200,6 +214,24 @@ Deno.serve(async (req) => {
               .select("id, name, aspect, zones, updated_at")
               .eq("id", activeProjectId).maybeSingle();
             projectOut = proj ? { ...proj, zones_changed: true, asset_manifest: assetManifest } : null;
+          }
+        }
+
+        // ── Populate layoutsOut when channel has ≥2 allowed projects ─────────
+        // Fetch full zones for every layout so the player can switch without
+        // another round-trip.  Skip if allowedRes has ≤1 row.
+        const allowed = allowedRes.data ?? [];
+        if (allowed.length >= 2) {
+          const ids = allowed.map((a) => a.design_project_id);
+          const { data: layoutProjects } = await admin
+            .from("design_projects")
+            .select("id, name, zones, updated_at")
+            .in("id", ids);
+
+          if (layoutProjects?.length) {
+            layoutsOut = allowed
+              .map((a) => layoutProjects.find((p) => p.id === a.design_project_id))
+              .filter((p): p is NonNullable<typeof p> => p != null);
           }
         }
       }
@@ -307,6 +339,7 @@ Deno.serve(async (req) => {
     screen:        { id: screenId, name: screen?.name ?? auth.screen_name, org_id: orgId },
     channel:       channelOut,
     project:       projectOut,
+    layouts:       layoutsOut,   // null | [{id,name,zones,updated_at}] — only when ≥2 exist
     default_media: defaultMediaOut,
     announcements: announcements ?? [],
     shadow:        shadowOut,
