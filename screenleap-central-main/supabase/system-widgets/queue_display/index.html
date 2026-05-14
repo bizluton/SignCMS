@@ -8,10 +8,15 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --bg:      #0f172a;
-    --text:    #ffffff;
-    --accent:  #f97316;
-    --muted:   rgba(255,255,255,0.55);
+    --bg:        #0f172a;
+    --text:      #ffffff;
+    --accent:    #f97316;
+    --muted:     rgba(255,255,255,0.55);
+    --lbl-color: rgba(255,255,255,0.55);
+    /* Font sizes — overridden by JS from URL params (cqi units) */
+    --num-size:  22cqi;
+    --hdr-size:   5cqi;
+    --sub-size:   4cqi;
   }
 
   html, body {
@@ -22,7 +27,8 @@
     font-family: system-ui, -apple-system, sans-serif;
   }
 
-  /* Outer wrapper fills the iframe, centred column */
+  /* Outer wrapper — container-type:inline-size so cqi units work correctly
+     regardless of zone aspect ratio (matches React preview behaviour) */
   #app {
     width: 100%; height: 100%;
     display: flex;
@@ -31,7 +37,7 @@
     justify-content: center;
     gap: 0.3em;
     padding: 6%;
-    container-type: size;
+    container-type: inline-size;
   }
 
   /* ── Header bar ── */
@@ -39,9 +45,9 @@
     display: flex;
     align-items: center;
     gap: 0.4em;
-    font-size: 5cqh;
+    font-size: var(--hdr-size);
     font-weight: 600;
-    color: var(--text);
+    color: var(--lbl-color);
     width: 100%;
     border-bottom: 1px solid rgba(255,255,255,0.12);
     padding-bottom: 0.3em;
@@ -57,7 +63,7 @@
 
   /* ── Main number ── */
   #number {
-    font-size: 22cqh;
+    font-size: var(--num-size);
     font-weight: 800;
     letter-spacing: -0.02em;
     line-height: 1;
@@ -70,7 +76,7 @@
     display: flex;
     align-items: center;
     gap: 0.4em;
-    font-size: 4cqh;
+    font-size: var(--sub-size);
     color: var(--muted);
     min-height: 1.2em;
   }
@@ -95,7 +101,7 @@
     background: none; border: none;
     color: rgba(255,255,255,0.3);
     cursor: pointer;
-    font-size: 4cqh;
+    font-size: var(--sub-size);
     padding: 2px;
     line-height: 1;
     transition: color .2s;
@@ -105,7 +111,7 @@
 
   /* ── Loading / error state ── */
   #status {
-    font-size: 4cqh;
+    font-size: var(--sub-size);
     color: var(--muted);
     text-align: center;
     display: none;
@@ -132,19 +138,39 @@
 'use strict';
 
 // ── Config from URL search params ──────────────────────────────────────────
-const p           = new URLSearchParams(location.search);
-const ORG_ID      = p.get('orgId')       || '';
-const TTS_LANG    = p.get('ttsLang')     || 'zh-TW';
-const CYCLE_SEC   = parseInt(p.get('cycleSeconds') || '8', 10);
-const BG_COLOR    = p.get('bgColor')     || null;
-const TEXT_COLOR  = p.get('textColor')   || null;
-const ACCENT_COLOR= p.get('accentColor') || null;
+const p            = new URLSearchParams(location.search);
+const ORG_ID       = p.get('orgId')       || '';
+const TTS_LANG     = p.get('ttsLang')     || 'zh-TW';
+const CYCLE_SEC    = Math.max(3, parseInt(p.get('cycleSeconds') || '8', 10));
+const BG_COLOR     = p.get('bgColor')     || null;
+const TEXT_COLOR   = p.get('textColor')   || null;
+const ACCENT_COLOR = p.get('accentColor') || null;
+const LABEL_COLOR  = p.get('labelColor')  || null;
+const TEAM_ID      = p.get('teamId')      || '';
 
-if (BG_COLOR)    document.documentElement.style.setProperty('--bg',     BG_COLOR);
-if (TEXT_COLOR)  document.documentElement.style.setProperty('--text',   TEXT_COLOR);
-if (ACCENT_COLOR)document.documentElement.style.setProperty('--accent', ACCENT_COLOR);
+// Arrays: support both repeated params (?queueIds=a&queueIds=b)
+// AND comma-joined single param (?queueIds=a,b) from older players
+const QUEUE_IDS = p.getAll('queueIds')
+  .flatMap(v => v.split(',').map(s => s.trim())).filter(Boolean);
+const COUNTER_NAMES = p.getAll('counterNames')
+  .flatMap(v => v.split(',').map(s => s.trim())).filter(Boolean);
 
-// ── Supabase client (anon key — read-only public data via RLS) ────────────
+// Font sizes (cqi units) — match ContentStudio QueueDisplayConfig defaults
+const NUM_SIZE = parseFloat(p.get('numSize')      || '22');
+const HDR_SIZE = parseFloat(p.get('labelSize')    || '5');
+const SUB_SIZE = parseFloat(p.get('subLabelSize') || '4');
+
+// ── Apply CSS variables ────────────────────────────────────────────────────
+const R = document.documentElement;
+if (BG_COLOR)     R.style.setProperty('--bg',        BG_COLOR);
+if (TEXT_COLOR)   R.style.setProperty('--text',      TEXT_COLOR);
+if (ACCENT_COLOR) R.style.setProperty('--accent',    ACCENT_COLOR);
+if (LABEL_COLOR)  R.style.setProperty('--lbl-color', LABEL_COLOR);
+R.style.setProperty('--num-size', NUM_SIZE + 'cqi');
+R.style.setProperty('--hdr-size', HDR_SIZE + 'cqi');
+R.style.setProperty('--sub-size', SUB_SIZE + 'cqi');
+
+// ── Supabase client (anon key — read-only public data via RLS) ─────────────
 const { createClient } = window.supabase;
 const sb = createClient(
   'https://narhbpojjtnalyfiwxue.supabase.co',
@@ -153,13 +179,13 @@ const sb = createClient(
 );
 
 // ── State ──────────────────────────────────────────────────────────────────
-let queues        = [];
-let activeIdx     = 0;
-let latestTicket  = null;
-let ttsEnabled    = false;
-let announcedIds  = new Set();
-let cycleTimer    = null;
-let rtChannel     = null;
+let queues       = [];
+let activeIdx    = 0;
+let latestTicket = null;
+let ttsEnabled   = false;
+let announcedIds = new Set();
+let cycleTimer   = null;
+let rtChannel    = null;
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const $number  = document.getElementById('number');
@@ -184,9 +210,9 @@ $ttsBtn.addEventListener('click', () => {
 function speak(text) {
   if (!ttsEnabled || !('speechSynthesis' in window)) return;
   speechSynthesis.cancel();
-  const u  = new SpeechSynthesisUtterance(text);
-  u.lang   = TTS_LANG;
-  u.rate   = 0.9;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang  = TTS_LANG;
+  u.rate  = 0.9;
   speechSynthesis.speak(u);
 }
 
@@ -207,51 +233,56 @@ function tryAnnounce(ticket, prefix) {
 
 // ── Render ─────────────────────────────────────────────────────────────────
 function render() {
-  const q      = queues[activeIdx];
-  const prefix = q?.prefix ?? '';
-  const num    = latestTicket?.number ?? q?.current_number ?? 0;
+  const q       = queues[activeIdx];
+  const prefix  = q?.prefix ?? '';
+  const num     = latestTicket?.number ?? q?.current_number ?? 0;
   const dispNum = num > 0 ? `${prefix}${String(num).padStart(3, '0')}` : '—';
 
   $number.textContent  = dispNum;
   $label.textContent   = q?.queue_name ?? '—';
   $counter.textContent = latestTicket?.counter_name ?? '';
 
-  // Dots
   $dots.innerHTML = queues.map((_, i) =>
     `<span class="${i === activeIdx ? 'active' : ''}"></span>`
   ).join('');
 }
 
-// ── Realtime subscription for active queue ─────────────────────────────────
+// ── Realtime subscription for the active queue ─────────────────────────────
 async function subscribeToQueue(qId) {
   if (rtChannel) { await sb.removeChannel(rtChannel); rtChannel = null; }
   if (!qId) return;
 
-  // Fetch latest calling ticket immediately
-  const { data } = await sb
+  // Fetch the latest 'calling' ticket (optionally filtered by counterNames)
+  let q = sb
     .from('queue_system_tickets')
     .select('id, queue_id, number, status, counter_name, called_at')
     .eq('queue_id', qId)
     .eq('status', 'calling')
     .order('called_at', { ascending: false })
     .limit(1);
-  if (data?.[0]) latestTicket = data[0];
+  if (COUNTER_NAMES.length > 0) q = q.in('counter_name', COUNTER_NAMES);
+  const { data } = await q;
+  latestTicket = data?.[0] ?? null;
   render();
 
-  // Subscribe to new/updated tickets
+  // Live subscription — re-render on INSERT / UPDATE
   rtChannel = sb.channel(`qd-${qId}`)
     .on('postgres_changes',
-      { event: 'INSERT', schema: 'public', table: 'queue_system_tickets', filter: `queue_id=eq.${qId}` },
+      { event: 'INSERT', schema: 'public', table: 'queue_system_tickets',
+        filter: `queue_id=eq.${qId}` },
       ({ new: t }) => {
         if (t.status !== 'calling') return;
+        if (COUNTER_NAMES.length > 0 && !COUNTER_NAMES.includes(t.counter_name)) return;
         latestTicket = t;
         tryAnnounce(t, queues[activeIdx]?.prefix ?? '');
         render();
       })
     .on('postgres_changes',
-      { event: 'UPDATE', schema: 'public', table: 'queue_system_tickets', filter: `queue_id=eq.${qId}` },
+      { event: 'UPDATE', schema: 'public', table: 'queue_system_tickets',
+        filter: `queue_id=eq.${qId}` },
       ({ new: t }) => {
         if (t.status !== 'calling') return;
+        if (COUNTER_NAMES.length > 0 && !COUNTER_NAMES.includes(t.counter_name)) return;
         latestTicket = t;
         tryAnnounce(t, queues[activeIdx]?.prefix ?? '');
         render();
@@ -259,13 +290,13 @@ async function subscribeToQueue(qId) {
     .subscribe();
 }
 
-// ── Queue cycle (when multiple queues) ────────────────────────────────────
+// ── Cycle through queues when multiple are shown ────────────────────────────
 function startCycle() {
   if (cycleTimer) clearInterval(cycleTimer);
   if (queues.length <= 1) return;
   cycleTimer = setInterval(async () => {
-    activeIdx     = (activeIdx + 1) % queues.length;
-    latestTicket  = null;
+    activeIdx    = (activeIdx + 1) % queues.length;
+    latestTicket = null;
     render();
     await subscribeToQueue(queues[activeIdx]?.id);
   }, CYCLE_SEC * 1000);
@@ -274,19 +305,30 @@ function startCycle() {
 // ── Bootstrap ──────────────────────────────────────────────────────────────
 async function init() {
   if (!ORG_ID) {
-    $number.textContent = 'N/A';
-    $status.style.display = 'block';
-    $status.textContent = 'orgId missing';
+    $number.textContent    = 'N/A';
+    $status.style.display  = 'block';
+    $status.textContent    = 'orgId missing';
     return;
   }
 
   $status.style.display = 'block';
 
-  const { data, error } = await sb
+  // Build queue query with optional scope filters
+  let query = sb
     .from('queue_system_queues')
     .select('id, queue_name, prefix, current_number')
-    .eq('org_id', ORG_ID)
-    .order('created_at');
+    .eq('org_id', ORG_ID);
+
+  if (QUEUE_IDS.length > 0) {
+    // Specific queues — highest priority filter
+    query = query.in('id', QUEUE_IDS);
+  } else if (TEAM_ID) {
+    // Team scope
+    query = query.eq('team_id', TEAM_ID);
+  }
+  query = query.order('created_at');
+
+  const { data, error } = await query;
 
   $status.style.display = 'none';
 
@@ -299,7 +341,6 @@ async function init() {
   queues    = data;
   activeIdx = 0;
   render();
-
   await subscribeToQueue(queues[0].id);
   startCycle();
 }
