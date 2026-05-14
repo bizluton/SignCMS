@@ -614,7 +614,16 @@ function normaliseItem(item, zoneFitMode = null) {
       const u = new URL(item.widgetConfig.url);
       if (item.widgetConfig.params) {
         for (const [k, v] of Object.entries(item.widgetConfig.params)) {
-          if (v !== '' && v != null) u.searchParams.set(k, String(v));
+          if (v == null || v === '') continue;
+          if (Array.isArray(v)) {
+            // Repeat the param for each element so widgets can use getAll()
+            // e.g. queueIds: ["a","b"] → ?queueIds=a&queueIds=b
+            for (const elem of v) {
+              if (elem !== '' && elem != null) u.searchParams.append(k, String(elem));
+            }
+          } else {
+            u.searchParams.set(k, String(v));
+          }
         }
       }
       url = u.toString();
