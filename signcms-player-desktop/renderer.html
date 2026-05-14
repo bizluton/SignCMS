@@ -434,11 +434,19 @@ function renderProject(project, forcePageId = null) {
 
     // Auto-switch between pages if designer configured it
     const pt = metaObj.pageTransition;
-    if (pt?.mode === 'auto' && pt.seconds > 0 && !pageAutoPaused) {
-      startPageAutoSwitch(pt.seconds);
-    } else if (pt?.mode === 'auto' && pt.seconds > 0 && pageAutoPaused) {
-      // Keep seconds in sync so Pause → Resume restores correct interval
-      pageAutoSeconds = pt.seconds;
+    // "auto" = 依版面總時間自動 (calculate from zone item durations)
+    // "fixed" = 固定秒數 (use pt.seconds)
+    // "trigger" = 不自動切換 (only external triggers; no interval)
+    const autoSecs = pt?.mode === 'fixed'  ? (pt.seconds ?? 0)
+                   : pt?.mode === 'auto'   ? _calcPageDuration(activePageId)
+                   : 0;
+    if (autoSecs > 0) {
+      if (!pageAutoPaused) {
+        startPageAutoSwitch(autoSecs);
+      } else {
+        // Keep interval length in sync so Pause → Resume restores correctly
+        pageAutoSeconds = autoSecs;
+      }
     }
   } else {
     pageLayouts  = [];
@@ -915,12 +923,15 @@ function updatePageTransHud() {
   section.style.display = '';
 
   // ── Mode ────────────────────────────────────────────────────────────────────
-  const isAuto = pt.mode === 'auto';
-  set('h-pt-mode', isAuto
-    ? `<span class="pill info">自動 ${pt.seconds}s</span>`
-    : `<span class="pill grey">手動</span>`);
+  // "auto"    = 依版面總時間自動  "fixed"   = 固定秒數  "trigger" = 不自動切換
+  const isTimeBased = pt.mode === 'auto' || pt.mode === 'fixed';
+  const modeLabel = pt.mode === 'auto'    ? `自動（版面時間）`
+                  : pt.mode === 'fixed'   ? `固定 ${pt.seconds}s`
+                  :                        `手動/觸發`;
+  set('h-pt-mode', `<span class="pill ${isTimeBased ? 'info' : 'grey'}">${modeLabel}</span>`);
 
-  // ── Countdown (auto mode only) ───────────────────────────────────────────────
+  // ── Countdown (time-based modes only) ───────────────────────────────────────
+  const isAuto = isTimeBased;
   const countdownRow = document.getElementById('h-pt-countdown-row');
   if (countdownRow) countdownRow.style.display = isAuto ? '' : 'none';
   if (isAuto) {
@@ -960,7 +971,7 @@ function updatePageTransHud() {
   // ── Control buttons ──────────────────────────────────────────────────────────
   const btnsEl = document.getElementById('h-pt-btns');
   if (btnsEl) {
-    if (isAuto) {
+    if (isTimeBased) {
       const label = pageAutoPaused ? '▶ 繼續自動切換' : '⏸ 暫停自動切換';
       const cls   = pageAutoPaused ? '' : 'active';
       btnsEl.innerHTML = `<button onclick="doToggleAutoSwitch()" class="${cls}">${label}</button>`;
@@ -1032,6 +1043,28 @@ function _getCurrentPageTransition() {
   const zonesArr = Array.isArray(currentProject.zones) ? currentProject.zones : [];
   const metaObj  = zonesArr.find(z => z?._meta);
   return metaObj?.pageTransition ?? null;
+}
+
+// Calculate total playback duration of a page by taking the maximum across all
+// zone playlists (each zone's items summed by dwell / duration).
+// Used for mode === "auto" (依版面總時間自動).
+function _calcPageDuration(pageId) {
+  if (!currentProject) return 300;
+  const zonesArr = Array.isArray(currentProject.zones) ? currentProject.zones : [];
+  const metaObj  = zonesArr.find(z => z?._meta);
+  if (!metaObj?.pages?.length) return 300;
+  const page = metaObj.pages.find(p => p.id === pageId) ?? metaObj.pages[0];
+  if (!page) return 300;
+  const allZones = [...(page.zones ?? []), ...(page.overlays ?? [])];
+  let maxDur = 0;
+  for (const zone of allZones) {
+    const items = zone.content?.mediaItems ?? zone.items ?? zone.mediaItems ?? [];
+    const zoneTotal = items.reduce((sum, item) => {
+      return sum + (item.duration ?? item.dwell ?? item.dwell_seconds ?? item.dwellSeconds ?? 10);
+    }, 0);
+    if (zoneTotal > maxDur) maxDur = zoneTotal;
+  }
+  return maxDur > 0 ? maxDur : 300;  // fallback 5 min if zones are empty
 }
 
 // Switch between different design projects at the channel level
