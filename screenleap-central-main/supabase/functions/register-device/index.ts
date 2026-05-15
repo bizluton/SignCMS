@@ -1,6 +1,7 @@
 // register-device — Self-registration endpoint for SignCMS Web Player / Tizen devices
 //
 // POST with { joinToken, deviceSerial?, deviceModel?, fingerprint, userAgent }
+// joinToken may be the short 8-char join_code OR the legacy 32-char join_token hex.
 // Returns { ok, registrationId, status:"pending", realtimeChannel }
 // Device should subscribe to `device-reg:<registrationId>` broadcast for approval.
 
@@ -43,12 +44,22 @@ Deno.serve(async (req) => {
 
   if (!joinToken) return json({ ok: false, error: "join_token_required" }, 400);
 
-  // Look up org by join token
-  const { data: org } = await admin
+  // Look up org by short join_code first, then fall back to legacy join_token
+  const upper = joinToken.toUpperCase();
+  let { data: org } = await admin
     .from("organizations")
     .select("id, name")
-    .eq("join_token", joinToken)
+    .eq("join_code", upper)
     .maybeSingle();
+
+  if (!org) {
+    const { data: orgLegacy } = await admin
+      .from("organizations")
+      .select("id, name")
+      .eq("join_token", joinToken)
+      .maybeSingle();
+    org = orgLegacy;
+  }
 
   if (!org) return json({ ok: false, error: "invalid_join_token" }, 404);
 

@@ -110,7 +110,7 @@ export default function DeviceLicenseManagement() {
   const [approveDialog, setApproveDialog]   = useState<DeviceRegistration | null>(null);
   const [approveName, setApproveName]       = useState("");
   const [approving, setApproving]           = useState(false);
-  const [joinTokenMap, setJoinTokenMap]     = useState<Record<string, string>>({});
+  const [joinCodeMap, setJoinCodeMap]       = useState<Record<string, string>>({});
   const [joinUrlDialog, setJoinUrlDialog]   = useState(false);
   const [copiedJoin, setCopiedJoin]         = useState<string | null>(null);
 
@@ -209,7 +209,7 @@ export default function DeviceLicenseManagement() {
         .eq("status", "pending")
         .order("created_at", { ascending: false }),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (supabase as any).from("organizations").select("id, join_token"),
+      (supabase as any).from("organizations").select("id, join_code"),
     ]);
     setRows((list as DeviceLicense[]) || []);
     setOrgs((orgsData as OrgRow[]) || []);
@@ -218,9 +218,9 @@ export default function DeviceLicenseManagement() {
     const jm: Record<string, string> = {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const r of ((joinData as any[]) || [])) {
-      if (r.join_token) jm[r.id] = r.join_token;
+      if (r.join_code) jm[r.id] = r.join_code;
     }
-    setJoinTokenMap(jm);
+    setJoinCodeMap(jm);
     setLoading(false);
   };
 
@@ -282,9 +282,9 @@ export default function DeviceLicenseManagement() {
     `${window.location.origin}/web-player.html?join=${token}`;
 
   const copyJoinUrl = (orgId: string) => {
-    const token = joinTokenMap[orgId];
-    if (!token) return;
-    navigator.clipboard.writeText(joinUrl(token));
+    const code = joinCodeMap[orgId];
+    if (!code) return;
+    navigator.clipboard.writeText(joinUrl(code));
     setCopiedJoin(orgId);
     setTimeout(() => setCopiedJoin(null), 2000);
     toast.success("已複製加入網址");
@@ -768,36 +768,40 @@ export default function DeviceLicenseManagement() {
             {orgs.length === 0 ? (
               <p className="text-sm text-muted-foreground">尚無組織資料</p>
             ) : orgs.map(o => {
-              const token = joinTokenMap[o.id];
-              const url   = token ? joinUrl(token) : null;
+              const code = joinCodeMap[o.id];
+              const url  = code ? joinUrl(code) : null;
               return (
-                <div key={o.id} className="rounded border p-3 space-y-1.5">
-                  <p className="text-sm font-medium">{o.name}</p>
+                <div key={o.id} className="rounded border p-3 space-y-2">
                   {url ? (
-                    <div className="flex items-center gap-2">
-                      <code className="flex-1 text-xs font-mono bg-muted rounded px-2 py-1.5 break-all">
-                        {url}
-                      </code>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7 shrink-0"
-                        onClick={() => copyJoinUrl(o.id)}
-                        title="複製"
-                      >
-                        {copiedJoin === o.id
-                          ? <Check className="w-3.5 h-3.5 text-emerald-500" />
-                          : <Copy className="w-3.5 h-3.5" />}
-                      </Button>
-                    </div>
+                    <>
+                      <div className="flex items-center gap-2">
+                        <code className="flex-1 text-sm font-mono bg-muted rounded px-3 py-2 select-all">
+                          {url}
+                        </code>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 shrink-0"
+                          onClick={() => copyJoinUrl(o.id)}
+                          title="複製"
+                        >
+                          {copiedJoin === o.id
+                            ? <Check className="w-4 h-4 text-emerald-500" />
+                            : <Copy className="w-4 h-4" />}
+                        </Button>
+                      </div>
+                      {orgs.length > 1 && (
+                        <p className="text-xs text-muted-foreground pl-1">{o.name}</p>
+                      )}
+                    </>
                   ) : (
-                    <p className="text-xs text-muted-foreground">尚未產生加入 Token</p>
+                    <p className="text-xs text-muted-foreground">尚未產生加入代碼</p>
                   )}
                 </div>
               );
             })}
             <p className="text-xs text-muted-foreground rounded border border-muted px-3 py-2">
-              💡 Samsung SSSP／Tizen：在 URL Launcher 中輸入上述網址，裝置會自動讀取型號與 DUID 序號。
+              💡 Samsung SSSP / Tizen：在 URL Launcher 中輸入上述網址，裝置會自動讀取型號與 DUID 序號。
             </p>
           </div>
 
