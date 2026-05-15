@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>SignCMS Web Player</title>
 <style>
 /* ── Reset ── */
@@ -10,20 +13,22 @@
 html, body { width: 100%; height: 100%; overflow: hidden; background: #000; color: #fff; font-family: system-ui, sans-serif; }
 
 /* ── Stage ── */
-#stage { position: absolute; inset: 0; }
+#stage { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
 .zone { position: absolute; overflow: hidden; background: #111; }
-.zone video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.zone video { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* ── Splash / Setup screen ── */
 #splash {
-  position: absolute; inset: 0;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  background: #0a0a0a; gap: 16px;
+  position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+  display: -webkit-flex; display: flex;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
+  background: #0a0a0a;
 }
 #splash.hidden { display: none; }
-#splash h1 { font-size: 2rem; font-weight: 300; color: #fff; }
-#splash p  { color: #666; font-size: 0.9rem; }
+#splash h1 { font-size: 2rem; font-weight: 300; color: #fff; margin-bottom: 8px; }
+#splash p  { color: #666; font-size: 0.9rem; margin-bottom: 8px; }
 #splash .setup-btn {
   margin-top: 12px; padding: 10px 28px;
   background: #2563eb; color: #fff; border: none;
@@ -31,44 +36,58 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
 }
 #splash .setup-btn:hover { background: #1d4ed8; }
 
-/* ── Code entry screen ── */
+/* ── Code entry screen ──
+   NOTE: no `inset` (unsupported on Samsung Tizen WebKit);
+         no `gap` on flex (unsupported on older Tizen); use margin instead */
 #code-screen {
   display: none;
-  position: absolute; inset: 0;
-  flex-direction: column; align-items: center; justify-content: center;
-  background: #0a0a0a; gap: 24px; padding: 40px;
+  position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+  -webkit-flex-direction: column; flex-direction: column;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
+  background: #0a0a0a; padding: 40px;
 }
-#code-screen.visible { display: flex; }
-#code-screen .cs-brand { font-size: 1rem; font-weight: 700; color: #2563eb; letter-spacing: .2em; text-transform: uppercase; }
-#code-screen .cs-title { font-size: 1.5rem; font-weight: 300; color: #f1f5f9; }
-#code-screen .cs-sub   { font-size: 0.85rem; color: #64748b; }
-.code-digits { display: flex; gap: 10px; align-items: center; }
+#code-screen.visible { display: -webkit-flex; display: flex; }
+#code-screen .cs-brand {
+  font-size: 1rem; font-weight: 700; color: #2563eb;
+  letter-spacing: .2em; text-transform: uppercase;
+  margin-bottom: 12px;
+}
+#code-screen .cs-title { font-size: 1.5rem; font-weight: 300; color: #f1f5f9; margin-bottom: 8px; }
+#code-screen .cs-sub   { font-size: 0.85rem; color: #64748b; margin-bottom: 28px; }
+.code-digits {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  margin-bottom: 20px;
+}
 .code-digit {
   width: 54px; height: 68px;
   background: #1e2130; border: 2px solid #334155; border-radius: 10px;
   color: #f1f5f9; font-size: 2rem; font-weight: 600; text-align: center;
-  outline: none; caret-color: #2563eb; transition: border-color .15s;
+  outline: none; margin: 0 5px;
+  -webkit-transition: border-color .15s; transition: border-color .15s;
 }
 .code-digit:focus { border-color: #2563eb; background: #1a2540; }
 .code-digit.filled { border-color: #475569; }
-.code-sep   { color: #334155; font-size: 1.8rem; margin: 0 2px; user-select: none; }
-#code-error { font-size: 0.82rem; color: #f87171; min-height: 1.3em; text-align: center; }
+.code-sep   { color: #334155; font-size: 1.8rem; margin: 0 6px; -webkit-user-select: none; user-select: none; }
+#code-error { font-size: 0.82rem; color: #f87171; min-height: 1.3em; text-align: center; margin-bottom: 16px; }
 #code-submit {
   padding: 12px 48px; background: #2563eb; color: #fff;
   border: none; border-radius: 8px; font-size: 1rem; font-weight: 500;
-  cursor: pointer; transition: background .2s, opacity .2s;
+  cursor: pointer;
+  -webkit-transition: background .2s, opacity .2s; transition: background .2s, opacity .2s;
 }
-#code-submit:hover:not(:disabled) { background: #1d4ed8; }
 #code-submit:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* ── Settings panel ── */
 #settings-panel {
   display: none;
-  position: fixed; inset: 0; z-index: 200;
+  position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 200;
   background: rgba(0,0,0,0.85);
-  align-items: center; justify-content: center;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
 }
-#settings-panel.open { display: flex; }
+#settings-panel.open { display: -webkit-flex; display: flex; }
 .settings-box {
   background: #1e2130; border: 1px solid #334155;
   border-radius: 12px; padding: 32px; width: 420px; max-width: 90vw;
@@ -81,7 +100,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
   border-radius: 6px; color: #f1f5f9; font-size: 0.9rem; outline: none;
 }
 .settings-box input:focus { border-color: #2563eb; }
-.settings-actions { display: flex; gap: 8px; margin-top: 20px; }
+.settings-actions { display: -webkit-flex; display: flex; margin-top: 20px; }
 .settings-actions button {
   flex: 1; padding: 9px; border: none; border-radius: 6px;
   cursor: pointer; font-size: 0.9rem;
@@ -114,7 +133,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
 #hud .pill.info  { background: #2563eb22; color: #60a5fa; }
 #hud .pill.grey  { background: #33333366; color: #9ca3af; }
 #hud .section-title { color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: .1em; margin: 12px 0 4px; }
-#hud .btn-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+#hud .btn-row { display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; margin-top: 10px; }
 #hud button {
   flex: 1; min-width: 80px; padding: 6px 10px;
   background: #1f2937; border: 1px solid #374151;
@@ -300,46 +319,76 @@ function getFingerprint() {
 // 6-digit code entry + activation flow
 // ─────────────────────────────────────────────────────────────────────────────
 function showCodeScreen() {
-  document.getElementById('splash').classList.add('hidden');
-  document.getElementById('code-screen').classList.add('visible');
+  var splash = document.getElementById('splash');
+  var screen = document.getElementById('code-screen');
+  if (splash) splash.classList.add('hidden');
+  if (!screen) return; // safety guard
+  screen.classList.add('visible');
 
-  const digits = Array.from(document.querySelectorAll('.code-digit'));
+  // NodeList → plain array (avoid Array.from which fails on old Tizen)
+  var nl     = document.querySelectorAll('.code-digit');
+  var digits = [];
+  for (var k = 0; k < nl.length; k++) digits.push(nl[k]);
 
-  digits.forEach((d, i) => {
-    d.addEventListener('input', () => {
-      // Keep only the last digit typed; strip non-numeric
+  digits.forEach(function(d, i) {
+    // 'input' event: fires for keyboard / on-screen keyboard
+    d.addEventListener('input', function() {
       d.value = d.value.replace(/\D/g, '').slice(-1);
-      d.classList.toggle('filled', d.value !== '');
+      // classList.toggle(cls, force) is unreliable on old Tizen — use explicit add/remove
+      if (d.value) d.classList.add('filled'); else d.classList.remove('filled');
       if (d.value && i < digits.length - 1) digits[i + 1].focus();
       updateSubmitBtn(digits);
     });
-    d.addEventListener('keydown', e => {
-      if (e.key === 'Backspace' && !d.value && i > 0) {
-        digits[i - 1].value = '';
-        digits[i - 1].classList.remove('filled');
-        digits[i - 1].focus();
+    // 'keydown' event: Samsung remote number keys send keydown directly
+    d.addEventListener('keydown', function(e) {
+      var key  = e.key  || '';
+      var code = e.keyCode || 0;
+      // Number key pressed (keyboard row or numpad)
+      if ((code >= 48 && code <= 57) || (code >= 96 && code <= 105)) {
+        var digit = String.fromCharCode(code >= 96 ? code - 48 : code);
+        d.value = digit;
+        if (d.value) d.classList.add('filled'); else d.classList.remove('filled');
+        if (i < digits.length - 1) digits[i + 1].focus();
+        updateSubmitBtn(digits);
+        e.preventDefault();
+        return;
       }
-      if (e.key === 'Enter') submitCode();
+      if (key === 'Backspace' || code === 8) {
+        if (!d.value && i > 0) {
+          digits[i - 1].value = '';
+          digits[i - 1].classList.remove('filled');
+          digits[i - 1].focus();
+        } else {
+          d.value = '';
+          d.classList.remove('filled');
+        }
+        updateSubmitBtn(digits);
+      }
+      if (key === 'Enter' || code === 13) submitCode();
     });
-    d.addEventListener('paste', e => {
+    // Paste support (e.g. copy-paste from a screen)
+    d.addEventListener('paste', function(e) {
       e.preventDefault();
-      const text = (e.clipboardData || window.clipboardData)
-        .getData('text').replace(/\D/g, '');
-      digits.forEach((dd, j) => {
-        if (j < text.length) { dd.value = text[j]; dd.classList.add('filled'); }
-      });
-      const next = Math.min(text.length, digits.length - 1);
+      var cd   = e.clipboardData || window.clipboardData;
+      var text = cd ? cd.getData('text').replace(/\D/g, '') : '';
+      for (var j = 0; j < digits.length; j++) {
+        if (j < text.length) { digits[j].value = text[j]; digits[j].classList.add('filled'); }
+      }
+      var next = Math.min(text.length, digits.length - 1);
       digits[next].focus();
       updateSubmitBtn(digits);
     });
   });
 
-  digits[0].focus();
+  // Slight delay before focusing — some Tizen browsers need the DOM to settle
+  setTimeout(function() { if (digits[0]) digits[0].focus(); }, 200);
 }
 
 function updateSubmitBtn(digits) {
-  const code = digits.map(d => d.value).join('');
-  document.getElementById('code-submit').disabled = !/^\d{6}$/.test(code);
+  var code = '';
+  for (var i = 0; i < digits.length; i++) code += digits[i].value;
+  var btn = document.getElementById('code-submit');
+  if (btn) btn.disabled = !/^\d{6}$/.test(code);
 }
 
 function submitCode() {
@@ -486,6 +535,17 @@ async function doSync() {
       },
       body: JSON.stringify(body),
     });
+
+    // 401 / 403 → token rejected or revoked → clear and show code screen
+    if (res.status === 401 || res.status === 403) {
+      log('Token rejected — clearing and returning to code entry', 'err');
+      stopSync();
+      localStorage.removeItem(LS_TOKEN);
+      cfg = getConfig();
+      showCodeScreen();
+      return;
+    }
+
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (!data.ok) throw new Error(data.error ?? 'server returned ok=false');
