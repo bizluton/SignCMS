@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus, Cpu, Copy, Trash2, Ban, RotateCcw, Settings, Pencil, GripVertical, KeyRound, Check } from "lucide-react";
+import { Loader2, Plus, Cpu, Copy, Trash2, Ban, RotateCcw, Settings, Pencil, GripVertical, KeyRound, Check,
+         MonitorSmartphone, Link, UserCheck, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -45,6 +46,18 @@ interface DeviceLicense {
 interface OrgRow { id: string; name: string }
 interface DeviceModel { id: string; name: string; sort_order: number }
 
+// Pending self-registration from web-player / Tizen devices
+interface DeviceRegistration {
+  id:            string;
+  org_id:        string;
+  status:        "pending" | "approved" | "rejected";
+  device_serial: string | null;
+  device_model:  string | null;
+  user_agent:    string;
+  fingerprint:   string;
+  created_at:    string;
+}
+
 const ERROR_MAP: Record<string, string> = {
   permission_denied: "權限不足",
   unauthenticated: "請先登入",
@@ -56,18 +69,50 @@ const ERROR_MAP: Record<string, string> = {
   not_found: "找不到該授權",
 };
 
+/** Compact relative-time label (Chinese) */
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1)  return "剛剛";
+  if (mins < 60) return `${mins} 分鐘前`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24)  return `${hrs} 小時前`;
+  return `${Math.floor(hrs / 24)} 天前`;
+}
+
+/** Guess a short platform name from User-Agent */
+function parsePlatform(ua: string): string {
+  if (/Tizen/i.test(ua))        return "Samsung Tizen";
+  if (/Samsung/i.test(ua))      return "Samsung Browser";
+  if (/iPhone|iPad/i.test(ua))  return "iOS";
+  if (/Android/i.test(ua))      return "Android";
+  if (/Macintosh/i.test(ua))    return "macOS";
+  if (/Windows/i.test(ua))      return "Windows";
+  if (/Linux/i.test(ua))        return "Linux";
+  return "Web Browser";
+}
+
 export default function DeviceLicenseManagement() {
   const { isCsAgent } = useUserRole();
   const { isSystemAdmin } = useIsSystemAdmin();
   const canManage = isSystemAdmin || isCsAgent;
 
-  const [rows, setRows] = useState<DeviceLicense[]>([]);
-  const [orgs, setOrgs] = useState<OrgRow[]>([]);
+  const [rows, setRows]     = useState<DeviceLicense[]>([]);
+  const [orgs, setOrgs]     = useState<OrgRow[]>([]);
   const [models, setModels] = useState<DeviceModel[]>([]);
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen]       = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [saving, setSaving]   = useState(false);
+
+  // ── Pending registrations ─────────────────────────────────────────────
+  const [pendingRegs, setPendingRegs]       = useState<DeviceRegistration[]>([]);
+  const [approveDialog, setApproveDialog]   = useState<DeviceRegistration | null>(null);
+  const [approveName, setApproveName]       = useState("");
+  const [approving, setApproving]           = useState(false);
+  const [joinTokenMap, setJoinTokenMap]     = useState<Record<string, string>>({});
+  const [joinUrlDialog, setJoinUrlDialog]   = useState(false);
+  const [copiedJoin, setCopiedJoin]         = useState<string | null>(null);
 
   // ── Device Token generation (system admin only) ───────────────────────
   type TokenDialog = {
@@ -77,14 +122,13 @@ export default function DeviceLicenseManagement() {
     screenName?: string;
     screenId?: string;
   };
-  const [tokenDialog, setTokenDialog]       = useState<TokenDialog | null>(null);
-  const [tokenStep, setTokenStep]           = useState<"confirm" | "noscreen" | "show">("confirm");
-  const [generatedToken, setGeneratedToken] = useState("");
+  const [tokenDialog, setTokenDialog]         = useState<TokenDialog | null>(null);
+  const [tokenStep, setTokenStep]             = useState<"confirm" | "noscreen" | "show">("confirm");
+  const [generatedToken, setGeneratedToken]   = useState("");
   const [tokenGenerating, setTokenGenerating] = useState(false);
-  const [tokenCopied, setTokenCopied]       = useState(false);
+  const [tokenCopied, setTokenCopied]         = useState(false);
 
   const openTokenDialog = async (r: DeviceLicense) => {
-    // Look up the matching screen (serial_number + org_id)
     const { data: scr } = await supabase
       .from("screens")
       .select("id, name")
@@ -132,21 +176,121 @@ export default function DeviceLicenseManagement() {
   const [orgId, setOrgId] = useState("");
   const [note, setNote] = useState("");
 
-  useEffect(() => { if (canManage) fetchData(); }, [canManage]);
+  // ── Fetch helpers ──────────────────────────────────────────────────────
+
+  const fetchPendingRegs = useCallback(async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await (supabase as any)
+      .from("device_registrations")
+      .select("*")
+      .eq("status", "pending")
+      .order("created_at", { ascending: false });
+    setPendingRegs((data as DeviceRegistration[]) || []);
+  }, []);
 
   const fetchData = async () => {
     setLoading(true);
-    const [{ data: list }, { data: orgsData }, { data: modelsData }] = await Promise.all([
+    const [
+      { data: list },
+      { data: orgsData },
+      { data: modelsData },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { data: pendingData },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { data: joinData },
+    ] = await Promise.all([
       supabase.from("device_licenses").select("*").order("created_at", { ascending: false }),
       supabase.from("organizations").select("id, name").order("name"),
       supabase.from("device_models").select("*").order("sort_order").order("name"),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any)
+        .from("device_registrations")
+        .select("*")
+        .eq("status", "pending")
+        .order("created_at", { ascending: false }),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any).from("organizations").select("id, join_token"),
     ]);
     setRows((list as DeviceLicense[]) || []);
     setOrgs((orgsData as OrgRow[]) || []);
     setModels((modelsData as DeviceModel[]) || []);
+    setPendingRegs((pendingData as DeviceRegistration[]) || []);
+    const jm: Record<string, string> = {};
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const r of ((joinData as any[]) || [])) {
+      if (r.join_token) jm[r.id] = r.join_token;
+    }
+    setJoinTokenMap(jm);
     setLoading(false);
   };
 
+  useEffect(() => { if (canManage) fetchData(); }, [canManage]);
+
+  // ── Realtime: watch for new device registration requests ──────────────
+  useEffect(() => {
+    if (!canManage) return;
+    const ch = supabase
+      .channel("admin-device-reg-watch")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "device_registrations" },
+        () => fetchPendingRegs(),
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "device_registrations" },
+        () => fetchPendingRegs(),
+      )
+      .subscribe();
+    return () => { void supabase.removeChannel(ch); };
+  }, [canManage, fetchPendingRegs]);
+
+  // ── Approve pending registration ──────────────────────────────────────
+  const handleApprove = async () => {
+    if (!approveDialog || !approveName.trim()) return;
+    setApproving(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("approve-device", {
+        body: { registrationId: approveDialog.id, screenName: approveName.trim() },
+      });
+      if (error || !data?.ok) {
+        toast.error(`授權失敗：${error?.message ?? data?.error ?? "未知錯誤"}`);
+        return;
+      }
+      toast.success("螢幕已建立，Device Token 已自動發送至裝置");
+      setApproveDialog(null);
+      setApproveName("");
+      await fetchData();
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const rejectReg = async (id: string) => {
+    if (!confirm("確定要拒絕此裝置的授權申請？")) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase as any)
+      .from("device_registrations")
+      .update({ status: "rejected", updated_at: new Date().toISOString() })
+      .eq("id", id);
+    await fetchPendingRegs();
+    toast.success("已拒絕");
+  };
+
+  // ── Join URL helpers ───────────────────────────────────────────────────
+  const joinUrl = (token: string) =>
+    `${window.location.origin}/web-player.html?join=${token}`;
+
+  const copyJoinUrl = (orgId: string) => {
+    const token = joinTokenMap[orgId];
+    if (!token) return;
+    navigator.clipboard.writeText(joinUrl(token));
+    setCopiedJoin(orgId);
+    setTimeout(() => setCopiedJoin(null), 2000);
+    toast.success("已複製加入網址");
+  };
+
+  // ── License CRUD ───────────────────────────────────────────────────────
   const submit = async () => {
     if (!model.trim() || !serial.trim()) { toast.error("請填寫設備型號與序號"); return; }
     if (!orgId) { toast.error("請選擇授權組織"); return; }
@@ -202,256 +346,469 @@ export default function DeviceLicenseManagement() {
   if (loading) return <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>;
 
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <div>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Cpu className="w-5 h-5" />
-            設備授權碼
-          </CardTitle>
-          <p className="text-sm text-muted-foreground mt-1">
-            針對特定設備（型號＋序號）產生 6 位數授權碼，並綁定至指定組織。
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {isSystemAdmin && (
-            <Button size="sm" variant="outline" onClick={() => setModelsOpen(true)}>
-              <Settings className="w-4 h-4 mr-1" />
-              管理型號
-            </Button>
-          )}
-          <Button size="sm" onClick={() => setOpen(true)}>
-            <Plus className="w-4 h-4 mr-1" />
-            新增設備授權
+    <div className="space-y-4">
+      {/* ── Pending Device Registrations ─────────────────────────────── */}
+      <Card className={pendingRegs.length > 0 ? "border-amber-500/40 bg-amber-500/5" : ""}>
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <MonitorSmartphone className="w-4 h-4" />
+              待授權裝置
+              {pendingRegs.length > 0 && (
+                <Badge className="bg-amber-500 text-white hover:bg-amber-600 text-xs px-1.5 py-0.5 rounded-full">
+                  {pendingRegs.length}
+                </Badge>
+              )}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              裝置透過加入網址自助申請授權後，會在此處顯示，等待管理員核准。
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setJoinUrlDialog(true)}>
+            <Link className="w-3.5 h-3.5 mr-1" />
+            加入網址
           </Button>
-        </div>
-      </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>設備型號</TableHead>
-                <TableHead>設備序號</TableHead>
-                <TableHead>授權碼</TableHead>
-                <TableHead>授權組織</TableHead>
-                <TableHead>狀態</TableHead>
-                <TableHead>備註</TableHead>
-                <TableHead>建立日期</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {rows.length === 0 ? (
-                <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">尚無設備授權</TableCell></TableRow>
-              ) : rows.map(r => (
-                <TableRow key={r.id}>
-                  <TableCell className="font-medium">{r.device_model}</TableCell>
-                  <TableCell className="font-mono text-xs">{r.device_serial}</TableCell>
-                  <TableCell className="font-mono font-bold tracking-widest">{r.code}</TableCell>
-                  <TableCell className="text-sm">{orgName(r.org_id)}</TableCell>
-                  <TableCell>
-                    {r.status === "active"
-                      ? <Badge variant="default">啟用中</Badge>
-                      : <Badge variant="destructive">已撤銷</Badge>}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{r.note || "-"}</TableCell>
-                  <TableCell className="text-sm text-muted-foreground">{new Date(r.created_at).toLocaleDateString()}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copyCode(r.code)} title="複製授權碼">
-                        <Copy className="w-3.5 h-3.5" />
-                      </Button>
-                      {isSystemAdmin && r.status === "active" && (
-                        <Button
-                          variant="ghost" size="icon"
-                          className="h-7 w-7 text-amber-500 hover:text-amber-400"
-                          onClick={() => openTokenDialog(r)}
-                          title="產生播放器 Device Token（僅系統管理員）"
-                        >
-                          <KeyRound className="w-3.5 h-3.5" />
-                        </Button>
-                      )}
-                      {r.status === "active" ? (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => revoke(r.id)} title="撤銷">
-                          <Ban className="w-3.5 h-3.5" />
-                        </Button>
-                      ) : (
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => restore(r.id)} title="恢復啟用">
-                          <RotateCcw className="w-3.5 h-3.5" />
-                        </Button>
-                      )}
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => remove(r.id, `${r.device_model}/${r.device_serial}`)} title="刪除">
-                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent>
+        </CardHeader>
+        <CardContent>
+          {pendingRegs.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">目前沒有待授權裝置</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>裝置型號</TableHead>
+                    <TableHead>序號 / 識別碼</TableHead>
+                    <TableHead>平台</TableHead>
+                    <TableHead>所屬組織</TableHead>
+                    <TableHead>申請時間</TableHead>
+                    <TableHead></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pendingRegs.map(reg => (
+                    <TableRow key={reg.id}>
+                      <TableCell className="font-medium">
+                        {reg.device_model || <span className="text-muted-foreground text-xs">未知</span>}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {reg.device_serial || reg.fingerprint.slice(0, 16).toUpperCase() || "—"}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {parsePlatform(reg.user_agent)}
+                      </TableCell>
+                      <TableCell className="text-sm">{orgName(reg.org_id)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {timeAgo(reg.created_at)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                            onClick={() => {
+                              setApproveDialog(reg);
+                              setApproveName(reg.device_model || "");
+                            }}
+                          >
+                            <UserCheck className="w-3.5 h-3.5 mr-1" />
+                            授權
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs text-destructive hover:text-destructive"
+                            onClick={() => rejectReg(reg.id)}
+                            title="拒絕"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      {/* ── Device Licenses ───────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Cpu className="w-5 h-5" />
+              設備授權碼
+            </CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              針對特定設備（型號＋序號）產生 6 位數授權碼，並綁定至指定組織。
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {isSystemAdmin && (
+              <Button size="sm" variant="outline" onClick={() => setModelsOpen(true)}>
+                <Settings className="w-4 h-4 mr-1" />
+                管理型號
+              </Button>
+            )}
+            <Button size="sm" onClick={() => setOpen(true)}>
+              <Plus className="w-4 h-4 mr-1" />
+              新增設備授權
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>設備型號</TableHead>
+                  <TableHead>設備序號</TableHead>
+                  <TableHead>授權碼</TableHead>
+                  <TableHead>授權組織</TableHead>
+                  <TableHead>狀態</TableHead>
+                  <TableHead>備註</TableHead>
+                  <TableHead>建立日期</TableHead>
+                  <TableHead></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.length === 0 ? (
+                  <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">尚無設備授權</TableCell></TableRow>
+                ) : rows.map(r => (
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium">{r.device_model}</TableCell>
+                    <TableCell className="font-mono text-xs">{r.device_serial}</TableCell>
+                    <TableCell className="font-mono font-bold tracking-widest">{r.code}</TableCell>
+                    <TableCell className="text-sm">{orgName(r.org_id)}</TableCell>
+                    <TableCell>
+                      {r.status === "active"
+                        ? <Badge variant="default">啟用中</Badge>
+                        : <Badge variant="destructive">已撤銷</Badge>}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate">{r.note || "-"}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{new Date(r.created_at).toLocaleDateString()}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copyCode(r.code)} title="複製授權碼">
+                          <Copy className="w-3.5 h-3.5" />
+                        </Button>
+                        {isSystemAdmin && r.status === "active" && (
+                          <Button
+                            variant="ghost" size="icon"
+                            className="h-7 w-7 text-amber-500 hover:text-amber-400"
+                            onClick={() => openTokenDialog(r)}
+                            title="產生播放器 Device Token（僅系統管理員）"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                        {r.status === "active" ? (
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => revoke(r.id)} title="撤銷">
+                            <Ban className="w-3.5 h-3.5" />
+                          </Button>
+                        ) : (
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => restore(r.id)} title="恢復啟用">
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => remove(r.id, `${r.device_model}/${r.device_serial}`)} title="刪除">
+                          <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+
+        {/* Add License Dialog */}
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>新增設備授權</DialogTitle>
+              <DialogDescription>輸入設備型號與序號後將自動產生 6 位數驗證碼，並綁定到指定組織。</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>設備型號 <span className="text-destructive">*</span></Label>
+                <Select value={model} onValueChange={setModel}>
+                  <SelectTrigger><SelectValue placeholder="請選擇設備型號" /></SelectTrigger>
+                  <SelectContent>
+                    {models.length === 0 ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">尚無型號，請先由系統管理員新增</div>
+                    ) : models.map(m => (
+                      <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>設備序號 <span className="text-destructive">*</span></Label>
+                <Input value={serial} onChange={e => setSerial(e.target.value)} maxLength={100} placeholder="例如：SN-2026-00001" />
+              </div>
+              <div className="space-y-2">
+                <Label>授權組織 <span className="text-destructive">*</span></Label>
+                <Select value={orgId} onValueChange={setOrgId}>
+                  <SelectTrigger><SelectValue placeholder="請選擇組織" /></SelectTrigger>
+                  <SelectContent>
+                    {orgs.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>備註（選填）</Label>
+                <Input value={note} onChange={e => setNote(e.target.value)} maxLength={200} placeholder="例如：客戶 / 出貨單號" />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setOpen(false)}>取消</Button>
+              <Button onClick={submit} disabled={saving}>
+                {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                產生授權碼
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <DeviceModelsDialog
+          open={modelsOpen}
+          onOpenChange={setModelsOpen}
+          models={models}
+          onChanged={fetchData}
+        />
+
+        {/* ── Device Token Dialog (system admin only) ──────────────────── */}
+        <Dialog open={!!tokenDialog} onOpenChange={v => { if (!v) setTokenDialog(null); }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <KeyRound className="w-5 h-5 text-amber-500" />
+                產生播放器 Device Token
+              </DialogTitle>
+            </DialogHeader>
+
+            {tokenStep === "noscreen" && (
+              <>
+                <div className="text-sm space-y-2 py-1">
+                  <p>找不到對應的螢幕記錄。</p>
+                  <p className="text-muted-foreground">
+                    Device Token 綁定在「螢幕」上。請先在<strong>螢幕管理</strong>中建立序號為
+                    <code className="mx-1 px-1 py-0.5 bg-muted rounded text-xs font-mono">
+                      {tokenDialog?.deviceSerial}
+                    </code>
+                    的螢幕，再回此處產生 Token。
+                  </p>
+                </div>
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button variant="outline">關閉</Button>
+                  </DialogClose>
+                </DialogFooter>
+              </>
+            )}
+
+            {tokenStep === "confirm" && (
+              <>
+                <div className="space-y-3 text-sm py-1">
+                  <p>即將為下列螢幕產生（或重新產生）Device Token：</p>
+                  <div className="rounded border bg-muted/40 px-4 py-3 space-y-1.5 text-sm">
+                    <div className="flex gap-2">
+                      <span className="text-muted-foreground w-20 shrink-0">螢幕名稱</span>
+                      <span className="font-medium">{tokenDialog?.screenName}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="text-muted-foreground w-20 shrink-0">設備序號</span>
+                      <code className="font-mono text-xs">{tokenDialog?.deviceSerial}</code>
+                    </div>
+                    <div className="flex gap-2">
+                      <span className="text-muted-foreground w-20 shrink-0">設備型號</span>
+                      <span>{tokenDialog?.deviceModel}</span>
+                    </div>
+                  </div>
+                  <p className="text-amber-600 dark:text-amber-400 text-xs rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+                    ⚠️ 產生新 Token 會使舊 Token 立即失效，播放器需重新設定。Token 僅顯示一次，請立即複製保存。
+                  </p>
+                </div>
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button variant="outline">取消</Button>
+                  </DialogClose>
+                  <Button onClick={handleGenerateToken} disabled={tokenGenerating} className="bg-amber-500 hover:bg-amber-600 text-white">
+                    {tokenGenerating && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                    確認產生
+                  </Button>
+                </DialogFooter>
+              </>
+            )}
+
+            {tokenStep === "show" && (
+              <>
+                <div className="space-y-3 text-sm py-1">
+                  <div className="rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
+                    ✅ Token 產生成功！請立即複製，此視窗關閉後將無法再次查看。
+                  </div>
+                  <div className="relative">
+                    <code className="block w-full rounded border bg-muted px-3 py-2 font-mono text-xs break-all pr-10 select-all">
+                      {generatedToken}
+                    </code>
+                    <Button
+                      variant="ghost" size="icon"
+                      className="absolute right-1 top-1 h-7 w-7"
+                      onClick={handleCopyToken}
+                      title="複製 Token"
+                    >
+                      {tokenCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                    </Button>
+                  </div>
+                  <div className="rounded border px-3 py-2 text-xs text-muted-foreground space-y-1">
+                    <p className="font-medium">填入 Electron 播放器設定</p>
+                    <div className="mt-1 space-y-0.5 font-mono text-[11px]">
+                      <p><span className="text-muted-foreground">URL: </span>https://narhbpojjtnalyfiwxue.supabase.co</p>
+                      <p className="break-all"><span className="text-muted-foreground">Token: </span>{generatedToken.substring(0, 16)}…</p>
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button className="w-full">已複製，關閉</Button>
+                  </DialogClose>
+                </DialogFooter>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
+      </Card>
+
+      {/* ── Approve Device Dialog ─────────────────────────────────────── */}
+      <Dialog open={!!approveDialog} onOpenChange={v => { if (!v) { setApproveDialog(null); setApproveName(""); } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>新增設備授權</DialogTitle>
-            <DialogDescription>輸入設備型號與序號後將自動產生 6 位數驗證碼，並綁定到指定組織。</DialogDescription>
+            <DialogTitle className="flex items-center gap-2">
+              <UserCheck className="w-5 h-5 text-emerald-500" />
+              授權裝置
+            </DialogTitle>
+            <DialogDescription>
+              確認裝置資訊，並為此螢幕命名後完成授權。裝置將自動收到 Device Token 並開始播放。
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>設備型號 <span className="text-destructive">*</span></Label>
-              <Select value={model} onValueChange={setModel}>
-                <SelectTrigger><SelectValue placeholder="請選擇設備型號" /></SelectTrigger>
-                <SelectContent>
-                  {models.length === 0 ? (
-                    <div className="px-2 py-1.5 text-sm text-muted-foreground">尚無型號，請先由系統管理員新增</div>
-                  ) : models.map(m => (
-                    <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+
+          {approveDialog && (
+            <div className="space-y-4">
+              <div className="rounded border bg-muted/40 px-4 py-3 space-y-1.5 text-sm">
+                <div className="flex gap-2">
+                  <span className="text-muted-foreground w-20 shrink-0">裝置型號</span>
+                  <span className="font-medium">{approveDialog.device_model || "未知"}</span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="text-muted-foreground w-20 shrink-0">序號</span>
+                  <code className="font-mono text-xs break-all">
+                    {approveDialog.device_serial || approveDialog.fingerprint.slice(0, 16).toUpperCase()}
+                  </code>
+                </div>
+                <div className="flex gap-2">
+                  <span className="text-muted-foreground w-20 shrink-0">平台</span>
+                  <span className="text-xs">{parsePlatform(approveDialog.user_agent)}</span>
+                </div>
+                <div className="flex gap-2">
+                  <span className="text-muted-foreground w-20 shrink-0">組織</span>
+                  <span className="text-xs">{orgName(approveDialog.org_id)}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label>螢幕名稱 <span className="text-destructive">*</span></Label>
+                <Input
+                  value={approveName}
+                  onChange={e => setApproveName(e.target.value)}
+                  placeholder="例如：大廳螢幕 A"
+                  maxLength={100}
+                  autoFocus
+                  onKeyDown={e => { if (e.key === "Enter") handleApprove(); }}
+                />
+                <p className="text-xs text-muted-foreground">此名稱會出現在「螢幕管理」頁面</p>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label>設備序號 <span className="text-destructive">*</span></Label>
-              <Input value={serial} onChange={e => setSerial(e.target.value)} maxLength={100} placeholder="例如：SN-2026-00001" />
-            </div>
-            <div className="space-y-2">
-              <Label>授權組織 <span className="text-destructive">*</span></Label>
-              <Select value={orgId} onValueChange={setOrgId}>
-                <SelectTrigger><SelectValue placeholder="請選擇組織" /></SelectTrigger>
-                <SelectContent>
-                  {orgs.map(o => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>備註（選填）</Label>
-              <Input value={note} onChange={e => setNote(e.target.value)} maxLength={200} placeholder="例如：客戶 / 出貨單號" />
-            </div>
-          </div>
+          )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>取消</Button>
-            <Button onClick={submit} disabled={saving}>
-              {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              產生授權碼
+            <Button variant="outline" onClick={() => { setApproveDialog(null); setApproveName(""); }}>
+              取消
+            </Button>
+            <Button
+              onClick={handleApprove}
+              disabled={approving || !approveName.trim()}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {approving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              確認授權
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <DeviceModelsDialog
-        open={modelsOpen}
-        onOpenChange={setModelsOpen}
-        models={models}
-        onChanged={fetchData}
-      />
-
-      {/* ── Device Token Dialog (system admin only) ──────────────────────── */}
-      <Dialog open={!!tokenDialog} onOpenChange={v => { if (!v) setTokenDialog(null); }}>
-        <DialogContent className="sm:max-w-md">
+      {/* ── Join URL Dialog ───────────────────────────────────────────── */}
+      <Dialog open={joinUrlDialog} onOpenChange={setJoinUrlDialog}>
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <KeyRound className="w-5 h-5 text-amber-500" />
-              產生播放器 Device Token
+              <Link className="w-5 h-5" />
+              裝置加入網址
             </DialogTitle>
+            <DialogDescription>
+              將此網址提供給設備操作人員。裝置在瀏覽器開啟後，會自動出現在「待授權裝置」清單中。
+            </DialogDescription>
           </DialogHeader>
 
-          {/* Step: screen not found */}
-          {tokenStep === "noscreen" && (
-            <>
-              <div className="text-sm space-y-2 py-1">
-                <p>找不到對應的螢幕記錄。</p>
-                <p className="text-muted-foreground">
-                  Device Token 綁定在「螢幕」上。請先在<strong>螢幕管理</strong>中建立序號為
-                  <code className="mx-1 px-1 py-0.5 bg-muted rounded text-xs font-mono">
-                    {tokenDialog?.deviceSerial}
-                  </code>
-                  的螢幕，再回此處產生 Token。
-                </p>
-              </div>
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button variant="outline">關閉</Button>
-                </DialogClose>
-              </DialogFooter>
-            </>
-          )}
+          <div className="space-y-3">
+            {orgs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">尚無組織資料</p>
+            ) : orgs.map(o => {
+              const token = joinTokenMap[o.id];
+              const url   = token ? joinUrl(token) : null;
+              return (
+                <div key={o.id} className="rounded border p-3 space-y-1.5">
+                  <p className="text-sm font-medium">{o.name}</p>
+                  {url ? (
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 text-xs font-mono bg-muted rounded px-2 py-1.5 break-all">
+                        {url}
+                      </code>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 shrink-0"
+                        onClick={() => copyJoinUrl(o.id)}
+                        title="複製"
+                      >
+                        {copiedJoin === o.id
+                          ? <Check className="w-3.5 h-3.5 text-emerald-500" />
+                          : <Copy className="w-3.5 h-3.5" />}
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">尚未產生加入 Token</p>
+                  )}
+                </div>
+              );
+            })}
+            <p className="text-xs text-muted-foreground rounded border border-muted px-3 py-2">
+              💡 Samsung SSSP／Tizen：在 URL Launcher 中輸入上述網址，裝置會自動讀取型號與 DUID 序號。
+            </p>
+          </div>
 
-          {/* Step: confirm generation */}
-          {tokenStep === "confirm" && (
-            <>
-              <div className="space-y-3 text-sm py-1">
-                <p>即將為下列螢幕產生（或重新產生）Device Token：</p>
-                <div className="rounded border bg-muted/40 px-4 py-3 space-y-1.5 text-sm">
-                  <div className="flex gap-2">
-                    <span className="text-muted-foreground w-20 shrink-0">螢幕名稱</span>
-                    <span className="font-medium">{tokenDialog?.screenName}</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="text-muted-foreground w-20 shrink-0">設備序號</span>
-                    <code className="font-mono text-xs">{tokenDialog?.deviceSerial}</code>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="text-muted-foreground w-20 shrink-0">設備型號</span>
-                    <span>{tokenDialog?.deviceModel}</span>
-                  </div>
-                </div>
-                <p className="text-amber-600 dark:text-amber-400 text-xs rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-                  ⚠️ 產生新 Token 會使舊 Token 立即失效，播放器需重新設定。Token 僅顯示一次，請立即複製保存。
-                </p>
-              </div>
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button variant="outline">取消</Button>
-                </DialogClose>
-                <Button onClick={handleGenerateToken} disabled={tokenGenerating} className="bg-amber-500 hover:bg-amber-600 text-white">
-                  {tokenGenerating && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  確認產生
-                </Button>
-              </DialogFooter>
-            </>
-          )}
-
-          {/* Step: show generated token */}
-          {tokenStep === "show" && (
-            <>
-              <div className="space-y-3 text-sm py-1">
-                <div className="rounded border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-600 dark:text-emerald-400">
-                  ✅ Token 產生成功！請立即複製，此視窗關閉後將無法再次查看。
-                </div>
-                <div className="relative">
-                  <code className="block w-full rounded border bg-muted px-3 py-2 font-mono text-xs break-all pr-10 select-all">
-                    {generatedToken}
-                  </code>
-                  <Button
-                    variant="ghost" size="icon"
-                    className="absolute right-1 top-1 h-7 w-7"
-                    onClick={handleCopyToken}
-                    title="複製 Token"
-                  >
-                    {tokenCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                  </Button>
-                </div>
-                <div className="rounded border px-3 py-2 text-xs text-muted-foreground space-y-1">
-                  <p className="font-medium">填入 Electron 播放器設定</p>
-                  <div className="mt-1 space-y-0.5 font-mono text-[11px]">
-                    <p><span className="text-muted-foreground">URL: </span>https://narhbpojjtnalyfiwxue.supabase.co</p>
-                    <p className="break-all"><span className="text-muted-foreground">Token: </span>{generatedToken.substring(0, 16)}…</p>
-                  </div>
-                </div>
-              </div>
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button className="w-full">已複製，關閉</Button>
-                </DialogClose>
-              </DialogFooter>
-            </>
-          )}
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">關閉</Button>
+            </DialogClose>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
-    </Card>
+    </div>
   );
 }
 
@@ -484,7 +841,7 @@ function DeviceModelsDialog({
     return null;
   };
 
-  const newNameError = newName.length > 0 ? validateName(newName) : null;
+  const newNameError  = newName.length  > 0 ? validateName(newName) : null;
   const editNameError = editingId && editName.length > 0 ? validateName(editName, editingId) : null;
 
   const sensors = useSensors(
@@ -515,11 +872,7 @@ function DeviceModelsDialog({
     }
   };
 
-  const startEdit = (m: DeviceModel) => {
-    setEditingId(m.id);
-    setEditName(m.name);
-    setEditSort(String(m.sort_order));
-  };
+  const startEdit  = (m: DeviceModel) => { setEditingId(m.id); setEditName(m.name); setEditSort(String(m.sort_order)); };
   const cancelEdit = () => { setEditingId(null); setEditName(""); setEditSort("0"); };
 
   const add = async () => {

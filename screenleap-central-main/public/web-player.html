@@ -31,6 +31,30 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
 }
 #splash .setup-btn:hover { background: #1d4ed8; }
 
+/* ── Pending registration screen ── */
+#pending-screen {
+  display: none;
+  position: absolute; inset: 0;
+  flex-direction: column; align-items: center; justify-content: center;
+  background: #0a0a0a; gap: 20px; padding: 40px;
+}
+#pending-screen.visible { display: flex; }
+#pending-spinner {
+  width: 48px; height: 48px; border-radius: 50%;
+  border: 3px solid #1e293b; border-top-color: #2563eb;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#pending-screen h2 { font-size: 1.4rem; font-weight: 300; color: #f1f5f9; }
+#pending-screen .device-info {
+  background: #1e2130; border: 1px solid #334155; border-radius: 8px;
+  padding: 16px 24px; font-size: 0.85rem; color: #94a3b8;
+  display: flex; flex-direction: column; gap: 6px; min-width: 280px;
+}
+#pending-screen .device-info span { display: flex; justify-content: space-between; }
+#pending-screen .device-info b { color: #e2e8f0; }
+#pending-screen .hint { font-size: 0.8rem; color: #475569; text-align: center; max-width: 360px; }
+
 /* ── Settings panel ── */
 #settings-panel {
   display: none;
@@ -120,6 +144,18 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
   <button class="setup-btn" onclick="openSettings()">Settings</button>
 </div>
 
+<!-- Pending registration screen (shown while waiting for admin approval) -->
+<div id="pending-screen">
+  <div id="pending-spinner"></div>
+  <h2>等待授權中…</h2>
+  <div class="device-info">
+    <span><span>型號</span><b id="pi-model">—</b></span>
+    <span><span>序號</span><b id="pi-serial">—</b></span>
+    <span><span>平台</span><b id="pi-platform">—</b></span>
+  </div>
+  <p class="hint">請至 SignCMS → Device License Management 授權此設備</p>
+</div>
+
 <!-- Settings panel -->
 <div id="settings-panel">
   <div class="settings-box">
@@ -193,10 +229,139 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
 // ─────────────────────────────────────────────────────────────────────────────
-const LS_TOKEN  = 'signcms_token';
-const LS_SERVER = 'signcms_server';
+const LS_TOKEN       = 'signcms_token';
+const LS_SERVER      = 'signcms_server';
+const LS_REG_ID      = 'signcms_reg_id';    // pending registration ID
+const LS_FINGERPRINT = 'signcms_fp';        // browser fingerprint (stable)
 const DEFAULT_SERVER = 'https://narhbpojjtnalyfiwxue.supabase.co/functions/v1';
 const SYNC_INTERVAL  = 30_000;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Device detection (Samsung Tizen SSSP + generic browser fallback)
+// ─────────────────────────────────────────────────────────────────────────────
+function detectDevice() {
+  // Try Samsung Tizen SSSP APIs (available on Samsung commercial displays)
+  try {
+    if (typeof webapis !== 'undefined' && webapis.productinfo) {
+      const model  = webapis.productinfo.getModel?.()  || 'Samsung SSSP';
+      // getDuid() returns the device unique ID on Tizen
+      const serial = webapis.productinfo.getDuid?.()
+                  || webapis.productinfo.getModel?.()
+                  || 'TIZEN-UNKNOWN';
+      return { model, serial, platform: 'Samsung Tizen SSSP' };
+    }
+  } catch (_) {}
+
+  // Generic browser fallback — use a stable fingerprint as serial
+  const fp = getFingerprint();
+  const ua = navigator.userAgent;
+  const model = /Samsung/i.test(ua) ? 'Samsung Browser'
+              : /Tizen/i.test(ua)   ? 'Tizen Browser'
+              : /iPad|iPhone/i.test(ua) ? 'iOS Device'
+              : /Android/i.test(ua) ? 'Android Device'
+              : 'Web Browser';
+  return { model, serial: 'WP-' + fp.slice(0, 16).toUpperCase(), platform: 'Web Browser' };
+}
+
+/** Stable fingerprint based on browser/hardware characteristics */
+function getFingerprint() {
+  const stored = localStorage.getItem(LS_FINGERPRINT);
+  if (stored) return stored;
+  // Combine several stable properties to make a unique string
+  const raw = [
+    screen.width, screen.height, screen.colorDepth,
+    navigator.language,
+    Intl.DateTimeFormat().resolvedOptions().timeZone,
+    navigator.hardwareConcurrency || 0,
+    navigator.platform || '',
+  ].join('|');
+  // Simple hash
+  let hash = 0;
+  for (let i = 0; i < raw.length; i++) {
+    hash = ((hash << 5) - hash + raw.charCodeAt(i)) | 0;
+  }
+  const fp = Math.abs(hash).toString(16).padStart(8, '0') + Date.now().toString(16);
+  localStorage.setItem(LS_FINGERPRINT, fp);
+  return fp;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Self-registration flow  (?join=<org-join-token>)
+// ─────────────────────────────────────────────────────────────────────────────
+async function tryAutoRegister(joinToken) {
+  const device = detectDevice();
+
+  // Show pending screen with device info
+  document.getElementById('pi-model').textContent    = device.model;
+  document.getElementById('pi-serial').textContent   = device.serial;
+  document.getElementById('pi-platform').textContent = device.platform;
+  document.getElementById('splash').classList.add('hidden');
+  document.getElementById('pending-screen').classList.add('visible');
+
+  log(`自動偵測: ${device.model} / ${device.serial}`);
+
+  // Check if we already have a pending registration (page reload)
+  const existingRegId = localStorage.getItem(LS_REG_ID);
+
+  const res = await fetch(`${DEFAULT_SERVER}/register-device`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      joinToken,
+      deviceSerial: device.serial,
+      deviceModel:  device.model,
+      fingerprint:  getFingerprint(),
+      userAgent:    navigator.userAgent,
+    }),
+  });
+
+  if (!res.ok) {
+    log(`Registration failed: HTTP ${res.status}`, 'err');
+    document.getElementById('pending-screen').classList.remove('visible');
+    document.getElementById('splash').classList.remove('hidden');
+    setSplashMsg('Invalid join URL. Please check the URL and try again.');
+    return;
+  }
+
+  const data = await res.json();
+  if (!data.ok) {
+    log(`Registration error: ${data.error}`, 'err');
+    document.getElementById('pending-screen').classList.remove('visible');
+    document.getElementById('splash').classList.remove('hidden');
+    setSplashMsg(`Registration error: ${data.error}`);
+    return;
+  }
+
+  // Already approved (re-opened after approval)
+  if (data.status === 'approved' && data.deviceToken) {
+    log('Registration already approved — starting player', 'ok');
+    localStorage.setItem(LS_TOKEN, data.deviceToken);
+    cfg = getConfig();
+    document.getElementById('pending-screen').classList.remove('visible');
+    startSync();
+    return;
+  }
+
+  // Save registration ID for polling on reload
+  localStorage.setItem(LS_REG_ID, data.registrationId);
+  log(`Registered — waiting for admin approval (id: ${data.registrationId.slice(0,8)}…)`);
+
+  // Subscribe to Realtime for approval notification
+  const sbUrl  = 'https://narhbpojjtnalyfiwxue.supabase.co';
+  const anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hcmhicG9qanRuYWx5Zml3eHVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMDAzNTMsImV4cCI6MjA5Mjg3NjM1M30.vGhaM-46pOemCxe-4EQcCBzYVcIv6i3HPCPwzC0bXbw';
+  const regClient  = window.supabase.createClient(sbUrl, anonKey);
+  const regChannel = regClient.channel(data.realtimeChannel)
+    .on('broadcast', { event: 'approved' }, ({ payload }) => {
+      log('授權成功！正在啟動播放器…', 'ok');
+      localStorage.setItem(LS_TOKEN, payload.deviceToken);
+      localStorage.removeItem(LS_REG_ID);
+      regClient.removeChannel(regChannel);
+      cfg = getConfig();
+      document.getElementById('pending-screen').classList.remove('visible');
+      startSync();
+    })
+    .subscribe();
+}
 
 function getConfig() {
   // URL params take priority → save to localStorage for next boot
@@ -245,13 +410,26 @@ const zonePlayers = new Map();
 // Bootstrap
 // ─────────────────────────────────────────────────────────────────────────────
 (function init() {
-  if (!cfg.token) {
-    setSplashMsg('Not configured — tap Settings to begin.');
-    openSettings();
+  const p         = new URLSearchParams(location.search);
+  const joinToken = p.get('join');
+
+  // ?join=<token>  →  self-registration flow
+  if (joinToken && !cfg.token) {
+    setSplashMsg('正在偵測設備資訊…');
+    tryAutoRegister(joinToken);
     return;
   }
-  setSplashMsg('Connecting to SignCMS…');
-  startSync();
+
+  // Already have a device token → start playing
+  if (cfg.token) {
+    setSplashMsg('Connecting to SignCMS…');
+    startSync();
+    return;
+  }
+
+  // Nothing configured
+  setSplashMsg('Not configured — tap Settings to begin.');
+  openSettings();
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
