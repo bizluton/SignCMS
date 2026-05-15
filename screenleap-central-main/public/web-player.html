@@ -31,29 +31,35 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
 }
 #splash .setup-btn:hover { background: #1d4ed8; }
 
-/* ── Pending registration screen ── */
-#pending-screen {
+/* ── Code entry screen ── */
+#code-screen {
   display: none;
   position: absolute; inset: 0;
   flex-direction: column; align-items: center; justify-content: center;
-  background: #0a0a0a; gap: 20px; padding: 40px;
+  background: #0a0a0a; gap: 24px; padding: 40px;
 }
-#pending-screen.visible { display: flex; }
-#pending-spinner {
-  width: 48px; height: 48px; border-radius: 50%;
-  border: 3px solid #1e293b; border-top-color: #2563eb;
-  animation: spin 1s linear infinite;
+#code-screen.visible { display: flex; }
+#code-screen .cs-brand { font-size: 1rem; font-weight: 700; color: #2563eb; letter-spacing: .2em; text-transform: uppercase; }
+#code-screen .cs-title { font-size: 1.5rem; font-weight: 300; color: #f1f5f9; }
+#code-screen .cs-sub   { font-size: 0.85rem; color: #64748b; }
+.code-digits { display: flex; gap: 10px; align-items: center; }
+.code-digit {
+  width: 54px; height: 68px;
+  background: #1e2130; border: 2px solid #334155; border-radius: 10px;
+  color: #f1f5f9; font-size: 2rem; font-weight: 600; text-align: center;
+  outline: none; caret-color: #2563eb; transition: border-color .15s;
 }
-@keyframes spin { to { transform: rotate(360deg); } }
-#pending-screen h2 { font-size: 1.4rem; font-weight: 300; color: #f1f5f9; }
-#pending-screen .device-info {
-  background: #1e2130; border: 1px solid #334155; border-radius: 8px;
-  padding: 16px 24px; font-size: 0.85rem; color: #94a3b8;
-  display: flex; flex-direction: column; gap: 6px; min-width: 280px;
+.code-digit:focus { border-color: #2563eb; background: #1a2540; }
+.code-digit.filled { border-color: #475569; }
+.code-sep   { color: #334155; font-size: 1.8rem; margin: 0 2px; user-select: none; }
+#code-error { font-size: 0.82rem; color: #f87171; min-height: 1.3em; text-align: center; }
+#code-submit {
+  padding: 12px 48px; background: #2563eb; color: #fff;
+  border: none; border-radius: 8px; font-size: 1rem; font-weight: 500;
+  cursor: pointer; transition: background .2s, opacity .2s;
 }
-#pending-screen .device-info span { display: flex; justify-content: space-between; }
-#pending-screen .device-info b { color: #e2e8f0; }
-#pending-screen .hint { font-size: 0.8rem; color: #475569; text-align: center; max-width: 360px; }
+#code-submit:hover:not(:disabled) { background: #1d4ed8; }
+#code-submit:disabled { opacity: 0.35; cursor: not-allowed; }
 
 /* ── Settings panel ── */
 #settings-panel {
@@ -144,16 +150,22 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
   <button class="setup-btn" onclick="openSettings()">Settings</button>
 </div>
 
-<!-- Pending registration screen (shown while waiting for admin approval) -->
-<div id="pending-screen">
-  <div id="pending-spinner"></div>
-  <h2>等待授權中…</h2>
-  <div class="device-info">
-    <span><span>型號</span><b id="pi-model">—</b></span>
-    <span><span>序號</span><b id="pi-serial">—</b></span>
-    <span><span>平台</span><b id="pi-platform">—</b></span>
+<!-- Code entry screen (shown when no device token is stored) -->
+<div id="code-screen">
+  <span class="cs-brand">SignCMS</span>
+  <h2 class="cs-title">輸入授權碼</h2>
+  <p class="cs-sub">請輸入管理員提供的 6 位數授權碼</p>
+  <div class="code-digits">
+    <input type="tel" maxlength="1" class="code-digit" id="cd-0" inputmode="numeric" pattern="[0-9]" autocomplete="off">
+    <input type="tel" maxlength="1" class="code-digit" id="cd-1" inputmode="numeric" pattern="[0-9]" autocomplete="off">
+    <input type="tel" maxlength="1" class="code-digit" id="cd-2" inputmode="numeric" pattern="[0-9]" autocomplete="off">
+    <span class="code-sep">—</span>
+    <input type="tel" maxlength="1" class="code-digit" id="cd-3" inputmode="numeric" pattern="[0-9]" autocomplete="off">
+    <input type="tel" maxlength="1" class="code-digit" id="cd-4" inputmode="numeric" pattern="[0-9]" autocomplete="off">
+    <input type="tel" maxlength="1" class="code-digit" id="cd-5" inputmode="numeric" pattern="[0-9]" autocomplete="off">
   </div>
-  <p class="hint">請至 SignCMS → Device License Management 授權此設備</p>
+  <div id="code-error"></div>
+  <button id="code-submit" onclick="submitCode()" disabled>確認</button>
 </div>
 
 <!-- Settings panel -->
@@ -231,7 +243,6 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; colo
 // ─────────────────────────────────────────────────────────────────────────────
 const LS_TOKEN       = 'signcms_token';
 const LS_SERVER      = 'signcms_server';
-const LS_REG_ID      = 'signcms_reg_id';    // pending registration ID
 const LS_FINGERPRINT = 'signcms_fp';        // browser fingerprint (stable)
 const DEFAULT_SERVER = 'https://narhbpojjtnalyfiwxue.supabase.co/functions/v1';
 const SYNC_INTERVAL  = 30_000;
@@ -286,81 +297,106 @@ function getFingerprint() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Self-registration flow  (?join=<org-join-token>)
+// 6-digit code entry + activation flow
 // ─────────────────────────────────────────────────────────────────────────────
-async function tryAutoRegister(joinToken) {
-  const device = detectDevice();
-
-  // Show pending screen with device info
-  document.getElementById('pi-model').textContent    = device.model;
-  document.getElementById('pi-serial').textContent   = device.serial;
-  document.getElementById('pi-platform').textContent = device.platform;
+function showCodeScreen() {
   document.getElementById('splash').classList.add('hidden');
-  document.getElementById('pending-screen').classList.add('visible');
+  document.getElementById('code-screen').classList.add('visible');
 
-  log(`自動偵測: ${device.model} / ${device.serial}`);
+  const digits = Array.from(document.querySelectorAll('.code-digit'));
 
-  // Check if we already have a pending registration (page reload)
-  const existingRegId = localStorage.getItem(LS_REG_ID);
-
-  const res = await fetch(`${DEFAULT_SERVER}/register-device`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      joinToken,
-      deviceSerial: device.serial,
-      deviceModel:  device.model,
-      fingerprint:  getFingerprint(),
-      userAgent:    navigator.userAgent,
-    }),
+  digits.forEach((d, i) => {
+    d.addEventListener('input', () => {
+      // Keep only the last digit typed; strip non-numeric
+      d.value = d.value.replace(/\D/g, '').slice(-1);
+      d.classList.toggle('filled', d.value !== '');
+      if (d.value && i < digits.length - 1) digits[i + 1].focus();
+      updateSubmitBtn(digits);
+    });
+    d.addEventListener('keydown', e => {
+      if (e.key === 'Backspace' && !d.value && i > 0) {
+        digits[i - 1].value = '';
+        digits[i - 1].classList.remove('filled');
+        digits[i - 1].focus();
+      }
+      if (e.key === 'Enter') submitCode();
+    });
+    d.addEventListener('paste', e => {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData)
+        .getData('text').replace(/\D/g, '');
+      digits.forEach((dd, j) => {
+        if (j < text.length) { dd.value = text[j]; dd.classList.add('filled'); }
+      });
+      const next = Math.min(text.length, digits.length - 1);
+      digits[next].focus();
+      updateSubmitBtn(digits);
+    });
   });
 
-  if (!res.ok) {
-    log(`Registration failed: HTTP ${res.status}`, 'err');
-    document.getElementById('pending-screen').classList.remove('visible');
-    document.getElementById('splash').classList.remove('hidden');
-    setSplashMsg('Invalid join URL. Please check the URL and try again.');
+  digits[0].focus();
+}
+
+function updateSubmitBtn(digits) {
+  const code = digits.map(d => d.value).join('');
+  document.getElementById('code-submit').disabled = !/^\d{6}$/.test(code);
+}
+
+function submitCode() {
+  const digits = Array.from(document.querySelectorAll('.code-digit'));
+  const code   = digits.map(d => d.value).join('');
+  if (!/^\d{6}$/.test(code)) {
+    document.getElementById('code-error').textContent = '請輸入完整的 6 位數字';
     return;
   }
+  tryActivate(code);
+}
 
-  const data = await res.json();
-  if (!data.ok) {
-    log(`Registration error: ${data.error}`, 'err');
-    document.getElementById('pending-screen').classList.remove('visible');
-    document.getElementById('splash').classList.remove('hidden');
-    setSplashMsg(`Registration error: ${data.error}`);
-    return;
-  }
+async function tryActivate(code) {
+  const errorEl  = document.getElementById('code-error');
+  const submitBtn = document.getElementById('code-submit');
+  errorEl.textContent = '驗證中…';
+  submitBtn.disabled  = true;
 
-  // Already approved (re-opened after approval)
-  if (data.status === 'approved' && data.deviceToken) {
-    log('Registration already approved — starting player', 'ok');
+  const device = detectDevice();
+  log(`啟動裝置 — 型號: ${device.model} / 序號: ${device.serial}`);
+
+  try {
+    const res = await fetch(`${DEFAULT_SERVER}/activate-device`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code,
+        fingerprint:  getFingerprint(),
+        userAgent:    navigator.userAgent,
+        deviceSerial: device.serial,
+        deviceModel:  device.model,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || !data.ok) {
+      const msg = data.error === 'invalid_code'
+        ? '授權碼無效或已停用，請確認後重試'
+        : `錯誤：${data.error || res.status}，請稍後重試`;
+      errorEl.textContent = msg;
+      submitBtn.disabled  = false;
+      log(`Activation failed: ${data.error || res.status}`, 'err');
+      return;
+    }
+
+    log('授權成功！正在啟動播放器…', 'ok');
     localStorage.setItem(LS_TOKEN, data.deviceToken);
     cfg = getConfig();
-    document.getElementById('pending-screen').classList.remove('visible');
+    document.getElementById('code-screen').classList.remove('visible');
     startSync();
-    return;
+
+  } catch (err) {
+    errorEl.textContent = '網路錯誤，請確認連線後重試';
+    submitBtn.disabled  = false;
+    log(`Activation error: ${err.message}`, 'err');
   }
-
-  // Save registration ID for polling on reload
-  localStorage.setItem(LS_REG_ID, data.registrationId);
-  log(`Registered — waiting for admin approval (id: ${data.registrationId.slice(0,8)}…)`);
-
-  // Subscribe to Realtime for approval notification
-  const sbUrl  = 'https://narhbpojjtnalyfiwxue.supabase.co';
-  const anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hcmhicG9qanRuYWx5Zml3eHVlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMDAzNTMsImV4cCI6MjA5Mjg3NjM1M30.vGhaM-46pOemCxe-4EQcCBzYVcIv6i3HPCPwzC0bXbw';
-  const regClient  = window.supabase.createClient(sbUrl, anonKey);
-  const regChannel = regClient.channel(data.realtimeChannel)
-    .on('broadcast', { event: 'approved' }, ({ payload }) => {
-      log('授權成功！正在啟動播放器…', 'ok');
-      localStorage.setItem(LS_TOKEN, payload.deviceToken);
-      localStorage.removeItem(LS_REG_ID);
-      regClient.removeChannel(regChannel);
-      cfg = getConfig();
-      document.getElementById('pending-screen').classList.remove('visible');
-      startSync();
-    })
-    .subscribe();
 }
 
 function getConfig() {
@@ -410,26 +446,15 @@ const zonePlayers = new Map();
 // Bootstrap
 // ─────────────────────────────────────────────────────────────────────────────
 (function init() {
-  const p         = new URLSearchParams(location.search);
-  const joinToken = p.get('join');
-
-  // ?join=<token>  →  self-registration flow
-  if (joinToken && !cfg.token) {
-    setSplashMsg('正在偵測設備資訊…');
-    tryAutoRegister(joinToken);
-    return;
-  }
-
-  // Already have a device token → start playing
+  // Already have a device token → start playing immediately
   if (cfg.token) {
     setSplashMsg('Connecting to SignCMS…');
     startSync();
     return;
   }
 
-  // Nothing configured
-  setSplashMsg('Not configured — tap Settings to begin.');
-  openSettings();
+  // No token → show 6-digit code entry screen
+  showCodeScreen();
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
