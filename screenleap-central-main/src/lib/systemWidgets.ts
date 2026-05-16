@@ -22,6 +22,85 @@ export interface SystemWidgetConfig {
   targetDate?: string;
   countdownTitle?: string;
   youtubeUrl?: string;
+  fontSize?: "small" | "medium" | "large" | "xlarge";
+  qrcodeSize?: number;
+  animation?: "none" | "fadeIn" | "slideUp" | "bounce" | "zoomIn" | "flipIn";
+  city?: string;
+  params?: Record<string, unknown>;
+  paramsSchema?: unknown[];
+}
+
+export interface SystemWidgetDef {
+  id: string;            // virtual id, prefixed `sys-widget-`
+  name: string;          // i18n key suffix on widget*
+  nameKey: string;       // translation key
+  config: SystemWidgetConfig;
+}
+
+// Stable ISO created_at so sorting is deterministic and they appear last by newest order
+const SYSTEM_CREATED_AT = "2000-01-01T00:00:00.000Z";
+
+export const SYSTEM_WIDGETS: SystemWidgetDef[] = [
+  {
+    id: "sys-widget-date",
+    name: "Date",
+    nameKey: "widgetDate",
+    config: {
+      widgetType: "date", bgColor: "#1e293b", textColor: "#ffffff",
+      fontSize: "large", animation: "fadeIn",
+    },
+  },
+  {
+    id: "sys-widget-webpage",
+    name: "Webpage",
+    nameKey: "widgetWebpage",
+    config: {
+      widgetType: "webpage", url: "https://example.com",
+      bgColor: "#ffffff", textColor: "#000000", animation: "none",
+    },
+  },
+  {
+    id: "sys-widget-marquee",
+    name: "Marquee",
+    nameKey: "widgetMarquee",
+    config: {
+      widgetType: "marquee", text: "Welcome to SignCMS",
+      speed: "normal", bgColor: "#0f172a", textColor: "#fbbf24",
+      fontSize: "large", animation: "none",
+    },
+  },
+  {
+    id: "sys-widget-qrcode",
+    name: "QR Code",
+    nameKey: "widgetQrcode",
+    config: {
+      widgetType: "qrcode", qrcodeContent: "https://signcms.com",
+      qrcodeSize: 200, bgColor: "#ffffff", textColor: "#000000",
+      animation: "fadeIn",
+    },
+  },
+  {
+    id: "sys-widget-countdown",
+    name: "Countdown",
+    nameKey: "widgetCountdown",
+    config: {
+      widgetType: "countdown",
+      countdownTitle: "Countdown",
+      targetDate: "2030-01-01T00:00:00",
+      bgColor: "#1e293b", textColor: "#ffffff",
+      fontSize: "large", animation: "zoomIn",
+    },
+  },
+  {
+    id: "sys-widget-youtube",
+    name: "YouTube",
+    nameKey: "widgetYoutube",
+    config: {
+      widgetType: "youtube",
+      youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      bgColor: "#000000", textColor: "#ffffff", animation: "none",
+    },
+  },
   {
     id: "sys-widget-weather",
     name: "Weather",
