@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import {
   Megaphone, Users, CloudSun, Instagram, Check, Download, Monitor, DoorOpen,
   Languages, Clock, Lock, Package, Code2, Loader2, LayoutGrid, Puzzle,
+  Calendar, Globe, Type, QrCode, Timer, Youtube,
 } from "lucide-react";
 import QueueControlPanel from "@/components/widgets/QueueControlPanel";
 import { toast } from "sonner";
@@ -161,6 +162,12 @@ function pickName(row: CustomWidgetRow, lang: string) {
   return row.name_i18n?.[lang] || row.name_i18n?.en || row.name_i18n?.zh || row.name;
 }
 
+const SYSTEM_WIDGET_ICON: Record<string, React.ElementType> = {
+  clock: Clock, date: Calendar, marquee: Type, webpage: Globe,
+  qrcode: QrCode, countdown: Timer, youtube: Youtube,
+  weather: CloudSun, weather_tw: CloudSun,
+};
+
 const SYSTEM_WIDGET_LABEL: Record<string, { zh: string; en: string; ja: string }> = {
   clock:      { zh: "數位時鐘",   en: "Digital Clock",   ja: "デジタル時計" },
   date:       { zh: "日期顯示",   en: "Date Display",    ja: "日付表示"     },
@@ -215,13 +222,14 @@ function WidgetTab({ canManage }: { canManage: boolean }) {
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
           {SYSTEM_WIDGETS.map((sw) => {
             const label = SYSTEM_WIDGET_LABEL[sw.config.widgetType];
+            const Icon = SYSTEM_WIDGET_ICON[sw.config.widgetType] ?? Code2;
             return (
               <div
                 key={sw.id}
                 className="flex flex-col items-center gap-2 rounded-xl border bg-card p-4 text-center"
               >
-                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center">
-                  <Code2 className="w-5 h-5 text-slate-300" />
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary/70 to-primary flex items-center justify-center">
+                  <Icon className="w-5 h-5 text-white" />
                 </div>
                 <span className="text-xs font-medium leading-tight">
                   {label ? label[language] : sw.name}
@@ -277,28 +285,31 @@ function WidgetTab({ canManage }: { canManage: boolean }) {
                     )}
                   </div>
                   <div className="mt-auto pt-3">
-                    {isInstalled ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full text-destructive hover:text-destructive"
-                        disabled={!canManage}
-                        onClick={() => handleUninstall(w)}
-                      >
-                        {!canManage && <Lock className="mr-1.5 h-3 w-3" />}
-                        {t("appStoreWidgetUninstallBtn")}
-                      </Button>
-                    ) : (
-                      <Button
-                        size="sm"
-                        className="w-full"
-                        disabled={!canManage}
-                        onClick={() => handleInstall(w)}
-                      >
-                        {!canManage ? <Lock className="mr-1.5 h-3 w-3" /> : <Download className="mr-1.5 h-3 w-3" />}
-                        {t("appStoreWidgetInstallBtn")}
-                      </Button>
-                    )}
+                    {canManage ? (
+                      isInstalled ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full text-destructive hover:text-destructive"
+                          onClick={() => handleUninstall(w)}
+                        >
+                          {t("appStoreWidgetUninstallBtn")}
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          className="w-full"
+                          onClick={() => handleInstall(w)}
+                        >
+                          <Download className="mr-1.5 h-3 w-3" />
+                          {t("appStoreWidgetInstallBtn")}
+                        </Button>
+                      )
+                    ) : isInstalled ? (
+                      <Badge variant="secondary" className="w-full flex justify-center py-1 text-xs">
+                        <Check className="mr-1 h-3 w-3" />{t("appStoreWidgetBuiltIn")}
+                      </Badge>
+                    ) : null}
                   </div>
                 </div>
               );
