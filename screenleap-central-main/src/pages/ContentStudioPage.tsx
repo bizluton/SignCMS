@@ -4896,7 +4896,7 @@ export default function ContentStudioPage() {
   const { activeOrgId } = useActiveOrg();
   const { defaultOrgId } = useUserOrgs();
   const { installedApps } = useInstalledApps();
-  const { widgets: catalogWidgets } = useWidgets(installedApps);
+  const { widgets: catalogWidgets } = useWidgets();
   const [aspect, setAspect] = useState<AspectRatio>("16:9");
   const [resolution, setResolution] = useState<Resolution>(() => getDefaultResolution("16:9"));
   type OutputMode = "mirror" | "independent" | "extend-h" | "extend-v" | "grid-2x2-h";

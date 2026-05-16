@@ -456,7 +456,7 @@ const MediaPage = () => {
   const { activeOrgId } = useActiveOrg();
   const { ensureProfiles, getProfile, profilesVersion } = useProfiles();
   const { installedApps } = useInstalledApps();
-  const { widgets: catalogWidgets, reload: reloadWidgets } = useWidgets(installedApps);
+  const { widgets: catalogWidgets, reload: reloadWidgets } = useWidgets();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
