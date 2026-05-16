@@ -4,6 +4,12 @@
 - After every `git commit`, immediately run `git push origin master` in the same session.
 - Never leave commits unpushed — always push in the same turn as the commit.
 
+## Project-Specific Guidelines
+
+- Use TypeScript strict mode
+- All API endpoints must have tests
+- Follow the existing error handling patterns in `src/utils/errors.ts`
+
 # CLAUDE.md
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
