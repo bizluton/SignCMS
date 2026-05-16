@@ -2109,6 +2109,8 @@ const translations = {
   appStoreWidgetNoCustom: { zh: "目前尚無可安裝的客制 Widget", en: "No custom widgets available yet", ja: "カスタムウィジェットはまだありません" },
   appStoreWidgetInstallOk: { zh: "Widget 已安裝", en: "Widget installed", ja: "インストール完了" },
   appStoreWidgetUninstallOk: { zh: "Widget 已解除安裝", en: "Widget uninstalled", ja: "アンインストール完了" },
+  appStoreWidgetInstallFailed: { zh: "安裝失敗，請稍後再試", en: "Install failed, please try again", ja: "インストールに失敗しました" },
+  appStoreWidgetUninstallFailed: { zh: "解除安裝失敗，請稍後再試", en: "Uninstall failed, please try again", ja: "アンインストールに失敗しました" },
   appStoreWidgetInstallBtn: { zh: "安裝", en: "Install", ja: "インストール" },
   appStoreWidgetUninstallBtn: { zh: "解除安裝", en: "Uninstall", ja: "削除" },
   noPermission: { zh: "僅組織管理員可操作", en: "Only org admins can manage", ja: "組織管理者のみ操作可能" },

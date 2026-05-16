@@ -29,24 +29,28 @@ export function useInstalledWidgets() {
     return () => { void supabase.removeChannel(channel); };
   }, [reload]);
 
-  const install = useCallback(async (widgetId: string): Promise<boolean> => {
-    if (!activeOrgId) return false;
+  // Returns null on success, error message string on failure.
+  const install = useCallback(async (widgetId: string): Promise<string | null> => {
+    if (!activeOrgId) return "No active org";
     const { error } = await supabase
       .from("installed_widgets")
-      .insert({ org_id: activeOrgId, widget_id: widgetId });
-    if (!error) { void reload(); return true; }
-    return false;
+      .upsert(
+        { org_id: activeOrgId, widget_id: widgetId },
+        { onConflict: "org_id,widget_id", ignoreDuplicates: true },
+      );
+    if (!error) { void reload(); return null; }
+    return error.message;
   }, [activeOrgId, reload]);
 
-  const uninstall = useCallback(async (widgetId: string): Promise<boolean> => {
-    if (!activeOrgId) return false;
+  const uninstall = useCallback(async (widgetId: string): Promise<string | null> => {
+    if (!activeOrgId) return "No active org";
     const { error } = await supabase
       .from("installed_widgets")
       .delete()
       .eq("org_id", activeOrgId)
       .eq("widget_id", widgetId);
-    if (!error) { void reload(); return true; }
-    return false;
+    if (!error) { void reload(); return null; }
+    return error.message;
   }, [activeOrgId, reload]);
 
   return { installedIds, loading, install, uninstall, reload };

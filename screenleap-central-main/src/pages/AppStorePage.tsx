@@ -201,14 +201,16 @@ function WidgetTab({ canManage }: { canManage: boolean }) {
 
   const handleInstall = async (w: CustomWidgetRow) => {
     if (!canManage) { toast.error(t("noPermission")); return; }
-    const ok = await install(w.id);
-    if (ok) toast.success(`${pickName(w, language)} ${t("appStoreWidgetInstallOk")}`);
+    const err = await install(w.id);
+    if (!err) toast.success(`${pickName(w, language)} ${t("appStoreWidgetInstallOk")}`);
+    else toast.error(t("appStoreWidgetInstallFailed"));
   };
 
   const handleUninstall = async (w: CustomWidgetRow) => {
     if (!canManage) { toast.error(t("noPermission")); return; }
-    const ok = await uninstall(w.id);
-    if (ok) toast.success(`${pickName(w, language)} ${t("appStoreWidgetUninstallOk")}`);
+    const err = await uninstall(w.id);
+    if (!err) toast.success(`${pickName(w, language)} ${t("appStoreWidgetUninstallOk")}`);
+    else toast.error(t("appStoreWidgetUninstallFailed"));
   };
 
   return (
