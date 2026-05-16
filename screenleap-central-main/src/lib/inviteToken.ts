@@ -8,6 +8,9 @@
 export const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Matches both UUID format and 64-char hex (gen_random_bytes(32)::hex)
+const INVITE_TOKEN_RE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32,})$/i;
+
 /**
  * Extract a usable token from raw input.
  * - Plain UUID → returned as-is (trimmed)
@@ -47,6 +50,6 @@ export function validateTokenShape(raw: string): TokenErrorKey | null {
   if (!trimmed) return "onboardingTokenRequired";
   const candidate = extractToken(trimmed);
   if (candidate.length < 20) return "onboardingTokenTooShort";
-  if (!UUID_RE.test(candidate)) return "onboardingTokenBadFormat";
+  if (!INVITE_TOKEN_RE.test(candidate)) return "onboardingTokenBadFormat";
   return null;
 }

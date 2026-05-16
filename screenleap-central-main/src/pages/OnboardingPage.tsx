@@ -15,7 +15,7 @@ import logoLightImg from "@/assets/logo-light.png";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
-import { extractToken, validateTokenShape, UUID_RE } from "@/lib/inviteToken";
+import { extractToken, validateTokenShape } from "@/lib/inviteToken";
 
 export default function OnboardingPage() {
   const { t } = useLanguage();
@@ -284,19 +284,19 @@ export default function OnboardingPage() {
                             /^https?:\/\//i.test(pasted.trim());
                           if (!looksLikeLink) return;
                           const extracted = extractToken(pasted);
-                          if (UUID_RE.test(extracted)) {
+                          if (extracted.length >= 20 && /^[0-9a-f-]+$/i.test(extracted)) {
                             e.preventDefault();
                             setToken(extracted);
                             setTokenError(null);
                           } else {
-                            // User pasted a link but no valid invite UUID was found.
+                            // User pasted a link but no valid invite token was found.
                             setTokenError(t("onboardingTokenPasteNoInvite"));
                           }
                         }}
                         onBlur={() => {
                           // Auto-trim invite URL → pure UUID for cleaner display
                           const extracted = extractToken(token);
-                          if (extracted !== token.trim() && UUID_RE.test(extracted)) {
+                          if (extracted !== token.trim() && extracted.length >= 20 && /^[0-9a-f-]+$/i.test(extracted)) {
                             setToken(extracted);
                           }
                           setTokenError(validateToken(token));

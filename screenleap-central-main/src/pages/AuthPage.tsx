@@ -26,7 +26,7 @@ import logoLightImg from "@/assets/logo-light.png";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { useNavigate, Link, useSearchParams } from "react-router-dom";
-import { extractToken, UUID_RE } from "@/lib/inviteToken";
+import { extractToken } from "@/lib/inviteToken";
 
 export default function AuthPage() {
   const { t } = useLanguage();
@@ -38,8 +38,9 @@ export default function AuthPage() {
   // Drops anything that isn't a UUID-shaped token.
   const rawInvite = searchParams.get("invite") || "";
   const extractedInvite = extractToken(rawInvite);
-  const inviteToken = UUID_RE.test(extractedInvite) ? extractedInvite : "";
-  // True when ?invite=... was provided but couldn't be reduced to a valid UUID.
+  // Accept UUID (36 chars) or 64-char hex from gen_random_bytes(32)
+  const inviteToken = extractedInvite.length >= 20 && /^[0-9a-f-]+$/i.test(extractedInvite) ? extractedInvite : "";
+  // True when ?invite=... was provided but couldn't be reduced to a valid token.
   const inviteInvalid = rawInvite.length > 0 && !inviteToken;
   const csAgentId = searchParams.get("cs_agent") || "";
   const [isSignUp, setIsSignUp] = useState(!!inviteToken || !!csAgentId);
