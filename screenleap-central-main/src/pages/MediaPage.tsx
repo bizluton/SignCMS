@@ -2054,8 +2054,8 @@ const MediaPage = () => {
                     }
                     const scope = (item as MediaItemRow & { catalog_scope?: string | null }).catalog_scope;
                     return (
-                      <Badge variant={item.is_system ? "destructive" : scope === "custom" ? "secondary" : "outline"} className="absolute right-2 top-2 text-[10px]">
-                        {item.is_system ? t("widgetSystem") : scope === "custom" ? t("widgetCustom") : t("widgetRegular")}
+                      <Badge variant={item.is_system ? "destructive" : scope === "app" ? "default" : scope === "custom" ? "secondary" : "outline"} className="absolute right-2 top-2 text-[10px]">
+                        {item.is_system ? t("widgetSystem") : scope === "app" ? t("widgetApp") : scope === "custom" ? t("widgetCustom") : t("widgetRegular")}
                       </Badge>
                     );
                   })()}
@@ -2078,12 +2078,142 @@ const MediaPage = () => {
                       {t("transcodeStatusFailed")}
                     </Badge>
                   )}
+                  {item.type === "widget" && canManageMedia && !selectMode && (
+                    isCatalogWidgetId(item.id)
+                      ? item.is_system ? isAdmin
+                        : item.catalog_scope === "app" ? false
+                        : item.catalog_scope === "custom" ? (isAdmin || isOrgAdmin)
+                        : true
+                      : !item.is_system
+                  ) && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="gap-1.5"
+                        onClick={(e) => { e.stopPropagation(); requestDelete(item.id); }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        {t("mediaDeleteItem")}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2 p-3">
+                  <p className="truncate text-sm font-medium text-foreground">{displayName}</p>
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                    <span>{formatMediaBytes(getSizeBytes(item))}</span>
+                    {item.type === "audio" ? (
+                      <>
+                        <span>·</span>
+                        <span className="font-mono uppercase">{getAudioFormatLabel(item)}</span>
+                        <span>·</span>
+                        <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{formatDuration(item) || "--:--"}</span>
+                      </>
+                    ) : item.type !== "widget" ? (
+                      <>
+                        <span>·</span>
+                        <span>{formatDimensions(item) || "-"}</span>
+                      </>
+                    ) : null}
+                    <span>·</span>
+                    <div className="min-w-0 flex-1">{renderProjectSelect(item)}</div>
+                  </div>
+                  {/* Transcode action button */}
+                  {item.type === "video" && (item.transcode_status === "pending_transcode" || item.transcode_status === "failed") && canManageMedia && (
+                    <button
+                      className="mt-1 w-full rounded border border-yellow-500 py-0.5 text-[11px] font-medium text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-950 disabled:opacity-50"
+                      disabled={transcodeRequestingId === item.id}
+                      onClick={(e) => { e.stopPropagation(); void handleRequestTranscode(item.id); }}
+                    >
+                      {item.transcode_status === "failed" ? t("transcodeRetry") : t("transcodeStart")}
+                    </button>
+                  )}
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="grid gap-2">
+          {filteredMedia.map((item) => {
+            const displayName = getDisplayName(item);
+            const isSelected = selectedIds.has(item.id);
+            const inUse = selectMode && isMediaInUse(item.id);
+            return (
+              <Card
+                key={item.id}
+                className={`flex cursor-pointer items-center gap-4 p-3 ${isSelected ? "ring-2 ring-primary" : ""} ${inUse ? "opacity-70" : ""}`}
+                onClick={() => { if (selectMode) toggleSelect(item.id); else openPreview(item); }}
+              >
+                {selectMode && (
+                  <div className="flex shrink-0 items-center gap-2">
+                    <div onClick={(e) => { e.stopPropagation(); toggleSelect(item.id); }}>
+                      <Checkbox checked={isSelected} aria-label={displayName} />
+                    </div>
+                    {inUse && (
+                      <span
+                        title={t("mediaInUseWarning")}
+                        className="rounded-full bg-destructive/90 px-1.5 py-0.5 text-[10px] font-medium text-destructive-foreground"
+                      >
+                        In use
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div className="relative flex h-12 w-20 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted">
+                  {item.type === "widget" && item.url ? (
+                    item.thumbnail
+                      ? <img src={item.thumbnail} alt={displayName} className="w-full h-full object-cover" />
+                      : (() => { const c = parseWidgetConfig(item.url); return c ? <WidgetPreviewCard config={c} /> : <Code2 className="w-6 h-6 text-muted-foreground" />; })()
+                  ) : item.type === "image" && item.url ? (
+                    <img
+                      src={item.thumbnail || item.url}
+                      alt={displayName}
+                      loading="lazy"
+                      decoding="async"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : item.type === "video" && item.url ? (
+                    <VideoThumb
+                      src={item.url}
+                      name={displayName}
+                      showPlayHint={false}
+                      poster={item.thumbnail || undefined}
+                    />
+                  ) : (
+                    getPreviewIcon(item.type)
+                  )}
+                  {isCcByAudio(item) && (
+                    <span
+                      title={t("mediaAttributionTitle")}
+                      className="absolute bottom-0.5 right-0.5 rounded bg-primary/90 px-1 py-px text-[8px] font-bold leading-tight text-primary-foreground shadow-sm"
+                    >
+                      CC BY
+                    </span>
+                  )}
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">{displayName}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                    <Badge variant={item.type === "widget" ? "default" : "outline"} className="text-[10px] px-1.5 py-0 h-4">
+                      {item.type === "image" ? t("image") : item.type === "video" ? t("video") : item.type === "audio" ? t("audio") : t("widget")}
+                    </Badge>
+                    {(() => { const o = renderOwnerBadge(item); return o ? (
+                      <span className="inline-flex items-center" title={
+                        item.uploaded_by === user?.id ? t("mediaOwnerSelf")
+                          : item.uploaded_by && teammateIds.has(item.uploaded_by) ? t("mediaOwnerTeam")
+                          : t("mediaOwnerOrg")
+                      }>{o}</span>
+                    ) : null; })()}
                     {item.type === "widget" && (
                       <Badge
-                        variant={item.is_system ? "destructive" : item.catalog_scope === "custom" ? "secondary" : "outline"}
+                        variant={item.is_system ? "destructive" : item.catalog_scope === "app" ? "default" : item.catalog_scope === "custom" ? "secondary" : "outline"}
                         className="text-[10px] px-1.5 py-0 h-4"
                       >
-                        {item.is_system ? t("widgetSystem") : item.catalog_scope === "custom" ? t("widgetCustom") : t("widgetRegular")}
+                        {item.is_system ? t("widgetSystem") : item.catalog_scope === "app" ? t("widgetApp") : item.catalog_scope === "custom" ? t("widgetCustom") : t("widgetRegular")}
                       </Badge>
                     )}
                     {item.type === "video" && item.transcode_status === "pending_transcode" && (
@@ -2127,7 +2257,10 @@ const MediaPage = () => {
                   </Button>
                   {canManageMedia && (
                     isCatalogWidgetId(item.id)
-                      ? item.is_system ? isAdmin : item.catalog_scope === "custom" ? (isAdmin || isOrgAdmin) : true
+                      ? item.is_system ? isAdmin
+                        : item.catalog_scope === "app" ? false
+                        : item.catalog_scope === "custom" ? (isAdmin || isOrgAdmin)
+                        : true
                       : !item.is_system
                   ) && (
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); requestDelete(item.id); }} title={t("mediaDeleteItem")}>

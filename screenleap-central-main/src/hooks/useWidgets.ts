@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveOrg } from "@/contexts/ActiveOrgContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useInstalledApps } from "@/contexts/InstalledAppsContext";
 
 export type WidgetScope = "system" | "app" | "custom" | "user";
 
@@ -43,13 +44,23 @@ function pickName(row: WidgetRow, lang: string): string {
 export function useWidgets(installedApps?: Set<string>) {
   const { activeOrgId } = useActiveOrg();
   const { language } = useLanguage();
+  const { installedApps } = useInstalledApps();
   const [widgets, setWidgets] = useState<CatalogWidget[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Stable string key — only changes when the installed-app set changes,
+  // preventing reload() from being recreated on every render.
+  const installedAppsKey = useMemo(
+    () => [...installedApps].sort().join(","),
+    [installedApps],
+  );
+
   const reload = useCallback(async () => {
     setLoading(true);
+    const appIds = new Set(installedAppsKey ? installedAppsKey.split(",") : []);
+
     // RLS filters: system/app/custom visible to all; user-scope only own org.
-    // Custom widgets additionally require org installation (checked client-side below).
+    // Custom and app widgets are additionally filtered client-side below.
     const [widgetRes, exclusionRes, installedRes] = await Promise.all([
       supabase
         .from("widgets")
@@ -80,7 +91,10 @@ export function useWidgets(installedApps?: Set<string>) {
 
     const mapped: CatalogWidget[] = ((widgetRes.data || []) as WidgetRow[])
       .filter((r) => !hiddenIds.has(r.id))
+      // custom scope: org must have explicitly installed it via App Store
       .filter((r) => r.scope !== "custom" || installedIds.has(r.id))
+      // app scope: visible only when the linked app is installed by this org
+      .filter((r) => r.scope !== "app" || (r.app_id != null && appIds.has(r.app_id)))
       .map((r) => ({
         id: r.id,
         scope: r.scope as WidgetScope,
@@ -93,12 +107,10 @@ export function useWidgets(installedApps?: Set<string>) {
       }));
     setWidgets(mapped);
     setLoading(false);
-  }, [language, activeOrgId, installedApps]);
+  }, [language, activeOrgId, installedAppsKey]);
 
   useEffect(() => { reload(); }, [reload]);
 
-  // Real-time: reload whenever widgets or org exclusions change so all hook
-  // instances (MediaPage, ContentStudioPage, etc.) stay in sync automatically.
   useEffect(() => {
     const channel = supabase
       .channel("useWidgets-realtime")

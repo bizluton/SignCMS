@@ -9,12 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Megaphone, Users, CloudSun, Instagram, Check, Download, Monitor, DoorOpen,
-  Languages, Clock, Lock, Package, Code2, Loader2, LayoutGrid, Puzzle,
+  Languages, Clock, Lock, Package, Code2, Loader2, LayoutGrid, Puzzle, Layers,
   Calendar, Globe, Type, QrCode, Timer, Youtube,
 } from "lucide-react";
 import QueueControlPanel from "@/components/widgets/QueueControlPanel";
 import { toast } from "sonner";
-import { useInstalledApps, type ExternalAppInfo } from "@/contexts/InstalledAppsContext";
+import { useInstalledApps, APP_DEFINITIONS, type ExternalAppInfo } from "@/contexts/InstalledAppsContext";
 import { useInstalledWidgets } from "@/hooks/useInstalledWidgets";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useOrgPlan, PLAN_LABELS } from "@/hooks/useOrgPlan";
@@ -156,6 +156,7 @@ interface CustomWidgetRow {
   name_i18n: Record<string, string>;
   widget_type: string;
   thumbnail: string;
+  app_id?: string | null;
 }
 
 function pickName(row: CustomWidgetRow, lang: string) {
@@ -182,9 +183,12 @@ const SYSTEM_WIDGET_LABEL: Record<string, { zh: string; en: string; ja: string }
 
 function WidgetTab({ canManage }: { canManage: boolean }) {
   const { language, t } = useLanguage();
+  const { installedApps } = useInstalledApps();
   const { installedIds, install, uninstall } = useInstalledWidgets();
   const [customWidgets, setCustomWidgets] = useState<CustomWidgetRow[]>([]);
   const [loadingCustom, setLoadingCustom] = useState(true);
+  const [appWidgets, setAppWidgets] = useState<CustomWidgetRow[]>([]);
+  const [loadingApp, setLoadingApp] = useState(true);
 
   const loadCustomWidgets = useCallback(async () => {
     setLoadingCustom(true);
@@ -197,7 +201,20 @@ function WidgetTab({ canManage }: { canManage: boolean }) {
     setLoadingCustom(false);
   }, []);
 
+  const loadAppWidgets = useCallback(async () => {
+    setLoadingApp(true);
+    const { data } = await supabase
+      .from("widgets")
+      .select("id, name, name_i18n, widget_type, thumbnail, app_id")
+      .eq("scope", "app")
+      .not("app_id", "is", null)
+      .order("sort_order", { ascending: true });
+    setAppWidgets((data || []) as CustomWidgetRow[]);
+    setLoadingApp(false);
+  }, []);
+
   useEffect(() => { void loadCustomWidgets(); }, [loadCustomWidgets]);
+  useEffect(() => { void loadAppWidgets(); }, [loadAppWidgets]);
 
   const handleInstall = async (w: CustomWidgetRow) => {
     if (!canManage) { toast.error(t("noPermission")); return; }
@@ -243,6 +260,55 @@ function WidgetTab({ canManage }: { canManage: boolean }) {
             );
           })}
         </div>
+      </section>
+
+      {/* ── APP Widget ── */}
+      <section>
+        <h2 className="text-base font-semibold mb-4 text-foreground flex items-center gap-2">
+          <Layers className="w-4 h-4" />
+          {t("appStoreWidgetSectionApp")}
+        </h2>
+        {loadingApp ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (() => {
+          const visible = appWidgets.filter((w) => w.app_id && installedApps.has(w.app_id));
+          if (visible.length === 0) {
+            return (
+              <div className="flex flex-col items-center gap-3 py-10 text-muted-foreground">
+                <Layers className="w-10 h-10 opacity-30" />
+                <p className="text-sm">{t("appStoreWidgetAppNoInstalled")}</p>
+              </div>
+            );
+          }
+          return (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+              {visible.map((w) => {
+                const name = pickName(w, language);
+                const appDef = APP_DEFINITIONS.find((a) => a.id === w.app_id);
+                return (
+                  <div
+                    key={w.id}
+                    className="flex flex-col items-center gap-2 rounded-xl border bg-card p-4 text-center"
+                  >
+                    <div className="w-10 h-10 rounded-xl overflow-hidden bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+                      {w.thumbnail
+                        ? <img src={w.thumbnail} alt={name} className="w-full h-full object-cover" />
+                        : <Code2 className="w-5 h-5 text-white" />}
+                    </div>
+                    <span className="text-xs font-medium leading-tight">{name}</span>
+                    {appDef && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 truncate max-w-full">
+                        {appDef.name[language]}
+                      </Badge>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </section>
 
       {/* ── 客制 Widget ── */}

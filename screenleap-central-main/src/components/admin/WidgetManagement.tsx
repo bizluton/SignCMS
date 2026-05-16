@@ -24,6 +24,7 @@ import {
 import { logActivity } from "@/lib/activityLogger";
 import { WidgetPreviewCard } from "@/components/widgets/WidgetPreviewCard";
 import type { WidgetConfig } from "@/components/widgets/WidgetPreviewCard";
+import { APP_DEFINITIONS } from "@/contexts/InstalledAppsContext";
 
 interface WidgetRow {
   id: string;
@@ -62,8 +63,9 @@ const emptyForm = {
   config_json: "{}",
   thumbnail: "",
   sort_order: 0,
-  scope: "system" as "system" | "custom" | "user",
+  scope: "system" as "system" | "app" | "custom" | "user",
   org_id: "",
+  app_id: "",
 };
 
 // ── Widget Card ──────────────────────────────────────────────────────────────
@@ -349,6 +351,7 @@ export default function WidgetManagement() {
   const handleSave = async () => {
     if (!form.name.trim()) { toast.error(t("widgetMgmtNameRequired")); return; }
     if (form.scope === "user" && !form.org_id) { toast.error(t("widgetMgmtOrgRequired")); return; }
+    if (form.scope === "app" && !form.app_id) { toast.error(t("widgetMgmtAppRequired")); return; }
     let config: Record<string, unknown>;
     try { config = JSON.parse(form.config_json) as Record<string, unknown>; }
     catch { toast.error(t("widgetMgmtInvalidJson")); return; }
@@ -365,7 +368,7 @@ export default function WidgetManagement() {
       widget_type: form.widget_type,
       config,
       thumbnail: form.thumbnail.trim(),
-      app_id: null,
+      app_id: form.scope === "app" ? (form.app_id || null) : null,
       org_id: form.scope === "user" ? form.org_id : null,
       sort_order: Number(form.sort_order) || 0,
     };
@@ -495,16 +498,30 @@ export default function WidgetManagement() {
                 <Label>{t("widgetMgmtScope")}</Label>
                 <Select
                   value={form.scope}
-                  onValueChange={(v) => setForm({ ...form, scope: v as "system" | "custom" | "user", org_id: "" })}
+                  onValueChange={(v) => setForm({ ...form, scope: v as "system" | "app" | "custom" | "user", org_id: "", app_id: "" })}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="system">{t("widgetMgmtScopeSystem")}</SelectItem>
+                    <SelectItem value="app">{t("widgetMgmtScopeApp")}</SelectItem>
                     <SelectItem value="custom">{t("widgetMgmtScopeCustom")}</SelectItem>
                     <SelectItem value="user">{t("widgetMgmtScopeOrg")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+              {form.scope === "app" && (
+                <div>
+                  <Label>{t("widgetMgmtAppId")} *</Label>
+                  <Select value={form.app_id} onValueChange={(v) => setForm({ ...form, app_id: v })}>
+                    <SelectTrigger><SelectValue placeholder={t("widgetMgmtAppRequired")} /></SelectTrigger>
+                    <SelectContent>
+                      {APP_DEFINITIONS.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>{a.name.zh} ({a.id})</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               {form.scope === "user" && (
                 <div>
                   <Label>{t("widgetMgmtOrg")} *</Label>
