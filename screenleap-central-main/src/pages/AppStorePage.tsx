@@ -1,17 +1,27 @@
-import { useState, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Megaphone, Users, CloudSun, Instagram, Download, Monitor, DoorOpen, Languages, Clock, Lock, Package, Puzzle } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Megaphone, Users, CloudSun, Instagram, Check, Download, Monitor, DoorOpen,
+  Languages, Clock, Lock, Package, Code2, Loader2, LayoutGrid, Puzzle,
+} from "lucide-react";
 import QueueControlPanel from "@/components/widgets/QueueControlPanel";
 import { toast } from "sonner";
 import { useInstalledApps, type ExternalAppInfo } from "@/contexts/InstalledAppsContext";
+import { useInstalledWidgets } from "@/hooks/useInstalledWidgets";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useOrgPlan, PLAN_LABELS } from "@/hooks/useOrgPlan";
 import { PlanUsageBar } from "@/components/PlanUsageBar";
+import { supabase } from "@/integrations/supabase/client";
+import { SYSTEM_WIDGETS } from "@/lib/systemWidgets";
+
+// ── App definitions ──────────────────────────────────────────────────────────
 
 interface AppItem {
   id: string;
@@ -136,6 +146,172 @@ function externalToAppItem(ext: ExternalAppInfo, language: string): AppItem {
   };
 }
 
+
+// ── Widget tab ────────────────────────────────────────────────────────────────
+
+interface CustomWidgetRow {
+  id: string;
+  name: string;
+  name_i18n: Record<string, string>;
+  widget_type: string;
+  thumbnail: string;
+}
+
+function pickName(row: CustomWidgetRow, lang: string) {
+  return row.name_i18n?.[lang] || row.name_i18n?.en || row.name_i18n?.zh || row.name;
+}
+
+const SYSTEM_WIDGET_LABEL: Record<string, { zh: string; en: string; ja: string }> = {
+  clock:      { zh: "數位時鐘",   en: "Digital Clock",   ja: "デジタル時計" },
+  date:       { zh: "日期顯示",   en: "Date Display",    ja: "日付表示"     },
+  marquee:    { zh: "跑馬燈文字", en: "Marquee Text",    ja: "テロップ"     },
+  webpage:    { zh: "網頁嵌入",   en: "Webpage Embed",   ja: "ウェブページ" },
+  qrcode:     { zh: "QR Code",    en: "QR Code",         ja: "QRコード"     },
+  countdown:  { zh: "倒數計時",   en: "Countdown Timer", ja: "カウントダウン" },
+  youtube:    { zh: "YouTube",    en: "YouTube",         ja: "YouTube"      },
+  weather:    { zh: "全球天氣",   en: "Global Weather",  ja: "グローバル天気" },
+  weather_tw: { zh: "台灣天氣",   en: "Taiwan Weather",  ja: "台湾天気"     },
+};
+
+function WidgetTab({ canManage }: { canManage: boolean }) {
+  const { language, t } = useLanguage();
+  const { installedIds, install, uninstall } = useInstalledWidgets();
+  const [customWidgets, setCustomWidgets] = useState<CustomWidgetRow[]>([]);
+  const [loadingCustom, setLoadingCustom] = useState(true);
+
+  const loadCustomWidgets = useCallback(async () => {
+    setLoadingCustom(true);
+    const { data } = await supabase
+      .from("widgets")
+      .select("id, name, name_i18n, widget_type, thumbnail")
+      .eq("scope", "custom")
+      .order("sort_order", { ascending: true });
+    setCustomWidgets((data || []) as CustomWidgetRow[]);
+    setLoadingCustom(false);
+  }, []);
+
+  useEffect(() => { void loadCustomWidgets(); }, [loadCustomWidgets]);
+
+  const handleInstall = async (w: CustomWidgetRow) => {
+    if (!canManage) { toast.error(t("noPermission")); return; }
+    const ok = await install(w.id);
+    if (ok) toast.success(`${pickName(w, language)} ${t("appStoreWidgetInstallOk")}`);
+  };
+
+  const handleUninstall = async (w: CustomWidgetRow) => {
+    if (!canManage) { toast.error(t("noPermission")); return; }
+    const ok = await uninstall(w.id);
+    if (ok) toast.success(`${pickName(w, language)} ${t("appStoreWidgetUninstallOk")}`);
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* ── 系統內建 Widget ── */}
+      <section>
+        <h2 className="text-base font-semibold mb-4 text-foreground flex items-center gap-2">
+          <LayoutGrid className="w-4 h-4" />
+          {t("appStoreWidgetSectionSystem")}
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+          {SYSTEM_WIDGETS.map((sw) => {
+            const label = SYSTEM_WIDGET_LABEL[sw.config.widgetType];
+            return (
+              <div
+                key={sw.id}
+                className="flex flex-col items-center gap-2 rounded-xl border bg-card p-4 text-center"
+              >
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center">
+                  <Code2 className="w-5 h-5 text-slate-300" />
+                </div>
+                <span className="text-xs font-medium leading-tight">
+                  {label ? label[language] : sw.name}
+                </span>
+                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                  {t("appStoreWidgetBuiltIn")}
+                </Badge>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ── 客制 Widget ── */}
+      <section>
+        <h2 className="text-base font-semibold mb-4 text-foreground flex items-center gap-2">
+          <Package className="w-4 h-4" />
+          {t("appStoreWidgetSectionCustom")}
+        </h2>
+        {loadingCustom ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : customWidgets.length === 0 ? (
+          <div className="flex flex-col items-center gap-3 py-14 text-muted-foreground">
+            <Code2 className="w-10 h-10 opacity-30" />
+            <p className="text-sm">{t("appStoreWidgetNoCustom")}</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            {customWidgets.map((w) => {
+              const isInstalled = installedIds.has(w.id);
+              const name = pickName(w, language);
+              return (
+                <div
+                  key={w.id}
+                  className="group bg-card border rounded-2xl p-5 flex flex-col hover:shadow-lg transition-all"
+                >
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className="shrink-0 w-12 h-12 rounded-xl overflow-hidden bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center">
+                      {w.thumbnail ? (
+                        <img src={w.thumbnail} alt={name} className="w-full h-full object-cover" />
+                      ) : (
+                        <Code2 className="w-6 h-6 text-slate-400" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-sm leading-tight truncate">{name}</h3>
+                      <Badge variant="secondary" className="text-[10px] mt-1">{w.widget_type}</Badge>
+                    </div>
+                    {isInstalled && (
+                      <Check className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                    )}
+                  </div>
+                  <div className="mt-auto pt-3">
+                    {isInstalled ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full text-destructive hover:text-destructive"
+                        disabled={!canManage}
+                        onClick={() => handleUninstall(w)}
+                      >
+                        {!canManage && <Lock className="mr-1.5 h-3 w-3" />}
+                        {t("appStoreWidgetUninstallBtn")}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        className="w-full"
+                        disabled={!canManage}
+                        onClick={() => handleInstall(w)}
+                      >
+                        {!canManage ? <Lock className="mr-1.5 h-3 w-3" /> : <Download className="mr-1.5 h-3 w-3" />}
+                        {t("appStoreWidgetInstallBtn")}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 const AppStorePage = () => {
   const { language } = useLanguage();
   const { installedApps, externalApps, installApp, uninstallApp } = useInstalledApps();
@@ -145,7 +321,6 @@ const AppStorePage = () => {
   const canManageApps = isAdmin || isOrgAdmin;
   const { tier, limits } = useOrgPlan();
 
-  // Handle deep-link from sidebar
   useEffect(() => {
     const openId = searchParams.get("open");
     if (openId === "queue" && installedApps.has("queue")) {
@@ -156,13 +331,19 @@ const AppStorePage = () => {
   const texts = {
     bannerTitle: { zh: "探索更多商用插件", en: "Discover Business Plugins", ja: "ビジネスプラグインを探す" },
     bannerSub: { zh: "一鍵安裝，無限擴充你的電子看板功能", en: "One-click install to extend your digital signage", ja: "ワンクリックでデジタルサイネージを拡張" },
-    tabAll: { zh: "所有應用 (Marketplace)", en: "Marketplace", ja: "マーケットプレイス" },
-    tabInstalled: { zh: "我的應用 (Installed)", en: "Installed Apps", ja: "インストール済み" },
+    tabApps: { zh: "應用 Marketplace", en: "App Marketplace", ja: "アプリ" },
+    tabWidgets: { zh: "Widget 商城", en: "Widgets", ja: "ウィジェット" },
+    tabInstalled: { zh: "我的應用", en: "Installed Apps", ja: "インストール済み" },
     install: { zh: "安裝", en: "Install", ja: "インストール" },
     open: { zh: "開啟", en: "Open", ja: "開く" },
     installed: { zh: "已安裝", en: "Installed", ja: "インストール済" },
     noInstalled: { zh: "尚未安裝任何應用，去商城逛逛吧！", en: "No apps installed yet. Browse the marketplace!", ja: "まだアプリがインストールされていません。" },
     queueTitle: { zh: "排隊叫號管理", en: "Queue Management", ja: "順番呼出し管理" },
+    currentNum: { zh: "目前叫號號碼", en: "Current Number", ja: "現在の番号" },
+    preview: { zh: "螢幕預覽", en: "Screen Preview", ja: "プレビュー" },
+    confirm: { zh: "確認更新", en: "Update", ja: "更新" },
+    callTo: { zh: "請", en: "Now serving #", ja: "番号" },
+    callToSuffix: { zh: "號至櫃檯取餐", en: "— please proceed to counter", ja: "番のお客様、カウンターへどうぞ" },
     successInstall: { zh: "已成功安裝", en: "Successfully installed", ja: "インストール完了" },
     successUninstall: { zh: "已成功卸載", en: "Successfully uninstalled", ja: "アンインストール完了" },
     uninstall: { zh: "卸載", en: "Uninstall", ja: "アンインストール" },
@@ -181,24 +362,15 @@ const AppStorePage = () => {
   }, [externalApps, language]);
 
   const handleInstall = (app: AppItem) => {
-    if (!canManageApps) {
-      toast.error(t("noPermission"));
-      return;
-    }
-    if (app.hasConfig && installedApps.has(app.id)) {
-      setQueueDialogOpen(true);
-      return;
-    }
-    // Plan limit: max apps (-1 means unlimited)
+    if (!canManageApps) { toast.error(t("noPermission")); return; }
+    if (app.hasConfig && installedApps.has(app.id)) { setQueueDialogOpen(true); return; }
     if (limits.maxApps >= 0 && installedApps.size >= limits.maxApps) {
       toast.error(`${t("planLimitApps")} (${installedApps.size}/${limits.maxApps})`);
       return;
     }
     installApp(app.id, app._externalUuid);
     toast.success(`${app.name[language]} ${t("successInstall")}`);
-    if (app.hasConfig) {
-      setQueueDialogOpen(true);
-    }
+    if (app.hasConfig) setQueueDialogOpen(true);
   };
 
   const handleUninstall = (app: AppItem) => {
@@ -210,7 +382,7 @@ const AppStorePage = () => {
     toast.success(`${app.name[language]} ${t("successUninstall")}`);
   };
 
-  const renderCard = (app: AppItem) => {
+  const renderAppCard = (app: AppItem) => {
     const isInstalled = installedApps.has(app.id);
     return (
       <div
@@ -222,26 +394,16 @@ const AppStorePage = () => {
             {app.icon}
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="font-semibold text-foreground text-base leading-tight mb-1 truncate">
-              {app.name[language]}
-            </h3>
-            <Badge variant="secondary" className="text-xs font-normal">
-              {app.category[language]}
-            </Badge>
+            <h3 className="font-semibold text-foreground text-base leading-tight mb-1 truncate">{app.name[language]}</h3>
+            <Badge variant="secondary" className="text-xs font-normal">{app.category[language]}</Badge>
           </div>
         </div>
-        <p className="text-muted-foreground text-sm leading-relaxed mb-5 flex-1">
-          {app.description[language]}
-        </p>
+        <p className="text-muted-foreground text-sm leading-relaxed mb-5 flex-1">{app.description[language]}</p>
         <div className="flex gap-2">
           {isInstalled ? (
             <>
               {app.hasConfig && (
-                <Button
-                  onClick={() => setQueueDialogOpen(true)}
-                  variant="outline"
-                  className="flex-1"
-                >
+                <Button onClick={() => setQueueDialogOpen(true)} variant="outline" className="flex-1">
                   <Monitor className="mr-2 h-4 w-4" />{t("open")}
                 </Button>
               )}
@@ -250,7 +412,6 @@ const AppStorePage = () => {
                 variant="outline"
                 className="flex-1 text-destructive hover:text-destructive"
                 disabled={!canManageApps}
-                title={!canManageApps ? t("noPermission") : ""}
               >
                 {!canManageApps && <Lock className="mr-2 h-4 w-4" />}
                 {t("uninstall")}
@@ -261,7 +422,6 @@ const AppStorePage = () => {
               onClick={() => handleInstall(app)}
               disabled={!canManageApps}
               className={`w-full ${canManageApps ? `bg-gradient-to-r ${app.color} border-0 text-white hover:opacity-90` : ""}`}
-              title={!canManageApps ? t("noPermission") : ""}
             >
               {!canManageApps ? <Lock className="mr-2 h-4 w-4" /> : <Download className="mr-2 h-4 w-4" />}
               {t("install")}
@@ -300,11 +460,12 @@ const AppStorePage = () => {
         usedSuffix={{ zh: "已使用", en: "used", ja: "使用済み" }[language]}
       />
 
-      {/* Tabs */}
-      <Tabs defaultValue="marketplace" className="w-full">
+      {/* Tabs: APP / Widget / Installed */}
+      <Tabs defaultValue="apps" className="w-full">
         <TabsList className="mb-6">
-          <TabsTrigger value="marketplace" className="min-w-[160px]">{t("tabAll")}</TabsTrigger>
-          <TabsTrigger value="installed" className="min-w-[160px]">
+          <TabsTrigger value="apps" className="min-w-[140px]">{t("tabApps")}</TabsTrigger>
+          <TabsTrigger value="widgets" className="min-w-[140px]">{t("tabWidgets")}</TabsTrigger>
+          <TabsTrigger value="installed" className="min-w-[140px]">
             {t("tabInstalled")}
             {installedAppsList.length > 0 && (
               <Badge className="ml-2 bg-primary/20 text-primary text-xs">{installedAppsList.length}</Badge>
@@ -312,12 +473,19 @@ const AppStorePage = () => {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="marketplace">
+        {/* ── APP Marketplace ── */}
+        <TabsContent value="apps">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-            {allApps.map(renderCard)}
+            {allApps.map(renderAppCard)}
           </div>
         </TabsContent>
 
+        {/* ── Widget 商城 ── */}
+        <TabsContent value="widgets">
+          <WidgetTab canManage={canManageApps} />
+        </TabsContent>
+
+        {/* ── 已安裝應用 ── */}
         <TabsContent value="installed">
           {installedAppsList.length === 0 ? (
             <div className="text-center py-20 text-muted-foreground">
@@ -326,7 +494,7 @@ const AppStorePage = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-              {installedAppsList.map(renderCard)}
+              {installedAppsList.map(renderAppCard)}
             </div>
           )}
         </TabsContent>

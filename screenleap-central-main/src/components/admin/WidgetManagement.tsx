@@ -62,7 +62,7 @@ const emptyForm = {
   config_json: "{}",
   thumbnail: "",
   sort_order: 0,
-  scope: "system" as "system" | "user",
+  scope: "system" as "system" | "custom" | "user",
   org_id: "",
 };
 
@@ -495,11 +495,12 @@ export default function WidgetManagement() {
                 <Label>{t("widgetMgmtScope")}</Label>
                 <Select
                   value={form.scope}
-                  onValueChange={(v) => setForm({ ...form, scope: v as "system" | "user", org_id: "" })}
+                  onValueChange={(v) => setForm({ ...form, scope: v as "system" | "custom" | "user", org_id: "" })}
                 >
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="system">{t("widgetMgmtScopeSystem")}</SelectItem>
+                    <SelectItem value="custom">{t("widgetMgmtScopeCustom")}</SelectItem>
                     <SelectItem value="user">{t("widgetMgmtScopeOrg")}</SelectItem>
                   </SelectContent>
                 </Select>
