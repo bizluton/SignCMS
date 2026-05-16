@@ -1,7 +1,7 @@
 # SignCMS Widget 設計規範與 JSON 說明
 
-**版本 1.0 · 2026-05-03**  
-**適用對象：系統管理員、內容設計師、第三方 Widget 開發者**
+**版本 1.1 · 2026-05-16**  
+**適用對象：系統管理員、前端開發者、內容設計師、第三方 Widget 開發者**
 
 ---
 
@@ -16,6 +16,9 @@
 7. [Zone 中的 widgetConfig 使用方式](#7-zone-中的-widgetconfig-使用方式)
 8. [新增自訂 Widget 步驟](#8-新增自訂-widget-步驟)
 9. [欄位速查表](#9-欄位速查表)
+10. [命名規則](#10-命名規則)
+11. [縮圖與 i18n 規格](#11-縮圖與-i18n-規格)
+12. [新增 Widget 類型 SOP（原生 React）](#12-新增-widget-類型-sop原生-react)
 
 ---
 
@@ -24,10 +27,10 @@
 ```
 widgets 資料表（DB）
     │
-    ├── scope = "system"    系統內建，所有組織可見
-    ├── scope = "app"       需安裝指定 App 才可見（app_id 為 App 識別碼）
-    ├── scope = "user"      組織自建，僅限該組織
-    └── scope = "external"  第三方 App Store Widget（需安裝 store_app）
+    ├── scope = "system"    系統內建，所有組織可見（虛擬注入，不可刪除）
+    ├── scope = "app"       需安裝指定 App 才可見（app_id 為 App slug）
+    ├── scope = "custom"    需組織管理員從 App Store 手動安裝（installed_widgets）
+    └── scope = "user"      組織自建，僅限該組織（org_id 有值）
           │
           └── config (jsonb)
                 └── WidgetConfig JSON
@@ -37,6 +40,17 @@ widgets 資料表（DB）
                       ├── paramsSchema      Content Studio 表單自動產生的描述
                       └── 外觀欄位 (bgColor, textColor, animation…)
 ```
+
+**四層可見性（useWidgets 過濾邏輯，`src/hooks/useWidgets.ts`）：**
+
+| scope | 顯示條件 |
+|---|---|
+| `system` | 永遠顯示（虛擬注入，不存 DB） |
+| `app` | `widgets.app_id` 在 `installedApps` Set 中 |
+| `custom` | `installed_widgets` 表中存在 `(org_id, widget_id)` 記錄 |
+| `user` | `widgets.org_id` 等於目前組織 |
+
+系統 Widget 在前端以 `sys-widget-{type}` 為 ID 虛擬注入（見 `src/lib/systemWidgets.ts:51`），不存入資料庫。
 
 Content Studio 將 Widget 拖入 Zone 後，`widgetConfig` 以 JSON 字串嵌入 Zone 的設定中。  
 播放端直接讀取該 JSON 進行渲染，**不再回查資料庫**，因此 JSON 格式必須完整自足。
@@ -71,6 +85,16 @@ Content Studio 將 Widget 拖入 Zone 後，`widgetConfig` 以 JSON 字串嵌入
 | `org_id` | uuid | FK → organizations.id |
 
 某組織若在此表有對應記錄，該 Widget 對該組織隱藏（不出現在 Content Studio Widget 清單中）。
+
+### 2.3 `public.installed_widgets` 資料表
+
+| 欄位 | 型別 | 說明 |
+|---|---|---|
+| `widget_id` | uuid | FK → widgets.id，UNIQUE(org_id, widget_id) |
+| `org_id` | uuid | FK → organizations.id |
+| `installed_at` | timestamptz | 安裝時間 |
+
+`custom` scope 的 Widget 必須在此表有記錄才對組織可見。安裝透過 App Store → Widget 商城 → 「安裝」按鈕，呼叫 `useInstalledWidgets.install()`（upsert，重複安裝安全）；解除安裝刪除此表記錄，不影響 `widgets` 主表（僅限該組織）。
 
 ---
 
@@ -776,10 +800,180 @@ INSERT INTO public.widgets (
 
 | scope | 可見對象 | app_id 欄位 | 說明 |
 |---|---|---|---|
-| `system` | 所有組織 | null | 平台預設 Widget |
-| `app` | 已安裝該 App 的組織 | App slug | 內建應用 Widget（如公告看板）|
+| `system` | 所有組織 | null | 平台預設 Widget；前端虛擬注入，不存 DB |
+| `app` | 已安裝該 App 的組織 | App slug | 隨應用安裝自動出現，隨應用移除自動消失 |
+| `custom` | 主動安裝的組織 | null | 需組織管理員從 App Store 手動安裝（`installed_widgets`）|
 | `user` | 僅限該組織 | null（org_id 有值）| 組織自建 Widget |
-| `external` | 已安裝 store_app 的組織 | store_app slug | 第三方 App Store Widget |
+
+---
+
+## 10. 命名規則
+
+| 項目 | 規則 | 範例 |
+|---|---|---|
+| `widgetType` slug | 小寫英文，不含連字號 | `clock` `qrcode` `countdown` |
+| 系統 Widget 虛擬 ID | `sys-widget-{type}` | `sys-widget-clock` |
+| Catalog Widget 前端 ID | `cat-widget-{uuid}` | `cat-widget-abc123...` |
+| i18n nameKey | `widget{PascalCase}` | `widgetClock`、`widgetQrcode` |
+| Lucide icon | 語意最接近，加入 `WIDGET_ICONS` map | `Clock` for `clock` |
+
+**前端 ID 辨識函式** (`src/hooks/useWidgets.ts:163`)：
+
+```ts
+export function isCatalogWidgetId(id: string | null | undefined) {
+  return !!id && id.startsWith("cat-widget-");
+}
+```
+
+---
+
+## 11. 縮圖與 i18n 規格
+
+### 11.1 縮圖規格
+
+| 項目 | 規格 |
+|---|---|
+| 尺寸 | **320 × 180 px**（16:9）|
+| 格式 | PNG（首選）/ JPG / WebP |
+| 大小上限 | **200 KB**（`THUMBNAIL_MAX_BYTES = 200 * 1024`，定義於 `src/components/admin/WidgetManagement.tsx:51`）|
+| 儲存方式 | base64 data URL 存入 `widgets.thumbnail` 欄位 |
+| 無縮圖時 | 系統自動顯示深色漸層 + widget 類型的 Lucide 圖示 |
+
+上傳方式：Admin → Widget Management → 匯入 ZIP，ZIP 內含 `thumbnail.png`（或 `.jpg`）。
+
+### 11.2 i18n 規格
+
+所有 Widget 名稱需提供 **zh / en / ja** 三語：
+
+```json
+{
+  "name_i18n": {
+    "zh": "台灣天氣",
+    "en": "Taiwan Weather",
+    "ja": "台湾天気"
+  }
+}
+```
+
+nameKey 格式為 `widget{PascalCase}`（例：`widgetWeatherTw`），加入 `src/contexts/translations.ts`。
+
+**fallback 順序**（`src/hooks/useWidgets.ts:38`）：用戶語系 → `en` → `zh` → `name` 欄位。
+
+```ts
+function pickName(row: WidgetRow, lang: string): string {
+  const i18n = row.name_i18n || {};
+  return (i18n[lang] as string) || (i18n.en as string) || (i18n.zh as string) || row.name;
+}
+```
+
+---
+
+## 12. 新增 Widget 類型 SOP（原生 React）
+
+適用情境：新增一個在播放器中以 React 元件渲染的新 widgetType（非 HTML iframe）。HTML Widget 請見第 8 節。
+
+### Step 1 — `src/lib/systemWidgets.ts`
+
+1. 在 `SystemWidgetSubType` union（L6）加入新 slug：
+
+```ts
+export type SystemWidgetSubType =
+  | "date" | "clock" | "webpage" | "marquee"
+  | "qrcode" | "countdown" | "youtube" | "weather" | "weather_tw"
+  | "mynewwidget";  // ← 新增
+```
+
+2. 在 `SYSTEM_WIDGETS` 陣列（L51）加入 `SystemWidgetDef`：
+
+```ts
+{
+  id: "sys-widget-mynewwidget",
+  name: "My New Widget",
+  nameKey: "widgetMynewwidget",
+  config: {
+    widgetType: "mynewwidget",
+    bgColor: "#0f172a",
+    textColor: "#ffffff",
+    animation: "none",
+    // 類型專屬欄位...
+  },
+},
+```
+
+### Step 2 — `src/contexts/translations.ts`
+
+加入 `widget{PascalCase}` key（及 Desc 選填）：
+
+```ts
+widgetMynewwidget: { zh: "我的 Widget", en: "My Widget", ja: "マイウィジェット" },
+widgetMynewwidgetDesc: { zh: "簡短說明", en: "Short description", ja: "簡単な説明" },
+```
+
+### Step 3 — `src/components/player/DesignStage.tsx`
+
+在 `WidgetRender` 函式（L162）加入新類型的渲染分支：
+
+```tsx
+if (config.widgetType === "mynewwidget") {
+  return <MyNewWidgetComponent config={config} />;
+}
+```
+
+### Step 4 — `src/pages/MediaPage.tsx`
+
+需修改三處：
+
+**4a. `WidgetPreviewCard`（L219）** — 加入縮圖預覽邏輯：
+
+```tsx
+if (config.widgetType === "mynewwidget") {
+  return <div className="...">...</div>;
+}
+```
+
+**4b. Widget picker 類型按鈕（L2515）** — 在 `labels` map 加入：
+
+```ts
+const labels: Record<WidgetSubType, string> = {
+  ...,
+  mynewwidget: t("widgetMynewwidget"),
+};
+```
+
+**4c. `defaultWidgetConfig`** — 補齊新欄位預設值（保持和 systemWidgets.ts 一致）。
+
+### Step 5 — `src/components/admin/WidgetManagement.tsx`
+
+**5a. `WIDGET_TYPES` 陣列（L41）**：
+
+```ts
+const WIDGET_TYPES = [
+  "clock", "date", "webpage", "marquee",
+  "qrcode", "countdown", "youtube", "weather", "weather_tw",
+  "mynewwidget",  // ← 新增
+];
+```
+
+**5b. `WIDGET_ICONS` map（L46）**：
+
+```ts
+const WIDGET_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  ...,
+  mynewwidget: SomeLucideIcon,  // ← 新增
+};
+```
+
+### Step 6 — 縮圖
+
+準備 320 × 180 px PNG，< 200 KB，透過 Admin → Widget Management → 匯入 ZIP 上傳，或透過 Admin 介面手動設定。
+
+### Step 7 — 測試驗證清單
+
+- [ ] Media Library Widget 選取器顯示新類型按鈕
+- [ ] Content Studio zone 可選取並顯示預覽
+- [ ] DesignStage 播放器正確渲染（`npm run dev` 後實機測試）
+- [ ] zh / en / ja 三語 Widget 名稱在各語系下正確顯示
+- [ ] 系統 Widget 不可被刪除（`is_system` badge 顯示，刪除按鈕隱藏）
 
 ---
 
@@ -787,6 +981,7 @@ INSERT INTO public.widgets (
 
 | 版本 | 日期 | 說明 |
 |---|---|---|
+| 1.1 | 2026-05-16 | 新增 custom/app scope 說明、installed_widgets 表、命名規則、縮圖 i18n 規格、原生 React Widget SOP（§10–§12）|
 | 1.0 | 2026-05-03 | 初版發布；涵蓋所有內建 widgetType 與外部 Widget 規範 |
 
 ---
