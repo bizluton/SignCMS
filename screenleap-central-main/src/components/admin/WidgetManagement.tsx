@@ -19,7 +19,7 @@ import {
 import { toast } from "sonner";
 import {
   Loader2, Plus, Trash2, Code2, Settings, Upload,
-  Clock, Calendar, Globe, AlignLeft, QrCode, Timer, Play, Cloud, MapPin,
+  Clock, Calendar, Globe, AlignLeft, QrCode, Timer, Play, Cloud, MapPin, Eye,
 } from "lucide-react";
 import { logActivity } from "@/lib/activityLogger";
 import { WidgetPreviewCard } from "@/components/widgets/WidgetPreviewCard";
@@ -53,6 +53,14 @@ const WIDGET_ICONS: Record<string, React.ComponentType<{ className?: string }>> 
 const THUMBNAIL_MAX_BYTES = 200 * 1024; // 200 KB
 
 interface OrgOption { id: string; name: string; }
+
+interface ExclusionRow {
+  id: string;
+  widget_id: string;
+  org_id: string;
+  widgetName: string;
+  orgName: string;
+}
 
 const emptyForm = {
   name: "",
@@ -134,6 +142,7 @@ export default function WidgetManagement() {
 
   const [rows, setRows] = useState<WidgetRow[]>([]);
   const [orgs, setOrgs] = useState<OrgOption[]>([]);
+  const [exclusions, setExclusions] = useState<ExclusionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<WidgetRow | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -160,7 +169,33 @@ export default function WidgetManagement() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { reload(); loadOrgs(); }, [reload, loadOrgs]);
+  const loadExclusions = useCallback(async () => {
+    const { data } = await supabase
+      .from("widget_org_exclusions")
+      .select("id, widget_id, org_id, widgets(name), organizations(name)")
+      .order("org_id");
+    setExclusions(
+      (data || []).map((r: Record<string, unknown>) => ({
+        id: r.id as string,
+        widget_id: r.widget_id as string,
+        org_id: r.org_id as string,
+        widgetName: (r.widgets as { name: string } | null)?.name ?? r.widget_id as string,
+        orgName: (r.organizations as { name: string } | null)?.name ?? r.org_id as string,
+      }))
+    );
+  }, []);
+
+  const handleRemoveExclusion = async (exclusionId: string) => {
+    const { error } = await supabase.from("widget_org_exclusions").delete().eq("id", exclusionId);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success(t("widgetMgmtExclRemoved"));
+      loadExclusions();
+    }
+  };
+
+  useEffect(() => { reload(); loadOrgs(); loadExclusions(); }, [reload, loadOrgs, loadExclusions]);
 
   // ── Zip import ─────────────────────────────────────────────────────────────
   const handleZipFile = async (file: File) => {
@@ -480,6 +515,36 @@ export default function WidgetManagement() {
                 onDelete={setDeleteId}
               />
             ))}
+          </div>
+        )}
+
+        {/* Org exclusions section */}
+        {exclusions.length > 0 && (
+          <div className="space-y-2 pt-2 border-t">
+            <div>
+              <p className="text-sm font-medium">{t("widgetMgmtExclTitle")}</p>
+              <p className="text-xs text-muted-foreground">{t("widgetMgmtExclDesc")}</p>
+            </div>
+            <div className="divide-y rounded-md border">
+              {exclusions.map((ex) => (
+                <div key={ex.id} className="flex items-center justify-between px-3 py-2 gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Code2 className="w-4 h-4 shrink-0 text-muted-foreground" />
+                    <span className="text-sm font-medium truncate">{ex.widgetName}</span>
+                    <span className="text-xs text-muted-foreground shrink-0">→ {ex.orgName}</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 shrink-0"
+                    onClick={() => handleRemoveExclusion(ex.id)}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    {t("widgetMgmtExclRemove")}
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </CardContent>

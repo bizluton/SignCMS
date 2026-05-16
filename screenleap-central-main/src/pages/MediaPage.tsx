@@ -2260,7 +2260,7 @@ const MediaPage = () => {
                       ? item.is_system ? isAdmin
                         : item.catalog_scope === "app" ? false
                         : item.catalog_scope === "custom" ? (isAdmin || isOrgAdmin)
-                        : true
+                        : (isAdmin || isOrgAdmin)
                       : !item.is_system
                   ) && (
                     <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); requestDelete(item.id); }} title={t("mediaDeleteItem")}>
@@ -2455,7 +2455,7 @@ const MediaPage = () => {
                 />
               </div>
             )}
-            {canManageMedia && previewItem && (!previewItem.is_system || (isAdmin && isCatalogWidgetId(previewItem.id))) && (
+            {canManageMedia && previewItem && (!previewItem.is_system || (isAdmin && isCatalogWidgetId(previewItem.id))) && (!isCatalogWidgetId(previewItem.id) || isAdmin || isOrgAdmin) && (
               <div className="flex justify-end">
                 <Button variant="destructive" size="sm" className="gap-2" onClick={() => { requestDelete(previewItem.id); setPreviewItem(null); }}>
                   <Trash2 className="w-4 h-4 text-destructive" />

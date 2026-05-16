@@ -2145,6 +2145,11 @@ const translations = {
   widgetMgmtDeleteDesc: { zh: "刪除後將無法復原。已使用此 Widget 的素材或排程不會自動清除引用。", en: "This action cannot be undone. References in existing media/schedules won't be cleaned up automatically.", ja: "この操作は取り消せません。既存メディア・スケジュールの参照は自動削除されません。" },
   widgetMgmtEmpty: { zh: "尚未建立任何 Widget", en: "No widgets yet", ja: "ウィジェットがまだありません" },
   widgetMgmtSystemAdminOnly: { zh: "僅系統管理員可使用此功能", en: "Only the system admin can manage widgets", ja: "システム管理者のみ操作可能" },
+  widgetMgmtExclTitle: { zh: "組織隱藏紀錄", en: "Org Widget Exclusions", ja: "組織別非表示設定" },
+  widgetMgmtExclDesc: { zh: "以下 Widget 已被系統管理員對指定組織隱藏。移除後 Widget 將重新對該組織可見。", en: "Widgets hidden from specific orgs. Remove an exclusion to make the widget visible again.", ja: "特定組織から非表示にされたウィジェット。解除すると再表示されます。" },
+  widgetMgmtExclEmpty: { zh: "目前沒有隱藏紀錄", en: "No exclusions", ja: "非表示設定なし" },
+  widgetMgmtExclRemove: { zh: "解除隱藏", en: "Unhide", ja: "非表示を解除" },
+  widgetMgmtExclRemoved: { zh: "Widget 已重新對該組織可見", en: "Widget is visible to this org again", ja: "組織へのWidget表示を再開しました" },
   // Media trash audit log page
   navMediaAudit: { zh: "媒體稽核紀錄", en: "Media Audit Log", ja: "メディア監査ログ" },
   mediaAuditTitle: { zh: "媒體刪除/還原稽核紀錄", en: "Media Delete / Restore Audit Log", ja: "メディア削除・復元監査ログ" },
