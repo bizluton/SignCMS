@@ -985,6 +985,45 @@ export type Database = {
         }
         Relationships: []
       }
+      installed_widgets: {
+        Row: {
+          id: string
+          org_id: string
+          widget_id: string
+          installed_by: string | null
+          installed_at: string
+        }
+        Insert: {
+          id?: string
+          org_id: string
+          widget_id: string
+          installed_by?: string | null
+          installed_at?: string
+        }
+        Update: {
+          id?: string
+          org_id?: string
+          widget_id?: string
+          installed_by?: string | null
+          installed_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "installed_widgets_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "installed_widgets_widget_id_fkey"
+            columns: ["widget_id"]
+            isOneToOne: false
+            referencedRelation: "widgets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invitations: {
         Row: {
           created_at: string

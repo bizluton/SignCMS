@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useActiveOrg } from "@/contexts/ActiveOrgContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useInstalledApps } from "@/contexts/InstalledAppsContext";
 
-export type WidgetScope = "system" | "app" | "user" | "external";
+export type WidgetScope = "system" | "app" | "custom" | "user";
 
 export interface WidgetRow {
   id: string;
@@ -43,13 +44,24 @@ function pickName(row: WidgetRow, lang: string): string {
 export function useWidgets(installedApps?: Set<string>) {
   const { activeOrgId } = useActiveOrg();
   const { language } = useLanguage();
+  const { installedApps } = useInstalledApps();
   const [widgets, setWidgets] = useState<CatalogWidget[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Stable string key — only changes when the installed-app set changes,
+  // preventing reload() from being recreated on every render.
+  const installedAppsKey = useMemo(
+    () => [...installedApps].sort().join(","),
+    [installedApps],
+  );
+
   const reload = useCallback(async () => {
     setLoading(true);
-    // RLS already filters: system + app are visible to all; user-scope only own org
-    const [widgetRes, exclusionRes] = await Promise.all([
+    const appIds = new Set(installedAppsKey ? installedAppsKey.split(",") : []);
+
+    // RLS filters: system/app/custom visible to all; user-scope only own org.
+    // Custom and app widgets are additionally filtered client-side below.
+    const [widgetRes, exclusionRes, installedRes] = await Promise.all([
       supabase
         .from("widgets")
         .select("id, scope, name, name_i18n, widget_type, config, thumbnail, app_id, org_id, sort_order, created_at, updated_at, created_by")
@@ -58,6 +70,9 @@ export function useWidgets(installedApps?: Set<string>) {
         .order("created_at", { ascending: false }),
       activeOrgId
         ? supabase.from("widget_org_exclusions").select("widget_id").eq("org_id", activeOrgId)
+        : Promise.resolve({ data: [], error: null }),
+      activeOrgId
+        ? supabase.from("installed_widgets").select("widget_id").eq("org_id", activeOrgId)
         : Promise.resolve({ data: [], error: null }),
     ]);
 
@@ -70,15 +85,19 @@ export function useWidgets(installedApps?: Set<string>) {
     const hiddenIds = new Set(
       ((exclusionRes.data || []) as Array<{ widget_id: string }>).map((e) => e.widget_id)
     );
+    const installedIds = new Set(
+      ((installedRes.data || []) as Array<{ widget_id: string }>).map((e) => e.widget_id)
+    );
 
     const mapped: CatalogWidget[] = ((widgetRes.data || []) as WidgetRow[])
       .filter((r) => !hiddenIds.has(r.id))
-      // Hide app-scope widgets when that app is not installed for this org
-      .filter((r) => !r.app_id || !installedApps || installedApps.has(r.app_id))
+      // custom scope: org must have explicitly installed it via App Store
+      .filter((r) => r.scope !== "custom" || installedIds.has(r.id))
+      // app scope: visible only when the linked app is installed by this org
+      .filter((r) => r.scope !== "app" || (r.app_id != null && appIds.has(r.app_id)))
       .map((r) => ({
         id: r.id,
-        scope: r.scope,
-        widget_type: r.widget_type,
+        scope: r.scope as WidgetScope,
         name: pickName(r, language),
         config: r.config || {},
         thumbnail: r.thumbnail || "",
@@ -88,17 +107,16 @@ export function useWidgets(installedApps?: Set<string>) {
       }));
     setWidgets(mapped);
     setLoading(false);
-  }, [language, activeOrgId, installedApps]);
+  }, [language, activeOrgId, installedAppsKey]);
 
   useEffect(() => { reload(); }, [reload]);
 
-  // Real-time: reload whenever widgets or org exclusions change so all hook
-  // instances (MediaPage, ContentStudioPage, etc.) stay in sync automatically.
   useEffect(() => {
     const channel = supabase
       .channel("useWidgets-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "widgets" }, () => { void reload(); })
       .on("postgres_changes", { event: "*", schema: "public", table: "widget_org_exclusions" }, () => { void reload(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "installed_widgets" }, () => { void reload(); })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [reload]);

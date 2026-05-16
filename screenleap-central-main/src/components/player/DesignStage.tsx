@@ -437,6 +437,11 @@ export function WidgetRender({ config }: { config: WidgetConfig | null | undefin
     );
   }
 
+  // HTML-based widget with url (weather_tw, weather, announcement, etc.)
+  if (config.url) {
+    return <WebpageWidgetRender config={config} />;
+  }
+
   // Unknown widget — render label.
   return (
     <div className="w-full h-full flex items-center justify-center text-[3vmin] opacity-60" style={{ background: bg, color: fg }}>
