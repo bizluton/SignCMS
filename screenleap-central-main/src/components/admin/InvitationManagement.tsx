@@ -117,8 +117,16 @@ export default function InvitationManagement() {
 
     for (const addr of emails) {
       try {
+        // If a pending invitation already exists for this email+org, resend it
+        // (passes resend_invitation_id so the edge function replaces it instead of 409-ing).
+        const existingPending = invitations.find(
+          inv => inv.email.toLowerCase() === addr && inv.org_id === orgId && getInvStatus(inv) === "pending"
+        );
+        const body = existingPending
+          ? { email: addr, org_id: orgId, resend_invitation_id: existingPending.id }
+          : { email: addr, org_id: orgId };
         const { data, error } = await supabase.functions.invoke("send-invitation", {
-          body: { email: addr, org_id: orgId },
+          body,
         });
         if (error) throw error;
         if (data?.error) throw new Error(data.error);
