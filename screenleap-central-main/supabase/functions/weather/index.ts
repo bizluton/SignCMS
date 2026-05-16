@@ -12,6 +12,10 @@
  *
  * Alert email: at most once per hour per source type (cooldown stored in weather_cache as _alert:* keys).
  * Recipients are all rows in public.system_admins (joined to auth.users via get_system_admin_emails()).
+ *
+ * SECRET: CWA_API_KEY must be set in Supabase Edge Function secrets.
+ *   Supabase Dashboard → Project Settings → Edge Functions → Manage secrets
+ *   Key: CWA_API_KEY
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
@@ -31,11 +35,11 @@ function json(body: unknown, status = 200) {
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const CACHE_TTL_MIN   = 30;
-const ALERT_TTL_MIN   = 60; // cooldown between alert emails for the same source
+const CACHE_TTL_MIN = 30;
+const ALERT_TTL_MIN = 60;
 
-const CWA_KEY = Deno.env.get("CWA_API_KEY") ||
-  "CWA-DDEBA554-096E-424E-8529-A04E77AF6FD1";
+const CWA_KEY = Deno.env.get("CWA_API_KEY");
+if (!CWA_KEY) throw new Error("CWA_API_KEY secret not configured — set it in Supabase Dashboard → Project Settings → Edge Functions → Manage secrets");
 
 // ── Taiwan county → CWA dataset map ──────────────────────────────────────────
 const CWA_MAP: Record<string, string> = {
