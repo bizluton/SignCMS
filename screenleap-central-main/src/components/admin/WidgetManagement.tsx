@@ -19,7 +19,7 @@ import {
 import { toast } from "sonner";
 import {
   Loader2, Plus, Trash2, Code2, Settings, Upload,
-  Clock, Calendar, Globe, AlignLeft, QrCode, Timer, Play, Cloud,
+  Clock, Calendar, Globe, AlignLeft, QrCode, Timer, Play, Cloud, MapPin,
 } from "lucide-react";
 import { logActivity } from "@/lib/activityLogger";
 import { WidgetPreviewCard } from "@/components/widgets/WidgetPreviewCard";
@@ -41,12 +41,12 @@ interface WidgetRow {
 
 const WIDGET_TYPES = [
   "clock", "date", "webpage", "marquee",
-  "qrcode", "countdown", "youtube", "weather",
+  "qrcode", "countdown", "youtube", "weather", "weather_tw",
 ];
 
 const WIDGET_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   clock: Clock, date: Calendar, webpage: Globe, marquee: AlignLeft,
-  qrcode: QrCode, countdown: Timer, youtube: Play, weather: Cloud,
+  qrcode: QrCode, countdown: Timer, youtube: Play, weather: Cloud, weather_tw: MapPin,
 };
 
 const THUMBNAIL_MAX_BYTES = 200 * 1024; // 200 KB

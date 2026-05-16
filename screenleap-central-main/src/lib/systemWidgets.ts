@@ -1,9 +1,11 @@
 // System (built-in) widgets — virtually injected into every org's media library.
 // They are not stored in the DB; they are read-only and cannot be deleted.
 
+const STORAGE_BASE = `${import.meta.env.VITE_SUPABASE_URL ?? ""}/storage/v1/object/public/system-widgets`;
+
 export type SystemWidgetSubType =
-  | "date" | "webpage" | "marquee"
-  | "qrcode" | "countdown" | "youtube";
+  | "date" | "clock" | "webpage" | "marquee"
+  | "qrcode" | "countdown" | "youtube" | "weather" | "weather_tw";
 
 export interface SystemWidgetConfig {
   widgetType: SystemWidgetSubType;
@@ -20,80 +22,79 @@ export interface SystemWidgetConfig {
   targetDate?: string;
   countdownTitle?: string;
   youtubeUrl?: string;
-  fontSize?: "small" | "medium" | "large" | "xlarge";
-  qrcodeSize?: number;
-  animation?: "none" | "fadeIn" | "slideUp" | "bounce" | "zoomIn" | "flipIn";
-}
-
-export interface SystemWidgetDef {
-  id: string;            // virtual id, prefixed `sys-widget-`
-  name: string;          // i18n key suffix on widget*
-  nameKey: string;       // translation key
-  config: SystemWidgetConfig;
-}
-
-// Stable ISO created_at so sorting is deterministic and they appear last by newest order
-const SYSTEM_CREATED_AT = "2000-01-01T00:00:00.000Z";
-
-export const SYSTEM_WIDGETS: SystemWidgetDef[] = [
   {
-    id: "sys-widget-date",
-    name: "Date",
-    nameKey: "widgetDate",
+    id: "sys-widget-weather",
+    name: "Weather",
+    nameKey: "widgetWeather",
     config: {
-      widgetType: "date", bgColor: "#1e293b", textColor: "#ffffff",
+      widgetType: "weather", city: "Taipei",
+      bgColor: "#0ea5e9", textColor: "#ffffff",
       fontSize: "large", animation: "fadeIn",
     },
   },
   {
-    id: "sys-widget-webpage",
-    name: "Webpage",
-    nameKey: "widgetWebpage",
+    id: "sys-widget-weather-tw",
+    name: "Taiwan Weather",
+    nameKey: "widgetWeatherTw",
     config: {
-      widgetType: "webpage", url: "https://example.com",
-      bgColor: "#ffffff", textColor: "#000000", animation: "none",
-    },
-  },
-  {
-    id: "sys-widget-marquee",
-    name: "Marquee",
-    nameKey: "widgetMarquee",
-    config: {
-      widgetType: "marquee", text: "Welcome to SignCMS",
-      speed: "normal", bgColor: "#0f172a", textColor: "#fbbf24",
-      fontSize: "large", animation: "none",
-    },
-  },
-  {
-    id: "sys-widget-qrcode",
-    name: "QR Code",
-    nameKey: "widgetQrcode",
-    config: {
-      widgetType: "qrcode", qrcodeContent: "https://signcms.com",
-      qrcodeSize: 200, bgColor: "#ffffff", textColor: "#000000",
+      widgetType: "weather_tw",
+      url: `${STORAGE_BASE}/taiwan_weather/index.html`,
+      bgColor: "#0f172a",
+      textColor: "#cccccc",
       animation: "fadeIn",
-    },
-  },
-  {
-    id: "sys-widget-countdown",
-    name: "Countdown",
-    nameKey: "widgetCountdown",
-    config: {
-      widgetType: "countdown",
-      countdownTitle: "Countdown",
-      targetDate: "2030-01-01T00:00:00",
-      bgColor: "#1e293b", textColor: "#ffffff",
-      fontSize: "large", animation: "zoomIn",
-    },
-  },
-  {
-    id: "sys-widget-youtube",
-    name: "YouTube",
-    nameKey: "widgetYoutube",
-    config: {
-      widgetType: "youtube",
-      youtubeUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-      bgColor: "#000000", textColor: "#ffffff", animation: "none",
+      params: {
+        locationName: "臺北市",
+        regionName: "信義區",
+        fontColor: "#cccccc",
+        wallColor: "#0f172a",
+        weatherColor: "#ffffff",
+        layoutMode: "auto",
+        showUV: true,
+        showAQ: true,
+      },
+      paramsSchema: [
+        {
+          key: "locationName", type: "select", label: "County", label_zh: "縣市", default: "臺北市",
+          options: [
+            { value: "臺北市", label: "Taipei City",    label_zh: "臺北市" },
+            { value: "新北市", label: "New Taipei",     label_zh: "新北市" },
+            { value: "桃園市", label: "Taoyuan",        label_zh: "桃園市" },
+            { value: "臺中市", label: "Taichung",       label_zh: "臺中市" },
+            { value: "臺南市", label: "Tainan",         label_zh: "臺南市" },
+            { value: "高雄市", label: "Kaohsiung",      label_zh: "高雄市" },
+            { value: "基隆市", label: "Keelung",        label_zh: "基隆市" },
+            { value: "新竹縣", label: "Hsinchu County", label_zh: "新竹縣" },
+            { value: "新竹市", label: "Hsinchu City",   label_zh: "新竹市" },
+            { value: "苗栗縣", label: "Miaoli",         label_zh: "苗栗縣" },
+            { value: "彰化縣", label: "Changhua",       label_zh: "彰化縣" },
+            { value: "南投縣", label: "Nantou",         label_zh: "南投縣" },
+            { value: "雲林縣", label: "Yunlin",         label_zh: "雲林縣" },
+            { value: "嘉義縣", label: "Chiayi County",  label_zh: "嘉義縣" },
+            { value: "嘉義市", label: "Chiayi City",    label_zh: "嘉義市" },
+            { value: "屏東縣", label: "Pingtung",       label_zh: "屏東縣" },
+            { value: "宜蘭縣", label: "Yilan",          label_zh: "宜蘭縣" },
+            { value: "花蓮縣", label: "Hualien",        label_zh: "花蓮縣" },
+            { value: "臺東縣", label: "Taitung",        label_zh: "臺東縣" },
+            { value: "澎湖縣", label: "Penghu",         label_zh: "澎湖縣" },
+            { value: "金門縣", label: "Kinmen",         label_zh: "金門縣" },
+            { value: "連江縣", label: "Lienchiang",     label_zh: "連江縣" },
+          ],
+        },
+        { key: "regionName",   type: "text",   label: "District",     label_zh: "鄉鎮區",     default: "信義區"  },
+        {
+          key: "layoutMode", type: "select", label: "Layout", label_zh: "版面模式", default: "auto",
+          options: [
+            { value: "auto",      label: "Auto",      label_zh: "自動" },
+            { value: "portrait",  label: "Portrait",  label_zh: "直式" },
+            { value: "landscape", label: "Landscape", label_zh: "橫式" },
+          ],
+        },
+        { key: "fontColor",    type: "color",  label: "Text Color",      label_zh: "文字顏色",   default: "#cccccc" },
+        { key: "weatherColor", type: "color",  label: "Icon Color",      label_zh: "圖示顏色",   default: "#ffffff" },
+        { key: "wallColor",    type: "color",  label: "Background",      label_zh: "背景顏色",   default: "#0f172a" },
+        { key: "showUV",       type: "toggle", label: "Show UV Index",   label_zh: "顯示 UV 指數",  default: true  },
+        { key: "showAQ",       type: "toggle", label: "Show Air Quality",label_zh: "顯示空氣品質", default: true },
+      ],
     },
   },
 ];

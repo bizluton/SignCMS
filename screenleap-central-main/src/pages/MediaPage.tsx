@@ -144,7 +144,7 @@ type MediaItemDetails = Pick<MediaItemRow, "url" | "thumbnail">;
 
 const NONE_PROJECT_VALUE = "__none__";
 
-type WidgetSubType = "date" | "clock" | "webpage" | "marquee" | "qrcode" | "countdown" | "youtube" | "weather";
+type WidgetSubType = "date" | "clock" | "webpage" | "marquee" | "qrcode" | "countdown" | "youtube" | "weather" | "weather_tw";
 type WidgetAnimation = "none" | "fadeIn" | "slideUp" | "bounce" | "zoomIn" | "flipIn";
 
 interface WidgetConfig {
@@ -376,6 +376,16 @@ function WidgetPreviewCard({ config }: { config: WidgetConfig }) {
     return (
       <div className="w-full h-full flex items-center justify-center" style={{ background: bg, color: fg }}>
         <Youtube className="w-8 h-8 opacity-50" />
+      </div>
+    );
+  }
+
+  if (config.widgetType === "weather_tw") {
+    const loc = (config.params as Record<string, unknown>)?.locationName as string;
+    return (
+      <div className="w-full h-full flex flex-col items-center justify-center gap-1" style={{ background: bg, color: fg }}>
+        <CloudSun className="w-8 h-8 opacity-50" />
+        <span className="text-[10px] font-medium">{loc || "台灣天氣"}</span>
       </div>
     );
   }
@@ -2371,7 +2381,7 @@ const MediaPage = () => {
                 (() => {
                   const c = parseWidgetConfig(previewItem.url);
                   if (!c) return <Code2 className="w-16 h-16 opacity-30" />;
-                  if (c.widgetType === "webpage" && c.url) {
+                  if (c.url) {
                     return <WidgetHtmlPreview url={c.url} title={getDisplayName(previewItem)} />;
                   }
                   return <WidgetPreviewCard config={c} />;
@@ -2605,7 +2615,7 @@ const MediaPage = () => {
                 <div className="grid grid-cols-4 gap-2">
                   {(["date", "webpage", "marquee", "qrcode", "countdown", "youtube", "weather"] as WidgetSubType[]).map((wt) => {
                     const Icon = WIDGET_ICONS[wt];
-                    const labels: Record<WidgetSubType, string> = { date: t("widgetDate"), clock: t("widgetClock"), webpage: t("widgetWebpage"), marquee: t("widgetMarquee"), qrcode: t("widgetQrcode"), countdown: t("widgetCountdown"), youtube: t("widgetYoutube"), weather: t("widgetWeather") };
+                    const labels: Record<WidgetSubType, string> = { date: t("widgetDate"), clock: t("widgetClock"), webpage: t("widgetWebpage"), marquee: t("widgetMarquee"), qrcode: t("widgetQrcode"), countdown: t("widgetCountdown"), youtube: t("widgetYoutube"), weather: t("widgetWeather"), weather_tw: t("widgetWeatherTw") };
                     return (
                       <button key={wt} type="button" onClick={() => setWidgetForm({ ...widgetForm, widgetType: wt })}
                         className={`flex flex-col items-center gap-1.5 p-3 rounded-lg border-2 transition-all text-center ${widgetForm.widgetType === wt ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}>
