@@ -41,7 +41,7 @@ function pickName(row: WidgetRow, lang: string): string {
   return (i18n[lang] as string) || (i18n.en as string) || (i18n.zh as string) || row.name;
 }
 
-export function useWidgets(installedApps?: Set<string>) {
+export function useWidgets() {
   const { activeOrgId } = useActiveOrg();
   const { language } = useLanguage();
   const { installedApps } = useInstalledApps();
