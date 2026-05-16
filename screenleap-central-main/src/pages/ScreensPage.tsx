@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Monitor, Plus, Pencil, Trash2, Search, MapPin, Loader2, FolderPlus, Layers, MoreHorizontal, Settings, RotateCw, Power, RefreshCw, Eye, Moon, Play, Brush, FileText, Radio, Wifi, Cable, ArrowUpDown, SlidersHorizontal, X, WifiOff, Zap, TerminalSquare, ShieldOff, LayoutGrid } from "lucide-react";
+import { Monitor, Plus, Pencil, Trash2, Search, MapPin, Loader2, FolderPlus, Layers, MoreHorizontal, Settings, RotateCw, Power, RefreshCw, Eye, Moon, Play, Brush, FileText, Radio, Wifi, Cable, ArrowUpDown, SlidersHorizontal, X, WifiOff, Zap, TerminalSquare, ShieldOff, LayoutGrid, Copy, Check } from "lucide-react";
 import { Tv } from "lucide-react";
 import type { ScreenDetailScreen } from "@/components/screens/ScreenDetailDrawer";
 import { ScreenChannelDialog } from "@/components/screens/ScreenChannelDialog";
@@ -98,6 +98,16 @@ export default function ScreensPage() {
 
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
+
+  // ── Web Player self-setup ──────────────────────────────────────────────
+  const [wpDialogOpen, setWpDialogOpen] = useState(false);
+  const [wpName, setWpName]             = useState("");
+  const [wpOrgId, setWpOrgId]           = useState("");
+  const [wpSaving, setWpSaving]         = useState(false);
+  const [wpCode, setWpCode]             = useState<string | null>(null);
+  const [wpCodeId, setWpCodeId]         = useState<string | null>(null);
+  const [wpActivated, setWpActivated]   = useState(false);
+  const [wpCopied, setWpCopied]         = useState(false);
 
   // ── Guard: warn before reload when add/edit dialog has unsaved changes ────
   const dialogOpenRef = useRef(false);
@@ -371,6 +381,25 @@ export default function ScreensPage() {
     };
   }, [screens.map((s) => s.id).join(","), refreshLicenseStatuses]);
 
+  // Watch for device activating a web player setup code
+  useEffect(() => {
+    if (!wpCodeId) return;
+    const ch = supabase
+      .channel(`wp-code-${wpCodeId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "screen_activation_codes", filter: `id=eq.${wpCodeId}` },
+        (payload: { new: Record<string, unknown> }) => {
+          if (payload.new.status === "used") {
+            setWpActivated(true);
+            fetchScreens();
+          }
+        },
+      )
+      .subscribe();
+    return () => { void supabase.removeChannel(ch); };
+  }, [wpCodeId]); // eslint-disable-line
+
   // Connected player (default channel + active project) per screen
   interface PlayerInfo { channel: string; project: string | null; }
   const [playerByScreen, setPlayerByScreen] = useState<Record<string, PlayerInfo>>({});
@@ -624,6 +653,45 @@ export default function ScreensPage() {
     fetchScreens();
   };
 
+  // ── Web Player setup handlers ─────────────────────────────────────────
+  const openWebPlayerSetup = () => {
+    setWpName("");
+    setWpOrgId(activeOrgId || defaultOrgId || orgs[0]?.id || "");
+    setWpCode(null);
+    setWpCodeId(null);
+    setWpActivated(false);
+    setWpCopied(false);
+    setWpDialogOpen(true);
+  };
+
+  const handleWebPlayerCreate = async () => {
+    if (!wpName.trim() || !wpOrgId) return;
+    setWpSaving(true);
+    try {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        const code = String(Math.floor(100000 + Math.random() * 900000));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data, error } = await (supabase as any)
+          .from("screen_activation_codes")
+          .insert({ name: wpName.trim(), org_id: wpOrgId, code })
+          .select("id")
+          .single();
+        if (!error && data) {
+          setWpCode(code);
+          setWpCodeId((data as { id: string }).id);
+          break;
+        }
+        if (error?.code !== "23505") {
+          toast.error(`產生授權碼失敗：${error?.message}`);
+          return;
+        }
+        // unique_violation → retry with new code
+      }
+    } finally {
+      setWpSaving(false);
+    }
+  };
+
   const openRename = (group: string) => {
     setRenameTarget(group);
     setRenameValue(group);
@@ -646,6 +714,10 @@ export default function ScreensPage() {
             <Button variant="outline" onClick={() => setNewGroupDialogOpen(true)} className="gap-2" title={t("tipAddScreenGroup")}>
               <FolderPlus className="w-4 h-4" />
               {t("screensNewGroup")}
+            </Button>
+            <Button variant="outline" onClick={openWebPlayerSetup} className="gap-2" title="新增 Web Player 螢幕">
+              <Monitor className="w-4 h-4" />
+              Web Player
             </Button>
             <Button onClick={openAdd} className="gap-2" title={t("tipAddScreen")}>
               <Plus className="w-4 h-4" />
@@ -1818,6 +1890,141 @@ export default function ScreensPage() {
             >
               {iotSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : t("iotAdd")}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Web Player Setup Dialog ───────────────────────────────────── */}
+      <Dialog
+        open={wpDialogOpen}
+        onOpenChange={(v) => {
+          if (!v) { setWpCode(null); setWpCodeId(null); setWpActivated(false); }
+          setWpDialogOpen(v);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Monitor className="w-5 h-5 text-primary" />
+              新增 Web Player 螢幕
+            </DialogTitle>
+            <DialogDescription>
+              輸入螢幕名稱後產生 6 位數代碼，在設備瀏覽器中開啟播放器並輸入代碼即可完成設定。
+            </DialogDescription>
+          </DialogHeader>
+
+          {!wpCode ? (
+            /* Step 1: enter name + org */
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label>螢幕名稱 <span className="text-destructive">*</span></Label>
+                <input
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={wpName}
+                  onChange={(e) => setWpName(e.target.value)}
+                  placeholder="例如：大廳螢幕 A"
+                  maxLength={100}
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === "Enter") handleWebPlayerCreate(); }}
+                />
+              </div>
+              {orgs.length > 1 && (
+                <div className="space-y-2">
+                  <Label>所屬組織 <span className="text-destructive">*</span></Label>
+                  <Select value={wpOrgId} onValueChange={setWpOrgId}>
+                    <SelectTrigger><SelectValue placeholder="請選擇組織" /></SelectTrigger>
+                    <SelectContent>
+                      {orgs.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Step 2: show code, wait for device */
+            <div className="space-y-4 py-2">
+              {wpActivated ? (
+                <div className="rounded-lg border border-success/30 bg-success/10 p-5 text-center space-y-2">
+                  <div className="text-4xl">✅</div>
+                  <p className="font-semibold text-success text-sm">裝置已成功連線！</p>
+                  <p className="text-xs text-muted-foreground">螢幕「{wpName}」已出現在螢幕列表中。</p>
+                </div>
+              ) : (
+                <>
+                  <div className="text-center space-y-3">
+                    <p className="text-sm text-muted-foreground">在設備瀏覽器中開啟播放器後，輸入以下代碼：</p>
+                    <div className="text-5xl font-mono font-bold tracking-widest text-primary py-4 px-6 rounded-xl bg-muted border select-all">
+                      {wpCode}
+                    </div>
+                    <p className="text-xs text-muted-foreground flex items-center justify-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      等待裝置連線中…
+                    </p>
+                  </div>
+                  <div className="rounded border bg-muted/40 p-3 space-y-2">
+                    <p className="text-xs font-medium">操作步驟</p>
+                    <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                      <li>在設備上開啟瀏覽器</li>
+                      <li>
+                        前往{" "}
+                        <code className="bg-muted px-1 rounded text-[11px]">
+                          {window.location.origin}/web-player.html
+                        </code>
+                      </li>
+                      <li>輸入上方 6 位數代碼</li>
+                    </ol>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => {
+                        navigator.clipboard.writeText(wpCode!);
+                        setWpCopied(true);
+                        setTimeout(() => setWpCopied(false), 2000);
+                      }}
+                    >
+                      {wpCopied
+                        ? <Check className="w-4 h-4 mr-1.5 text-success" />
+                        : <Copy className="w-4 h-4 mr-1.5" />}
+                      複製代碼
+                    </Button>
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => {
+                        navigator.clipboard.writeText(`${window.location.origin}/web-player.html`);
+                        toast.success("已複製播放器網址");
+                      }}
+                    >
+                      <Copy className="w-4 h-4 mr-1.5" />
+                      複製網址
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            {!wpCode ? (
+              <>
+                <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+                <Button
+                  onClick={handleWebPlayerCreate}
+                  disabled={wpSaving || !wpName.trim() || !wpOrgId}
+                >
+                  {wpSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  產生授權碼
+                </Button>
+              </>
+            ) : (
+              <DialogClose asChild>
+                <Button className="w-full" variant={wpActivated ? "default" : "outline"}>
+                  {wpActivated ? "完成" : "關閉"}
+                </Button>
+              </DialogClose>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

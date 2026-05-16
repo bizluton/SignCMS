@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
@@ -10,8 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription, DialogClose } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Loader2, Plus, Cpu, Copy, Trash2, Ban, RotateCcw, Settings, Pencil, GripVertical, KeyRound, Check,
-         MonitorSmartphone, Link, UserCheck, XCircle } from "lucide-react";
+import { Loader2, Plus, Cpu, Copy, Trash2, Ban, RotateCcw, Settings, Pencil, GripVertical, KeyRound, Check } from "lucide-react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -46,18 +45,6 @@ interface DeviceLicense {
 interface OrgRow { id: string; name: string }
 interface DeviceModel { id: string; name: string; sort_order: number }
 
-// Pending self-registration from web-player / Tizen devices
-interface DeviceRegistration {
-  id:            string;
-  org_id:        string;
-  status:        "pending" | "approved" | "rejected";
-  device_serial: string | null;
-  device_model:  string | null;
-  user_agent:    string;
-  fingerprint:   string;
-  created_at:    string;
-}
-
 const ERROR_MAP: Record<string, string> = {
   permission_denied: "權限不足",
   unauthenticated: "請先登入",
@@ -69,28 +56,6 @@ const ERROR_MAP: Record<string, string> = {
   not_found: "找不到該授權",
 };
 
-/** Compact relative-time label (Chinese) */
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1)  return "剛剛";
-  if (mins < 60) return `${mins} 分鐘前`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24)  return `${hrs} 小時前`;
-  return `${Math.floor(hrs / 24)} 天前`;
-}
-
-/** Guess a short platform name from User-Agent */
-function parsePlatform(ua: string): string {
-  if (/Tizen/i.test(ua))        return "Samsung Tizen";
-  if (/Samsung/i.test(ua))      return "Samsung Browser";
-  if (/iPhone|iPad/i.test(ua))  return "iOS";
-  if (/Android/i.test(ua))      return "Android";
-  if (/Macintosh/i.test(ua))    return "macOS";
-  if (/Windows/i.test(ua))      return "Windows";
-  if (/Linux/i.test(ua))        return "Linux";
-  return "Web Browser";
-}
 
 export default function DeviceLicenseManagement() {
   const { isCsAgent } = useUserRole();
@@ -104,15 +69,6 @@ export default function DeviceLicenseManagement() {
   const [open, setOpen]       = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
   const [saving, setSaving]   = useState(false);
-
-  // ── Pending registrations ─────────────────────────────────────────────
-  const [pendingRegs, setPendingRegs]       = useState<DeviceRegistration[]>([]);
-  const [approveDialog, setApproveDialog]   = useState<DeviceRegistration | null>(null);
-  const [approveName, setApproveName]       = useState("");
-  const [approving, setApproving]           = useState(false);
-  const [joinCodeMap, setJoinCodeMap]       = useState<Record<string, string>>({});
-  const [joinUrlDialog, setJoinUrlDialog]   = useState(false);
-  const [copiedJoin, setCopiedJoin]         = useState<string | null>(null);
 
   // ── Device Token generation (system admin only) ───────────────────────
   type TokenDialog = {
@@ -178,117 +134,24 @@ export default function DeviceLicenseManagement() {
 
   // ── Fetch helpers ──────────────────────────────────────────────────────
 
-  const fetchPendingRegs = useCallback(async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data } = await (supabase as any)
-      .from("device_registrations")
-      .select("*")
-      .eq("status", "pending")
-      .order("created_at", { ascending: false });
-    setPendingRegs((data as DeviceRegistration[]) || []);
-  }, []);
-
   const fetchData = async () => {
     setLoading(true);
     const [
       { data: list },
       { data: orgsData },
       { data: modelsData },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { data: pendingData },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      { data: joinData },
     ] = await Promise.all([
       supabase.from("device_licenses").select("*").order("created_at", { ascending: false }),
       supabase.from("organizations").select("id, name").order("name"),
       supabase.from("device_models").select("*").order("sort_order").order("name"),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (supabase as any)
-        .from("device_registrations")
-        .select("*")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false }),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (supabase as any).from("organizations").select("id, join_code"),
     ]);
     setRows((list as DeviceLicense[]) || []);
     setOrgs((orgsData as OrgRow[]) || []);
     setModels((modelsData as DeviceModel[]) || []);
-    setPendingRegs((pendingData as DeviceRegistration[]) || []);
-    const jm: Record<string, string> = {};
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of ((joinData as any[]) || [])) {
-      if (r.join_code) jm[r.id] = r.join_code;
-    }
-    setJoinCodeMap(jm);
     setLoading(false);
   };
 
   useEffect(() => { if (canManage) fetchData(); }, [canManage]);
-
-  // ── Realtime: watch for new device registration requests ──────────────
-  useEffect(() => {
-    if (!canManage) return;
-    const ch = supabase
-      .channel("admin-device-reg-watch")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "device_registrations" },
-        () => fetchPendingRegs(),
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "device_registrations" },
-        () => fetchPendingRegs(),
-      )
-      .subscribe();
-    return () => { void supabase.removeChannel(ch); };
-  }, [canManage, fetchPendingRegs]);
-
-  // ── Approve pending registration ──────────────────────────────────────
-  const handleApprove = async () => {
-    if (!approveDialog || !approveName.trim()) return;
-    setApproving(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("approve-device", {
-        body: { registrationId: approveDialog.id, screenName: approveName.trim() },
-      });
-      if (error || !data?.ok) {
-        toast.error(`授權失敗：${error?.message ?? data?.error ?? "未知錯誤"}`);
-        return;
-      }
-      toast.success("螢幕已建立，Device Token 已自動發送至裝置");
-      setApproveDialog(null);
-      setApproveName("");
-      await fetchData();
-    } finally {
-      setApproving(false);
-    }
-  };
-
-  const rejectReg = async (id: string) => {
-    if (!confirm("確定要拒絕此裝置的授權申請？")) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase as any)
-      .from("device_registrations")
-      .update({ status: "rejected", updated_at: new Date().toISOString() })
-      .eq("id", id);
-    await fetchPendingRegs();
-    toast.success("已拒絕");
-  };
-
-  // ── Join URL helpers ───────────────────────────────────────────────────
-  const joinUrl = (token: string) =>
-    `${window.location.origin}/web-player.html?join=${token}`;
-
-  const copyJoinUrl = (orgId: string) => {
-    const code = joinCodeMap[orgId];
-    if (!code) return;
-    navigator.clipboard.writeText(joinUrl(code));
-    setCopiedJoin(orgId);
-    setTimeout(() => setCopiedJoin(null), 2000);
-    toast.success("已複製加入網址");
-  };
 
   // ── License CRUD ───────────────────────────────────────────────────────
   const submit = async () => {
@@ -347,93 +210,6 @@ export default function DeviceLicenseManagement() {
 
   return (
     <div className="space-y-4">
-      {/* ── Pending Device Registrations ─────────────────────────────── */}
-      <Card className={pendingRegs.length > 0 ? "border-amber-500/40 bg-amber-500/5" : ""}>
-        <CardHeader className="flex flex-row items-center justify-between pb-3">
-          <div>
-            <CardTitle className="text-base flex items-center gap-2">
-              <MonitorSmartphone className="w-4 h-4" />
-              待授權裝置
-              {pendingRegs.length > 0 && (
-                <Badge className="bg-amber-500 text-white hover:bg-amber-600 text-xs px-1.5 py-0.5 rounded-full">
-                  {pendingRegs.length}
-                </Badge>
-              )}
-            </CardTitle>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              裝置透過加入網址自助申請授權後，會在此處顯示，等待管理員核准。
-            </p>
-          </div>
-          <Button size="sm" variant="outline" onClick={() => setJoinUrlDialog(true)}>
-            <Link className="w-3.5 h-3.5 mr-1" />
-            加入網址
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {pendingRegs.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">目前沒有待授權裝置</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>裝置型號</TableHead>
-                    <TableHead>序號 / 識別碼</TableHead>
-                    <TableHead>平台</TableHead>
-                    <TableHead>所屬組織</TableHead>
-                    <TableHead>申請時間</TableHead>
-                    <TableHead></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {pendingRegs.map(reg => (
-                    <TableRow key={reg.id}>
-                      <TableCell className="font-medium">
-                        {reg.device_model || <span className="text-muted-foreground text-xs">未知</span>}
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {reg.device_serial || reg.fingerprint.slice(0, 16).toUpperCase() || "—"}
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {parsePlatform(reg.user_agent)}
-                      </TableCell>
-                      <TableCell className="text-sm">{orgName(reg.org_id)}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {timeAgo(reg.created_at)}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            size="sm"
-                            className="h-7 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-                            onClick={() => {
-                              setApproveDialog(reg);
-                              setApproveName(reg.device_model || "");
-                            }}
-                          >
-                            <UserCheck className="w-3.5 h-3.5 mr-1" />
-                            授權
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 text-xs text-destructive hover:text-destructive"
-                            onClick={() => rejectReg(reg.id)}
-                            title="拒絕"
-                          >
-                            <XCircle className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {/* ── Device Licenses ───────────────────────────────────────────── */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -684,134 +460,6 @@ export default function DeviceLicenseManagement() {
         </Dialog>
       </Card>
 
-      {/* ── Approve Device Dialog ─────────────────────────────────────── */}
-      <Dialog open={!!approveDialog} onOpenChange={v => { if (!v) { setApproveDialog(null); setApproveName(""); } }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <UserCheck className="w-5 h-5 text-emerald-500" />
-              授權裝置
-            </DialogTitle>
-            <DialogDescription>
-              確認裝置資訊，並為此螢幕命名後完成授權。裝置將自動收到 Device Token 並開始播放。
-            </DialogDescription>
-          </DialogHeader>
-
-          {approveDialog && (
-            <div className="space-y-4">
-              <div className="rounded border bg-muted/40 px-4 py-3 space-y-1.5 text-sm">
-                <div className="flex gap-2">
-                  <span className="text-muted-foreground w-20 shrink-0">裝置型號</span>
-                  <span className="font-medium">{approveDialog.device_model || "未知"}</span>
-                </div>
-                <div className="flex gap-2">
-                  <span className="text-muted-foreground w-20 shrink-0">序號</span>
-                  <code className="font-mono text-xs break-all">
-                    {approveDialog.device_serial || approveDialog.fingerprint.slice(0, 16).toUpperCase()}
-                  </code>
-                </div>
-                <div className="flex gap-2">
-                  <span className="text-muted-foreground w-20 shrink-0">平台</span>
-                  <span className="text-xs">{parsePlatform(approveDialog.user_agent)}</span>
-                </div>
-                <div className="flex gap-2">
-                  <span className="text-muted-foreground w-20 shrink-0">組織</span>
-                  <span className="text-xs">{orgName(approveDialog.org_id)}</span>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label>螢幕名稱 <span className="text-destructive">*</span></Label>
-                <Input
-                  value={approveName}
-                  onChange={e => setApproveName(e.target.value)}
-                  placeholder="例如：大廳螢幕 A"
-                  maxLength={100}
-                  autoFocus
-                  onKeyDown={e => { if (e.key === "Enter") handleApprove(); }}
-                />
-                <p className="text-xs text-muted-foreground">此名稱會出現在「螢幕管理」頁面</p>
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setApproveDialog(null); setApproveName(""); }}>
-              取消
-            </Button>
-            <Button
-              onClick={handleApprove}
-              disabled={approving || !approveName.trim()}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white"
-            >
-              {approving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-              確認授權
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── Join URL Dialog ───────────────────────────────────────────── */}
-      <Dialog open={joinUrlDialog} onOpenChange={setJoinUrlDialog}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Link className="w-5 h-5" />
-              裝置加入網址
-            </DialogTitle>
-            <DialogDescription>
-              將此網址提供給設備操作人員。裝置在瀏覽器開啟後，會自動出現在「待授權裝置」清單中。
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            {orgs.length === 0 ? (
-              <p className="text-sm text-muted-foreground">尚無組織資料</p>
-            ) : orgs.map(o => {
-              const code = joinCodeMap[o.id];
-              const url  = code ? joinUrl(code) : null;
-              return (
-                <div key={o.id} className="rounded border p-3 space-y-2">
-                  {url ? (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <code className="flex-1 text-sm font-mono bg-muted rounded px-3 py-2 select-all">
-                          {url}
-                        </code>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-8 w-8 shrink-0"
-                          onClick={() => copyJoinUrl(o.id)}
-                          title="複製"
-                        >
-                          {copiedJoin === o.id
-                            ? <Check className="w-4 h-4 text-emerald-500" />
-                            : <Copy className="w-4 h-4" />}
-                        </Button>
-                      </div>
-                      {orgs.length > 1 && (
-                        <p className="text-xs text-muted-foreground pl-1">{o.name}</p>
-                      )}
-                    </>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">尚未產生加入代碼</p>
-                  )}
-                </div>
-              );
-            })}
-            <p className="text-xs text-muted-foreground rounded border border-muted px-3 py-2">
-              💡 Samsung SSSP / Tizen：在 URL Launcher 中輸入上述網址，裝置會自動讀取型號與 DUID 序號。
-            </p>
-          </div>
-
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="outline">關閉</Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
