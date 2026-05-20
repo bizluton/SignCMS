@@ -107,6 +107,49 @@ Deno.serve(async (req) => {
 
     const { messages } = await req.json();
 
+    // ── Input caps + per-user rate limit ─────────────────────────────────
+    // Reject obviously abusive requests before paying for Anthropic.
+    if (!Array.isArray(messages)) {
+      return json({ error: "messages must be an array" }, 400);
+    }
+    const MAX_MESSAGES        = 40;
+    const MAX_TOTAL_CHARS     = 60_000;     // ~15k tokens English / less in CJK
+    const RATE_LIMIT_PER_MIN  = 20;         // per-user
+    if (messages.length > MAX_MESSAGES) {
+      return json({ error: "too_many_messages" }, 400);
+    }
+    const totalChars = messages.reduce(
+      (n: number, m: { content?: unknown }) =>
+        n + (typeof m?.content === "string" ? m.content.length : 0),
+      0,
+    );
+    if (totalChars > MAX_TOTAL_CHARS) {
+      return json({ error: "messages_too_long" }, 400);
+    }
+
+    // Per-user rolling-window rate limit. Counts the user's `chat_message`
+    // activity log rows in the last minute via a service-role count(*).
+    const userId = claimsData.claims.sub as string;
+    const oneMinAgo = new Date(Date.now() - 60_000).toISOString();
+    const rateClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const { count: recentCount } = await rateClient
+      .from("activity_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", userId)
+      .eq("action", "knowledge_chat_request")
+      .gte("created_at", oneMinAgo);
+    if ((recentCount ?? 0) >= RATE_LIMIT_PER_MIN) {
+      return json({ error: "rate_limited", retry_after_seconds: 60 }, 429);
+    }
+    // Best-effort log (don't block on failure).
+    void rateClient.from("activity_logs").insert({
+      user_id: userId,
+      category: "ai",
+      action: "knowledge_chat_request",
+      action_code: "knowledge_chat_request",
+      target_type: "chat",
+    });
+
     // Fetch knowledge base content for context
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const { data: knowledgeItems } = await supabase
