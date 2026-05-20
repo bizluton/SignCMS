@@ -16,6 +16,7 @@ import { Loader2, Plus, Key, Copy, CalendarClock, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PlanTier, PLAN_LABELS } from "@/hooks/useOrgPlan";
 import { formatUserError } from "@/lib/formatUserError";
+import { rpc } from "@/lib/db";
 
 interface LicenseCode {
   id: string;
@@ -116,7 +117,7 @@ export default function LicenseManagement() {
     if (!genOrgId) { toast.error("請選擇授權組織"); return; }
     setSaving(true);
     const count = Math.min(parseInt(genCount) || 1, 50);
-    const { data, error } = await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>)("generate_license_codes", {
+    const { data, error } = await rpc<{ success: boolean; error?: string }>("generate_license_codes", {
       _plan_name: genPlanName,
       _extend_days: parseInt(genExtendDays) || 365,
       _assigned_org_id: genOrgId,
@@ -126,7 +127,8 @@ export default function LicenseManagement() {
     if (error) {
       toast.error(formatUserError(error, t));
     } else if (data && data.success === false) {
-      toast.error(ERROR_MAP[data.error as string] || data.error as string);
+      const code = data.error ?? "unknown";
+      toast.error(ERROR_MAP[code] || code);
     } else {
       toast.success(`已產生 ${count} 組授權碼`);
       fetchData();
@@ -162,9 +164,12 @@ export default function LicenseManagement() {
 
   const deleteCode = async (id: string, code: string) => {
     if (!confirm(`確定要刪除授權碼 ${code} 嗎？`)) return;
-    const { data, error } = await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>)("delete_license_code", { _id: id });
+    const { data, error } = await rpc<{ success: boolean; error?: string }>("delete_license_code", { _id: id });
     if (error) toast.error(formatUserError(error, t));
-    else if (data && data.success === false) toast.error(ERROR_MAP[data.error as string] || data.error as string);
+    else if (data && data.success === false) {
+      const code = data.error ?? "unknown";
+      toast.error(ERROR_MAP[code] || code);
+    }
     else { toast.success("已刪除授權碼"); fetchData(); }
   };
 
