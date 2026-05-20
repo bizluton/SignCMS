@@ -183,7 +183,7 @@ export default function AdminPage() {
     setSaving(true);
     try {
       const { data, error } = await supabase.functions.invoke("delete-user", {
-        body: { target_user_id: deleteDialog.user_id },
+        body: { target_user_id: deleteDialog.user_id, org_id: activeOrgId ?? undefined },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
@@ -210,6 +210,7 @@ export default function AdminPage() {
           target_user_id: resetDialog.user_id,
           mode: resetMode,
           new_password: resetMode === "password" ? tempPassword : undefined,
+          org_id: activeOrgId ?? undefined,
         },
       });
       if (error) throw error;

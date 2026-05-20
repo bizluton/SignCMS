@@ -25,8 +25,11 @@ Deno.serve(async (req) => {
     if (authError || !callingUser) return json({ error: "Unauthorized" }, 401);
 
     const body = await req.json().catch(() => ({}));
-    const { target_user_id, mode, new_password } = body as {
-      target_user_id?: string; mode?: "email" | "password"; new_password?: string;
+    const { target_user_id, mode, new_password, org_id } = body as {
+      target_user_id?: string;
+      mode?: "email" | "password";
+      new_password?: string;
+      org_id?: string;
     };
 
     if (!target_user_id || typeof target_user_id !== "string") {
@@ -43,35 +46,44 @@ Deno.serve(async (req) => {
 
     const adminClient = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Permission: caller must be admin OR org_admin OR system_admin
-    const [{ data: callerRoles }, { data: callerSysAdmin }] = await Promise.all([
-      adminClient.from("user_roles").select("role").eq("user_id", callingUser.id),
-      adminClient.from("system_admins").select("id").eq("user_id", callingUser.id).maybeSingle(),
-    ]);
-    const roles = new Set((callerRoles || []).map((r: any) => r.role));
-    const callerIsSystemAdmin = !!callerSysAdmin;
-    const isAdmin = roles.has("admin") || callerIsSystemAdmin;
-    const isOrgAdmin = roles.has("org_admin");
-
-    if (!isAdmin && !isOrgAdmin) return json({ error: "Forbidden" }, 403);
-
-    // Cannot reset a system admin unless the caller is also a system admin
+    // Cannot reset a system admin unless the caller is also a system admin.
     const { data: targetSysAdmin } = await adminClient
       .from("system_admins").select("id").eq("user_id", target_user_id).maybeSingle();
+    const { data: callerSysAdmin } = await adminClient
+      .from("system_admins").select("id").eq("user_id", callingUser.id).maybeSingle();
+    const callerIsSystemAdmin = !!callerSysAdmin;
+
     if (targetSysAdmin && !callerIsSystemAdmin) {
       return json({ error: "Cannot reset system administrator" }, 403);
     }
 
-    // Only the system admin bypasses org-scope check.
-    // Regular admin/org_admin (even with admin role) must share an org with target.
+    // ── Org-scoped authorization ─────────────────────────────────────────
+    // System admins may act cross-org. Other admins must specify the org_id
+    // and be an org_admin / admin in THAT org, and the target must belong
+    // to THAT org. Replaces the old "share any org" check that let
+    // overlapping membership unlock cross-org password resets.
     if (!callerIsSystemAdmin) {
-      const [{ data: callerOrgIds }, { data: targetOrgIds }] = await Promise.all([
-        adminClient.rpc("get_user_org_ids", { _user_id: callingUser.id }),
-        adminClient.rpc("get_user_org_ids", { _user_id: target_user_id }),
+      if (!org_id || typeof org_id !== "string") {
+        return json({ error: "org_id is required for non-system admins" }, 400);
+      }
+
+      const [{ data: callerRoles }, { data: inOrg }, { data: targetInOrg }] = await Promise.all([
+        adminClient
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", callingUser.id),
+        adminClient.rpc("user_in_org", { _user_id: callingUser.id, _org_id: org_id }),
+        adminClient.rpc("user_in_org", { _user_id: target_user_id, _org_id: org_id }),
       ]);
-      const callerSet = new Set((callerOrgIds || []) as string[]);
-      const shared = ((targetOrgIds || []) as string[]).some((id) => callerSet.has(id));
-      if (!shared) return json({ error: "Target user is not in your organization" }, 403);
+
+      const roles = new Set((callerRoles || []).map((r: any) => r.role));
+      const isAdminInOrg = roles.has("admin") || roles.has("org_admin");
+      if (!inOrg || !isAdminInOrg) {
+        return json({ error: "Not an admin of this organization" }, 403);
+      }
+      if (!targetInOrg) {
+        return json({ error: "Target user is not in this organization" }, 403);
+      }
     }
 
     // Get target user's email

@@ -23,7 +23,10 @@ Deno.serve(async (req) => {
     if (authError || !callingUser) return json({ error: "Unauthorized" }, 401);
 
     const body = await req.json().catch(() => ({}));
-    const { target_user_id } = body as { target_user_id?: string };
+    const { target_user_id, org_id } = body as {
+      target_user_id?: string;
+      org_id?: string;
+    };
 
     if (!target_user_id || typeof target_user_id !== "string") {
       return json({ error: "Missing target_user_id" }, 400);
@@ -31,39 +34,50 @@ Deno.serve(async (req) => {
 
     const adminClient = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Permission: caller must be admin OR org_admin OR system_admin
-    const [{ data: callerRoles }, { data: callerSysAdmin }] = await Promise.all([
-      adminClient.from("user_roles").select("role").eq("user_id", callingUser.id),
-      adminClient.from("system_admins").select("id").eq("user_id", callingUser.id).maybeSingle(),
-    ]);
-    const roles = new Set((callerRoles || []).map((r: any) => r.role));
-    const isSystemAdmin = !!callerSysAdmin;
-    const isAdmin = roles.has("admin") || isSystemAdmin;
-    const isOrgAdmin = roles.has("org_admin");
+    // Cannot delete self.
+    if (target_user_id === callingUser.id) {
+      return json({ error: "Cannot delete yourself" }, 403);
+    }
 
-    if (!isAdmin && !isOrgAdmin) return json({ error: "Forbidden" }, 403);
-
-    // Cannot delete a system admin
+    // Cannot delete a system admin.
     const { data: targetSysAdmin } = await adminClient
       .from("system_admins").select("id").eq("user_id", target_user_id).maybeSingle();
     if (targetSysAdmin) {
       return json({ error: "Cannot delete system administrator" }, 403);
     }
 
-    // Cannot delete self
-    if (target_user_id === callingUser.id) {
-      return json({ error: "Cannot delete yourself" }, 403);
-    }
+    // ── Org-scoped authorization ─────────────────────────────────────────
+    // System admins may act cross-org.
+    // Any other admin must specify the org_id and be an org_admin / admin
+    // in THAT org, and the target must be a member of THAT org. The old
+    // "share any org" check let a member of unrelated orgs delete each
+    // other if they happened to overlap somewhere — close that.
+    const { data: callerSysAdmin } = await adminClient
+      .from("system_admins").select("id").eq("user_id", callingUser.id).maybeSingle();
+    const callerIsSystemAdmin = !!callerSysAdmin;
 
-    // Org-scope check for non-system admin
-    if (!isSystemAdmin) {
-      const [{ data: callerOrgIds }, { data: targetOrgIds }] = await Promise.all([
-        adminClient.rpc("get_user_org_ids", { _user_id: callingUser.id }),
-        adminClient.rpc("get_user_org_ids", { _user_id: target_user_id }),
+    if (!callerIsSystemAdmin) {
+      if (!org_id || typeof org_id !== "string") {
+        return json({ error: "org_id is required for non-system admins" }, 400);
+      }
+
+      const [{ data: callerRoles }, { data: inOrg }, { data: targetInOrg }] = await Promise.all([
+        adminClient
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", callingUser.id),
+        adminClient.rpc("user_in_org", { _user_id: callingUser.id, _org_id: org_id }),
+        adminClient.rpc("user_in_org", { _user_id: target_user_id, _org_id: org_id }),
       ]);
-      const callerSet = new Set((callerOrgIds || []) as string[]);
-      const shared = ((targetOrgIds || []) as string[]).some((id) => callerSet.has(id));
-      if (!shared) return json({ error: "Target user is not in your organization" }, 403);
+
+      const roles = new Set((callerRoles || []).map((r: any) => r.role));
+      const isAdminInOrg = roles.has("admin") || roles.has("org_admin");
+      if (!inOrg || !isAdminInOrg) {
+        return json({ error: "Not an admin of this organization" }, 403);
+      }
+      if (!targetInOrg) {
+        return json({ error: "Target user is not in this organization" }, 403);
+      }
     }
 
     // Resolve audit info
