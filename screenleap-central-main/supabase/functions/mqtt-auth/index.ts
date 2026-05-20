@@ -16,8 +16,13 @@
  *   auth_opt_http_aclcheck_uri   /functions/v1/mqtt-auth/acl
  *
  * MQTT Credentials (native MQTT username / password):
- *   Devices:          username = {screenId}       password = MQTT_DEVICE_PASS (shared)
- *   Server publisher: username = signcms-server   password = MQTT_SERVER_PASS
+ *   Devices (preferred): username = {screenId}       password = {screens.device_token}
+ *   Devices (legacy):    username = {screenId}       password = MQTT_DEVICE_PASS (shared)
+ *   Server publisher:    username = signcms-server   password = MQTT_SERVER_PASS
+ *
+ * The shared MQTT_DEVICE_PASS path is a compatibility fallback for player
+ * builds that predate the per-device-token rollout. Operators may disable it
+ * by setting MQTT_ALLOW_SHARED_PASSWORD=false once all players are updated.
  *
  * Topic ACL (acc: 1=subscribe, 2=publish, 4=unsubscribe):
  *   {screenId} → publish   signage/player/{screenId}/heartbeat
@@ -29,6 +34,19 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+
+// UUID v4-ish shape; the device username is screens.id which is a uuid.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Constant-time string comparison to defeat timing side-channels on token
+// verification. Both inputs must be the same byte length to be considered
+// equal; this is fine because device_token is always 64 hex chars.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let r = 0;
+  for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return r === 0;
+}
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -57,6 +75,10 @@ Deno.serve(async (req) => {
   const MQTT_SERVER_USER = Deno.env.get("MQTT_SERVER_USER") ?? "signcms-server";
   const MQTT_SERVER_PASS = Deno.env.get("MQTT_SERVER_PASS") ?? "";
   const MQTT_DEVICE_PASS = Deno.env.get("MQTT_DEVICE_PASS") ?? "";
+  // Compatibility flag for the shared-password path during per-device-token
+  // rollout. Set MQTT_ALLOW_SHARED_PASSWORD=false in env once all players
+  // send their device_token as the MQTT password.
+  const ALLOW_SHARED = (Deno.env.get("MQTT_ALLOW_SHARED_PASSWORD") ?? "true").toLowerCase() !== "false";
 
   // ── Route by path suffix ───────────────────────────────────────────────
   const url     = new URL(req.url);
@@ -80,12 +102,35 @@ Deno.serve(async (req) => {
     // Server publisher
     if (username === MQTT_SERVER_USER) {
       if (!MQTT_SERVER_PASS) return deny();
-      return password === MQTT_SERVER_PASS ? allow() : deny();
+      return timingSafeEqual(password, MQTT_SERVER_PASS) ? allow() : deny();
     }
 
-    // Device: any screenId with the shared device password
-    if (!MQTT_DEVICE_PASS) return deny();    // secret not configured → reject all
-    return password === MQTT_DEVICE_PASS ? allow() : deny();
+    // Device path — username must look like a screen UUID.
+    if (!UUID_RE.test(username)) return deny();
+
+    // Preferred: per-device token stored on screens.device_token.
+    // This is the only path that ties an MQTT session to one specific screen.
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+    const { data: scr } = await admin
+      .from("screens")
+      .select("device_token")
+      .eq("id", username)
+      .maybeSingle();
+
+    if (scr?.device_token && timingSafeEqual(password, scr.device_token)) {
+      return allow();
+    }
+
+    // Legacy fallback: shared MQTT_DEVICE_PASS. To be removed once all
+    // players authenticate with their per-device token (set
+    // MQTT_ALLOW_SHARED_PASSWORD=false to disable).
+    if (ALLOW_SHARED && MQTT_DEVICE_PASS && timingSafeEqual(password, MQTT_DEVICE_PASS)) {
+      return allow();
+    }
+
+    return deny();
   }
 
   // ── /acl — check topic permission ─────────────────────────────────────
