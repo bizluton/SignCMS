@@ -27,6 +27,9 @@ import { uploadMediaFile } from "@/lib/uploadMedia";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { VideoThumb } from "@/components/media/VideoThumb";
+import { LayoutThumb } from "@/components/studio/LayoutThumb";
+import { ColorSwatchInput } from "@/components/studio/ColorSwatchInput";
+import { ZoneAnimatedWrapper } from "@/components/studio/ZoneAnimatedWrapper";
 import { MediaHoverPreview, type MediaHoverPreviewData } from "@/components/media/MediaHoverPreview";
 import {
   formatBytesCompact,
@@ -505,40 +508,8 @@ interface TemplateItem {
 }
 
 // ── Layout preset thumbnail (SVG mini-preview, aspect-aware) ───────
-function LayoutThumb({ zones, aspect = "16:9" }: { zones: Omit<Zone, "content">[]; aspect?: AspectRatio }) {
-  const vbW = aspect === "9:16" ? 36 : 64;
-  const vbH = aspect === "9:16" ? 64 : 36;
-  return (
-    <svg viewBox={`0 0 ${vbW} ${vbH}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet" aria-hidden>
-      <rect x="0" y="0" width={vbW} height={vbH} className="fill-muted" />
-      {zones.map((z) => (
-        <rect
-          key={z.id}
-          x={(z.x / 100) * vbW + 0.5}
-          y={(z.y / 100) * vbH + 0.5}
-          width={(z.w / 100) * vbW - 1}
-          height={(z.h / 100) * vbH - 1}
-          className="fill-primary/20 stroke-primary"
-          strokeWidth={0.6}
-          rx={1}
-        />
-      ))}
-      {zones.map((z) => (
-        <text
-          key={`t-${z.id}`}
-          x={(z.x / 100) * vbW + ((z.w / 100) * vbW) / 2}
-          y={(z.y / 100) * vbH + ((z.h / 100) * vbH) / 2 + 1.6}
-          textAnchor="middle"
-          className="fill-foreground"
-          fontSize={Math.max(3, Math.min(6, (z.w * z.h) / 800))}
-          fontWeight={600}
-        >
-          {z.label}
-        </text>
-      ))}
-    </svg>
-  );
-}
+// LayoutThumb / ColorSwatchInput / ZoneAnimatedWrapper extracted to
+// src/components/studio/ — see imports near the top of this file.
 
 // ── Scene snapshot thumbnail (div-based, renders actual zone content) ─
 type SceneZone = { id: string; x: number; y: number; w: number; h: number; label: string; content?: unknown };
@@ -3260,21 +3231,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
   );
 }
 
-// ── Animation wrapper for zone widgets ─────────────────────────────
-const ZONE_ANIMATION_CSS: Record<string, string> = {
-  none: "",
-  fadeIn: "animate-[widgetFadeIn_0.8s_ease-out_both]",
-  slideUp: "animate-[widgetSlideUp_0.6s_ease-out_both]",
-  bounce: "animate-[widgetBounce_0.8s_ease-out_both]",
-  zoomIn: "animate-[widgetZoomIn_0.5s_ease-out_both]",
-  flipIn: "animate-[widgetFlipIn_0.7s_ease-out_both]",
-};
-
-function ZoneAnimatedWrapper({ animation, children }: { animation?: string; children: React.ReactNode }) {
-  const anim = animation || "none";
-  if (anim === "none") return <>{children}</>;
-  return <div className={`w-full h-full ${ZONE_ANIMATION_CSS[anim] || ""}`}>{children}</div>;
-}
+// ZoneAnimatedWrapper extracted to src/components/studio/ZoneAnimatedWrapper.tsx
 
 // ── Widget Zone Preview ────────────────────────────────────────────
 function WidgetZonePreview({ config }: { config: WidgetConfig }) {
@@ -3321,27 +3278,7 @@ TW_DISTRICTS["台中市"] = TW_DISTRICTS["臺中市"];
 TW_DISTRICTS["台南市"] = TW_DISTRICTS["臺南市"];
 TW_DISTRICTS["台東縣"] = TW_DISTRICTS["臺東縣"];
 
-// ── Pill-shaped colour swatch (label wraps a hidden input for click-to-pick) ──
-function ColorSwatchInput({ value, onChange, fallback = "#000000", disabled = false }: {
-  value: string; onChange: (v: string) => void; fallback?: string; disabled?: boolean;
-}) {
-  const display = (value === "transparent" || !value) ? fallback : value;
-  return (
-    <label className="relative flex-1 min-w-0 h-8 block cursor-pointer">
-      <div
-        className="absolute inset-0 rounded-full border border-input"
-        style={{ background: display, opacity: disabled ? 0.45 : 1 }}
-      />
-      <input
-        type="color"
-        value={display}
-        onChange={(e) => { if (!disabled) onChange(e.target.value); }}
-        disabled={disabled}
-        className="absolute inset-0 opacity-0 w-full h-full cursor-pointer disabled:cursor-not-allowed"
-      />
-    </label>
-  );
-}
+// ColorSwatchInput extracted to src/components/studio/ColorSwatchInput.tsx
 
 // ── Announcement scope picker (org + team dropdowns with auto-fill) ──────────
 // ── QueueScopePicker ──────────────────────────────────────────────────────────
