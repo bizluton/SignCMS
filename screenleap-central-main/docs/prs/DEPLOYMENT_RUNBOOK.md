@@ -524,14 +524,38 @@ DROP FUNCTION IF EXISTS public.purge_playback_logs_batched(interval, int, int);
 
 ---
 
+## 3.6 PR-3 + `signcms-mcp` 拆分（commit 1186467）
+
+`signcms-mcp/index.ts` (1427 行) 拆成 6 個 sibling 檔（shared.ts /
+auth.ts / oauth.ts / tools.ts / llm-proxy.ts + index.ts dispatcher）。
+**無語意變更**，但因為 Edge Function 部署是整個目錄一起上，需要驗證
+Supabase 真的有把 5 個新檔案傳上去。
+
+部署後 smoke test：
+
+- [ ] **GET /functions/v1/signcms-mcp**（無 auth）→ 應回
+  `{ name: "signcms-mcp", tools_count: 22, ... }`（200）。
+- [ ] **GET /functions/v1/signcms-mcp/.well-known/oauth-authorization-server**
+  → 應回 OAuth metadata JSON（200）。
+- [ ] **POST /functions/v1/signcms-mcp** 未帶 Authorization → 401 +
+  `WWW-Authenticate` header（OAuth 觸發點）。
+- [ ] **MCP token 走 JSON-RPC**：用合法 MCP token 打 `tools/list` →
+  回 22 個 tool 定義。
+- [ ] **`tools/call` get_screens**：應正常回該 org 的螢幕列表。
+- [ ] **Claude.ai 端**：嘗試重連 SignCMS MCP server → OAuth 流程跑得起來。
+
+回滾：`git revert 1186467` —— sibling 檔案會跟著回到不存在；index.ts
+回到 monolith 版本。
+
+---
+
 ## 4. 全部完成後 — 收尾
 
 - [ ] 在工程 Slack / Notion 發布部署完成通知，附本 runbook 連結。
 - [ ] 把 `pre-deploy-master.txt` 內容保留（紀錄 baseline）。
 - [ ] **3 天後**確認 prod 穩定，把 PR 文件中標示為 "Out of Scope" 的工作排進下一輪 sprint：
-  - 拆 `ContentStudioPage` / `translations.ts` / `signcms-mcp`
+  - 拆 `ContentStudioPage` / `translations.ts`
   - regenerate `supabase types.ts` → 清掉 cast
-  - 27 個 migration 內硬編碼 UUID 全面 cleanup
   - `playback_logs` monthly partitioning
   - `media_items` soft-delete 搬 RLS
   - `MQTT_ALLOW_SHARED_PASSWORD=false`（等所有 player 升完）
