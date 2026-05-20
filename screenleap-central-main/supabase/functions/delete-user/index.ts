@@ -1,16 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsHeaders, corsPreflight } from "../_shared/cors.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return corsPreflight(req);
 
   try {
     const authHeader = req.headers.get("authorization");
-    if (!authHeader) return json({ error: "Missing authorization" }, 401);
+    if (!authHeader) return json(req, { error: "Missing authorization" }, 401);
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -20,7 +16,7 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: { user: callingUser }, error: authError } = await userClient.auth.getUser();
-    if (authError || !callingUser) return json({ error: "Unauthorized" }, 401);
+    if (authError || !callingUser) return json(req, { error: "Unauthorized" }, 401);
 
     const body = await req.json().catch(() => ({}));
     const { target_user_id, org_id } = body as {
@@ -29,21 +25,21 @@ Deno.serve(async (req) => {
     };
 
     if (!target_user_id || typeof target_user_id !== "string") {
-      return json({ error: "Missing target_user_id" }, 400);
+      return json(req, { error: "Missing target_user_id" }, 400);
     }
 
     const adminClient = createClient(supabaseUrl, supabaseServiceKey);
 
     // Cannot delete self.
     if (target_user_id === callingUser.id) {
-      return json({ error: "Cannot delete yourself" }, 403);
+      return json(req, { error: "Cannot delete yourself" }, 403);
     }
 
     // Cannot delete a system admin.
     const { data: targetSysAdmin } = await adminClient
       .from("system_admins").select("id").eq("user_id", target_user_id).maybeSingle();
     if (targetSysAdmin) {
-      return json({ error: "Cannot delete system administrator" }, 403);
+      return json(req, { error: "Cannot delete system administrator" }, 403);
     }
 
     // ── Org-scoped authorization ─────────────────────────────────────────
@@ -58,7 +54,7 @@ Deno.serve(async (req) => {
 
     if (!callerIsSystemAdmin) {
       if (!org_id || typeof org_id !== "string") {
-        return json({ error: "org_id is required for non-system admins" }, 400);
+        return json(req, { error: "org_id is required for non-system admins" }, 400);
       }
 
       const [{ data: callerRoles }, { data: inOrg }, { data: targetInOrg }] = await Promise.all([
@@ -73,10 +69,10 @@ Deno.serve(async (req) => {
       const roles = new Set((callerRoles || []).map((r: any) => r.role));
       const isAdminInOrg = roles.has("admin") || roles.has("org_admin");
       if (!inOrg || !isAdminInOrg) {
-        return json({ error: "Not an admin of this organization" }, 403);
+        return json(req, { error: "Not an admin of this organization" }, 403);
       }
       if (!targetInOrg) {
-        return json({ error: "Target user is not in this organization" }, 403);
+        return json(req, { error: "Target user is not in this organization" }, 403);
       }
     }
 
@@ -130,18 +126,18 @@ Deno.serve(async (req) => {
     await adminClient.from("profiles").delete().eq("user_id", target_user_id);
 
     const { error: delErr } = await adminClient.auth.admin.deleteUser(target_user_id);
-    if (delErr) return json({ error: delErr.message }, 500);
+    if (delErr) return json(req, { error: delErr.message }, 500);
 
-    return json({ success: true });
+    return json(req, { success: true });
   } catch (error: any) {
     console.error("delete-user error:", error);
-    return json({ error: error?.message || "Internal error" }, 500);
+    return json(req, { error: error?.message || "Internal error" }, 500);
   }
 });
 
-function json(body: unknown, status = 200) {
+function json(req: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders(req), "Content-Type": "application/json" },
   });
 }

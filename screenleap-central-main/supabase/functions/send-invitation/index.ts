@@ -5,12 +5,7 @@ import {
   Body, Button, Container, Head, Heading, Html, Preview, Text, Link,
 } from 'npm:@react-email/components@0.0.22'
 import { getOrCreateUnsubscribeToken } from '../_shared/unsubscribeToken.ts'
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers':
-    'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
-}
+import { corsHeaders, corsPreflight } from '../_shared/cors.ts'
 
 const SITE_NAME = 'SignCMS'
 const SENDER_DOMAIN = 'signcms.net'
@@ -60,7 +55,7 @@ const footer = { fontSize: '12px', color: '#999999', margin: '30px 0 0' }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders })
+    return corsPreflight(req)
   }
 
   try {
@@ -72,7 +67,7 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
       })
     }
 
@@ -81,7 +76,7 @@ Deno.serve(async (req) => {
     )
     if (authError || !user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
       })
     }
 
@@ -95,7 +90,7 @@ Deno.serve(async (req) => {
 
     if (!roleRows || roleRows.length === 0) {
       return new Response(JSON.stringify({ error: 'Forbidden: admin or org_admin only' }), {
-        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 403, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
       })
     }
 
@@ -103,7 +98,7 @@ Deno.serve(async (req) => {
 
     if (!email || !org_id) {
       return new Response(JSON.stringify({ error: 'email and org_id are required' }), {
-        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
       })
     }
 
@@ -121,7 +116,7 @@ Deno.serve(async (req) => {
       })
       if (!inOrg) {
         return new Response(JSON.stringify({ error: 'Not in this organization' }), {
-          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 403, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
         })
       }
     }
@@ -141,7 +136,7 @@ Deno.serve(async (req) => {
 
       if (existingInv) {
         return new Response(JSON.stringify({ error: 'Invitation already sent to this email' }), {
-          status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 409, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
         })
       }
     }
@@ -169,7 +164,7 @@ Deno.serve(async (req) => {
     if (invError) {
       console.error('Failed to create invitation', invError)
       return new Response(JSON.stringify({ error: invError.message }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
       })
     }
 
@@ -217,17 +212,17 @@ Deno.serve(async (req) => {
     if (enqueueError) {
       console.error('Failed to enqueue invitation email', enqueueError)
       return new Response(JSON.stringify({ error: 'Failed to send email' }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
       })
     }
 
     return new Response(JSON.stringify({ success: true, invitation_id: invitation.id }), {
-      status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 200, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
     })
   } catch (error) {
     console.error('send-invitation error:', error)
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }), {
-      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
     })
   }
 })

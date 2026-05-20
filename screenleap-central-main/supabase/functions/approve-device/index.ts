@@ -5,17 +5,12 @@
 // 4. Updates registration → approved  5. Broadcasts token to waiting device via Realtime
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { corsHeaders, corsPreflight } from "../_shared/cors.ts";
 
-const CORS = {
-  "Access-Control-Allow-Origin":  "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
-
-function json(body: unknown, status = 200) {
+function json(req: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS, "Content-Type": "application/json" },
+    headers: { ...corsHeaders(req), "Content-Type": "application/json" },
   });
 }
 
@@ -36,8 +31,8 @@ function randomDigits6(): string {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
-  if (req.method !== "POST")    return json({ ok: false, error: "method_not_allowed" }, 405);
+  if (req.method === "OPTIONS") return corsPreflight(req);
+  if (req.method !== "POST")    return json(req, { ok: false, error: "method_not_allowed" }, 405);
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -45,13 +40,13 @@ Deno.serve(async (req) => {
 
   // Auth: must be an org admin or system admin
   const authHeader = req.headers.get("authorization");
-  if (!authHeader) return json({ ok: false, error: "unauthorized" }, 401);
+  if (!authHeader) return json(req, { ok: false, error: "unauthorized" }, 401);
 
   const userClient = createClient(SUPABASE_URL, ANON_KEY, {
     global: { headers: { authorization: authHeader } },
   });
   const { data: { user }, error: authErr } = await userClient.auth.getUser();
-  if (authErr || !user) return json({ ok: false, error: "unauthorized" }, 401);
+  if (authErr || !user) return json(req, { ok: false, error: "unauthorized" }, 401);
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -59,7 +54,7 @@ Deno.serve(async (req) => {
 
   let body: Record<string, unknown>;
   try { body = await req.json(); }
-  catch { return json({ ok: false, error: "invalid_json" }, 400); }
+  catch { return json(req, { ok: false, error: "invalid_json" }, 400); }
 
   const { registrationId, screenName, channelId } = body as {
     registrationId: string;
@@ -67,8 +62,8 @@ Deno.serve(async (req) => {
     channelId?:     string;
   };
 
-  if (!registrationId) return json({ ok: false, error: "registration_id_required" }, 400);
-  if (!screenName)      return json({ ok: false, error: "screen_name_required" }, 400);
+  if (!registrationId) return json(req, { ok: false, error: "registration_id_required" }, 400);
+  if (!screenName)      return json(req, { ok: false, error: "screen_name_required" }, 400);
 
   // Fetch the pending registration
   const { data: reg } = await admin
@@ -77,8 +72,8 @@ Deno.serve(async (req) => {
     .eq("id", registrationId)
     .maybeSingle();
 
-  if (!reg)                   return json({ ok: false, error: "registration_not_found" }, 404);
-  if (reg.status !== "pending") return json({ ok: false, error: "not_pending" }, 409);
+  if (!reg)                   return json(req, { ok: false, error: "registration_not_found" }, 404);
+  if (reg.status !== "pending") return json(req, { ok: false, error: "not_pending" }, 409);
 
   // Permission check: caller must be in the same org
   const { data: roles } = await admin
@@ -89,7 +84,7 @@ Deno.serve(async (req) => {
 
   const isOrgAdmin = roles?.some(r => ["org_admin", "admin"].includes(r.role));
   const { data: sysAdmin } = await admin.rpc("is_system_admin", { _uid: user.id });
-  if (!isOrgAdmin && !sysAdmin) return json({ ok: false, error: "permission_denied" }, 403);
+  if (!isOrgAdmin && !sysAdmin) return json(req, { ok: false, error: "permission_denied" }, 403);
 
   // 1. Generate device token (64-char hex = 32 bytes)
   const deviceToken  = randomHex(32);
@@ -117,7 +112,7 @@ Deno.serve(async (req) => {
 
   if (screenErr || !screen) {
     console.error("screen insert error:", screenErr);
-    return json({ ok: false, error: "screen_create_failed" }, 500);
+    return json(req, { ok: false, error: "screen_create_failed" }, 500);
   }
 
   // 4. Create device license (code: 6-digit auto-generated, crypto-secure)
@@ -158,7 +153,7 @@ Deno.serve(async (req) => {
       payload: { deviceToken, screenId: screen.id },
     });
 
-  return json({
+  return json(req, {
     ok:          true,
     screenId:    screen.id,
     deviceToken,

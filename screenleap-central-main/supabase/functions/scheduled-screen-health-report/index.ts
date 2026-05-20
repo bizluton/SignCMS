@@ -5,11 +5,7 @@
 // via the existing send-transactional-email function.
 
 import { createClient } from 'npm:@supabase/supabase-js@2'
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+import { corsHeaders, corsPreflight } from '../_shared/cors.ts'
 
 interface ScreenRow {
   id: string
@@ -46,16 +42,16 @@ function parseJwtClaims(authHeader: string | null): Record<string, any> | null {
   }
 }
 
-function jsonResponse(body: unknown, status = 200) {
+function jsonResponse(req: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
   })
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return corsPreflight(req)
   }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -69,7 +65,7 @@ Deno.serve(async (req: Request) => {
   //                        the caller is admin/org_admin/system_admin of that org.
   const authHeader = req.headers.get('authorization')
   const claims = parseJwtClaims(authHeader)
-  if (!claims) return jsonResponse({ ok: false, error: 'unauthorized' }, 401)
+  if (!claims) return jsonResponse(req, { ok: false, error: 'unauthorized' }, 401)
   const callerRole = String(claims.role || '')
   const callerUserId: string | undefined = claims.sub
   const isService = callerRole === 'service_role'
@@ -88,16 +84,16 @@ Deno.serve(async (req: Request) => {
   // Non-cron (user) callers must specify a single schedule_id and be an admin
   // of the schedule's org. They cannot trigger a global fan-out.
   if (!isService) {
-    if (!callerUserId) return jsonResponse({ ok: false, error: 'unauthorized' }, 401)
+    if (!callerUserId) return jsonResponse(req, { ok: false, error: 'unauthorized' }, 401)
     if (!onlyScheduleId) {
-      return jsonResponse({ ok: false, error: 'schedule_id required' }, 403)
+      return jsonResponse(req, { ok: false, error: 'schedule_id required' }, 403)
     }
     const { data: sched } = await supabase
       .from('screen_health_report_schedules')
       .select('org_id')
       .eq('id', onlyScheduleId)
       .maybeSingle()
-    if (!sched) return jsonResponse({ ok: false, error: 'schedule not found' }, 404)
+    if (!sched) return jsonResponse(req, { ok: false, error: 'schedule not found' }, 404)
 
     const [{ data: callerRoles }, { data: sysAdmin }, { data: inOrg }] = await Promise.all([
       supabase.from('user_roles').select('role').eq('user_id', callerUserId),
@@ -107,7 +103,7 @@ Deno.serve(async (req: Request) => {
     const roleSet = new Set((callerRoles || []).map((r: any) => r.role))
     const isAdmin = !!sysAdmin || roleSet.has('admin') || roleSet.has('org_admin')
     if (!isAdmin || !inOrg) {
-      return jsonResponse({ ok: false, error: 'forbidden' }, 403)
+      return jsonResponse(req, { ok: false, error: 'forbidden' }, 403)
     }
   }
 
@@ -122,7 +118,7 @@ Deno.serve(async (req: Request) => {
   if (schedErr) {
     return new Response(JSON.stringify({ ok: false, error: schedErr.message }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
     })
   }
 
@@ -328,6 +324,6 @@ Deno.serve(async (req: Request) => {
 
   return new Response(
     JSON.stringify({ ok: true, processed: results.length, results }),
-    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    { headers: { ...corsHeaders(req), 'Content-Type': 'application/json' } },
   )
 })

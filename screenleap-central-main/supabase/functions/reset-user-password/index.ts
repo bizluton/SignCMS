@@ -1,17 +1,13 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsHeaders, corsPreflight } from "../_shared/cors.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method === "OPTIONS") return corsPreflight(req);
 
   try {
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
-      return json({ error: "Missing authorization" }, 401);
+      return json(req, { error: "Missing authorization" }, 401);
     }
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -22,7 +18,7 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: { user: callingUser }, error: authError } = await userClient.auth.getUser();
-    if (authError || !callingUser) return json({ error: "Unauthorized" }, 401);
+    if (authError || !callingUser) return json(req, { error: "Unauthorized" }, 401);
 
     const body = await req.json().catch(() => ({}));
     const { target_user_id, mode, new_password, org_id } = body as {
@@ -33,14 +29,14 @@ Deno.serve(async (req) => {
     };
 
     if (!target_user_id || typeof target_user_id !== "string") {
-      return json({ error: "Missing target_user_id" }, 400);
+      return json(req, { error: "Missing target_user_id" }, 400);
     }
     if (mode !== "email" && mode !== "password") {
-      return json({ error: "Invalid mode" }, 400);
+      return json(req, { error: "Invalid mode" }, 400);
     }
     if (mode === "password") {
       if (!new_password || typeof new_password !== "string" || new_password.length < 8 || new_password.length > 72) {
-        return json({ error: "Password must be 8-72 characters" }, 400);
+        return json(req, { error: "Password must be 8-72 characters" }, 400);
       }
     }
 
@@ -54,7 +50,7 @@ Deno.serve(async (req) => {
     const callerIsSystemAdmin = !!callerSysAdmin;
 
     if (targetSysAdmin && !callerIsSystemAdmin) {
-      return json({ error: "Cannot reset system administrator" }, 403);
+      return json(req, { error: "Cannot reset system administrator" }, 403);
     }
 
     // ── Org-scoped authorization ─────────────────────────────────────────
@@ -64,7 +60,7 @@ Deno.serve(async (req) => {
     // overlapping membership unlock cross-org password resets.
     if (!callerIsSystemAdmin) {
       if (!org_id || typeof org_id !== "string") {
-        return json({ error: "org_id is required for non-system admins" }, 400);
+        return json(req, { error: "org_id is required for non-system admins" }, 400);
       }
 
       const [{ data: callerRoles }, { data: inOrg }, { data: targetInOrg }] = await Promise.all([
@@ -79,16 +75,16 @@ Deno.serve(async (req) => {
       const roles = new Set((callerRoles || []).map((r: any) => r.role));
       const isAdminInOrg = roles.has("admin") || roles.has("org_admin");
       if (!inOrg || !isAdminInOrg) {
-        return json({ error: "Not an admin of this organization" }, 403);
+        return json(req, { error: "Not an admin of this organization" }, 403);
       }
       if (!targetInOrg) {
-        return json({ error: "Target user is not in this organization" }, 403);
+        return json(req, { error: "Target user is not in this organization" }, 403);
       }
     }
 
     // Get target user's email
     const { data: targetUser, error: getErr } = await adminClient.auth.admin.getUserById(target_user_id);
-    if (getErr || !targetUser?.user?.email) return json({ error: "Target user not found" }, 404);
+    if (getErr || !targetUser?.user?.email) return json(req, { error: "Target user not found" }, 404);
     const targetEmail = targetUser.user.email;
 
     // Resolve audit info
@@ -115,10 +111,10 @@ Deno.serve(async (req) => {
       const { error: updErr } = await adminClient.auth.admin.updateUserById(target_user_id, {
         password: new_password,
       });
-      if (updErr) return json({ error: updErr.message }, 500);
+      if (updErr) return json(req, { error: updErr.message }, 500);
       await notifyUser(adminClient, target_user_id, "password");
       await logAudit(adminClient, req, callingUser.id, target_user_id, targetName, targetEmail, targetOrgId, targetOrgName, "reset_password_manual");
-      return json({ success: true, mode: "password" });
+      return json(req, { success: true, mode: "password" });
     }
 
     // mode === email: send reset email via recovery link
@@ -127,19 +123,19 @@ Deno.serve(async (req) => {
     const { error: linkErr } = await adminClient.auth.resetPasswordForEmail(targetEmail, {
       redirectTo,
     });
-    if (linkErr) return json({ error: linkErr.message }, 500);
+    if (linkErr) return json(req, { error: linkErr.message }, 500);
     await notifyUser(adminClient, target_user_id, "email");
     await logAudit(adminClient, req, callingUser.id, target_user_id, targetName, targetEmail, targetOrgId, targetOrgName, "reset_password_email");
-    return json({ success: true, mode: "email", email: targetEmail });
+    return json(req, { success: true, mode: "email", email: targetEmail });
   } catch (error: any) {
-    return json({ error: error?.message || "Unknown error" }, 500);
+    return json(req, { error: error?.message || "Unknown error" }, 500);
   }
 });
 
-function json(body: unknown, status = 200) {
+function json(req: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders(req), "Content-Type": "application/json" },
   });
 }
 

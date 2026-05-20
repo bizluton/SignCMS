@@ -15,26 +15,21 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.99.3";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { corsHeaders, corsPreflight } from "../_shared/cors.ts";
 
 const BUCKET = "media";
 
-function err(body: Record<string, unknown>, status: number) {
+function err(req: Request, body: Record<string, unknown>, status: number) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders(req), "Content-Type": "application/json" },
   });
 }
 
-function ok(body: Record<string, unknown>) {
+function ok(req: Request, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
     status: 200,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders(req), "Content-Type": "application/json" },
   });
 }
 
@@ -52,12 +47,12 @@ async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return corsPreflight(req);
 
   try {
     // ── Auth ─────────────────────────────────────────────────────────────────
     const authHeader = req.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) return err({ error: "Unauthorized" }, 401);
+    if (!authHeader?.startsWith("Bearer ")) return err(req, { error: "Unauthorized" }, 401);
 
     const supabaseUrl        = Deno.env.get("SUPABASE_URL")!;
     const supabaseAnonKey    = Deno.env.get("SUPABASE_ANON_KEY")!;
@@ -68,7 +63,7 @@ Deno.serve(async (req) => {
     });
     const token = authHeader.slice("Bearer ".length);
     const { data: claimsData, error: claimsError } = await userClient.auth.getClaims(token);
-    if (claimsError || !claimsData?.claims) return err({ error: "Unauthorized" }, 401);
+    if (claimsError || !claimsData?.claims) return err(req, { error: "Unauthorized" }, 401);
 
     const userId  = claimsData.claims.sub as string;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -92,7 +87,7 @@ Deno.serve(async (req) => {
     //
     // Note: the previous version only checked "is this user in ANY team / role",
     // which let a member of org A upload into org B by sending org_id=B.
-    if (!orgId) return err({ error: "org_id is required" }, 400);
+    if (!orgId) return err(req, { error: "org_id is required" }, 400);
 
     const [
       { data: inOrg },
@@ -128,7 +123,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (!authorized) return err({ error: "Forbidden" }, 403);
+    if (!authorized) return err(req, { error: "Forbidden" }, 403);
 
     const widthRaw          = formData.get("width")            as string | null;
     const heightRaw         = formData.get("height")           as string | null;
@@ -140,18 +135,18 @@ Deno.serve(async (req) => {
     const needsTranscode    = formData.get("needs_transcode") === "true";
 
     // ── Basic validation ──────────────────────────────────────────────────────
-    if (!file) return err({ error: "No file provided" }, 400);
+    if (!file) return err(req, { error: "No file provided" }, 400);
 
     if (
       file.name.startsWith("data:") ||
       name.startsWith("data:")       ||
       originalName.startsWith("data:")
-    ) return err({ error: "base64_not_allowed" }, 400);
+    ) return err(req, { error: "base64_not_allowed" }, 400);
 
     // md5 is still accepted from clients for backward compat; validate format
     // if provided, but no longer required (sha256 is now the authoritative hash).
     if (md5Client && !/^[a-f0-9]{32}$/.test(md5Client)) {
-      return err({ error: "invalid_md5" }, 400);
+      return err(req, { error: "invalid_md5" }, 400);
     }
 
     // ── Compute SHA-256 server-side (CAS Phase 2) ─────────────────────────────
@@ -195,7 +190,7 @@ Deno.serve(async (req) => {
 
     // 1 → 409: same content already exists in this org
     if (orgSha256Res.data) {
-      return err({
+      return err(req, {
         error:         "duplicate_file",
         original_name: (orgSha256Res.data as any).original_name,
         dedup_by:      "sha256",
@@ -204,7 +199,7 @@ Deno.serve(async (req) => {
 
     // 3 → 409: legacy md5+size match in same org
     if (orgMd5Res.data) {
-      return err({
+      return err(req, {
         error:         "duplicate_file",
         original_name: (orgMd5Res.data as any).original_name,
         dedup_by:      "md5",
@@ -234,7 +229,7 @@ Deno.serve(async (req) => {
         const alreadyExists = /already exists/i.test(msg) || (uploadError as any).statusCode === "409";
         if (!alreadyExists) {
           console.error("Storage upload error:", uploadError);
-          return err({ error: "Storage upload failed", detail: msg }, 500);
+          return err(req, { error: "Storage upload failed", detail: msg }, 500);
         }
         // Storage object exists (concurrent upload race) — fall through and get URL
       }
@@ -289,18 +284,18 @@ Deno.serve(async (req) => {
       console.error("Insert error:", insertError);
       const msg = insertError.message || "";
       if (msg.includes("media_capacity_exceeded")) {
-        return err({ error: "media_capacity_exceeded" }, 413);
+        return err(req, { error: "media_capacity_exceeded" }, 413);
       }
       if (
         (insertError as any).code === "23505" ||
         /media_items_org_sha256_uniq|media_items_org_md5_size_uniq/.test(msg)
       ) {
-        return err({ error: "duplicate_file", dedup_by: "db_constraint" }, 409);
+        return err(req, { error: "duplicate_file", dedup_by: "db_constraint" }, 409);
       }
-      return err({ error: "Failed to save media" }, 500);
+      return err(req, { error: "Failed to save media" }, 500);
     }
 
-    return ok({
+    return ok(req, {
       success:          true,
       id:               inserted.id,
       url:              publicUrl,
@@ -311,6 +306,6 @@ Deno.serve(async (req) => {
 
   } catch (e) {
     console.error("Upload error:", e);
-    return err({ error: "Upload failed" }, 500);
+    return err(req, { error: "Upload failed" }, 500);
   }
 });
