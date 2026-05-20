@@ -34,6 +34,7 @@
 //   }
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { bearerEquals } from "../_shared/timingSafeEqual.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin":  "*",
@@ -80,9 +81,8 @@ Deno.serve(async (req) => {
   const SUPABASE_URL   = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_ROLE   = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-  const authHeader = req.headers.get("authorization") ?? "";
-  const callerKey  = authHeader.replace(/^Bearer\s+/i, "");
-  if (!callerKey || callerKey !== SERVICE_ROLE) {
+  const authHeader = req.headers.get("authorization");
+  if (!bearerEquals(authHeader, SERVICE_ROLE)) {
     return json({ ok: false, error: "unauthorized" }, 401);
   }
 

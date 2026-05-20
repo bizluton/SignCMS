@@ -7,6 +7,7 @@ import { MagicLinkEmail } from '../_shared/email-templates/magic-link.tsx'
 import { RecoveryEmail } from '../_shared/email-templates/recovery.tsx'
 import { EmailChangeEmail } from '../_shared/email-templates/email-change.tsx'
 import { ReauthenticationEmail } from '../_shared/email-templates/reauthentication.tsx'
+import { bearerEquals } from '../_shared/timingSafeEqual.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -140,7 +141,7 @@ async function handleWebhook(req: Request): Promise<Response> {
   }
 
   const authHeader = req.headers.get('Authorization')
-  if (authHeader !== `Bearer ${hookSecret}`) {
+  if (!bearerEquals(authHeader, hookSecret)) {
     console.error('Invalid hook secret')
     return new Response(JSON.stringify({ error: 'Unauthorized' }), {
       status: 401,

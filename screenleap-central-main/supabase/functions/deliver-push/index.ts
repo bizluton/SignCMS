@@ -13,6 +13,7 @@ import {
   sendNotification,
   setVapidDetails,
 } from "npm:web-push@3.6.7";
+import { bearerEquals } from "../_shared/timingSafeEqual.ts";
 
 // ── CORS (only DB/internal calls; add origins if needed) ─────────────────────
 const CORS = {
@@ -66,9 +67,9 @@ Deno.serve(async (req) => {
   if (req.method !== "POST")    return json({ error: "Method not allowed" }, 405);
 
   // ── Auth: verify shared delivery key ────────────────────────────────────
-  const deliveryKey  = Deno.env.get("PUSH_DELIVERY_KEY") ?? "";
-  const authorization = req.headers.get("authorization") ?? "";
-  if (!deliveryKey || authorization !== `Bearer ${deliveryKey}`) {
+  const deliveryKey   = Deno.env.get("PUSH_DELIVERY_KEY") ?? "";
+  const authorization = req.headers.get("authorization");
+  if (!bearerEquals(authorization, deliveryKey)) {
     return json({ error: "Unauthorized" }, 401);
   }
 
