@@ -64,7 +64,7 @@ Deno.serve(async (req) => {
 
     // Only the system admin bypasses org-scope check.
     // Regular admin/org_admin (even with admin role) must share an org with target.
-    if (!isSystemAdmin) {
+    if (!callerIsSystemAdmin) {
       const [{ data: callerOrgIds }, { data: targetOrgIds }] = await Promise.all([
         adminClient.rpc("get_user_org_ids", { _user_id: callingUser.id }),
         adminClient.rpc("get_user_org_ids", { _user_id: target_user_id }),
