@@ -73,21 +73,6 @@ Deno.serve(async (req) => {
     const userId  = claimsData.claims.sub as string;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // ── Permission check (admin / org_admin / cs_agent / team member) ────────
-    const [roleRes, csRes, memberRes] = await Promise.all([
-      supabase.from("user_roles").select("role")
-        .eq("user_id", userId).in("role", ["admin", "org_admin"]).limit(1),
-      supabase.from("cs_agents").select("id")
-        .eq("user_id", userId).eq("status", "active").limit(1),
-      supabase.from("team_members").select("id")
-        .eq("user_id", userId).limit(1),
-    ]);
-    const isAuthorized =
-      !!(roleRes.data?.length) ||
-      !!(csRes.data?.length)   ||
-      !!(memberRes.data?.length);
-    if (!isAuthorized) return err({ error: "Forbidden" }, 403);
-
     // ── Parse form data ───────────────────────────────────────────────────────
     const formData     = await req.formData();
     const file         = formData.get("file") as File | null;
@@ -97,6 +82,53 @@ Deno.serve(async (req) => {
     const type         = (formData.get("type")          as string) || "image";
     const orgId        = formData.get("org_id")         as string | null;
     const projectId    = formData.get("design_project_id") as string | null;
+
+    // ── Org-scoped permission check ──────────────────────────────────────────
+    // Caller must either:
+    //   (a) be a member of the target org (user_in_org), OR
+    //   (b) be a system admin (cross-org by design), OR
+    //   (c) be an active CS agent WITH an active, non-expired delegation grant
+    //       from any member of the target org.
+    //
+    // Note: the previous version only checked "is this user in ANY team / role",
+    // which let a member of org A upload into org B by sending org_id=B.
+    if (!orgId) return err({ error: "org_id is required" }, 400);
+
+    const [
+      { data: inOrg },
+      { data: sysAdmin },
+      { data: csAgent },
+    ] = await Promise.all([
+      supabase.rpc("user_in_org", { _user_id: userId, _org_id: orgId }),
+      supabase.from("system_admins").select("id").eq("user_id", userId).maybeSingle(),
+      supabase.from("cs_agents").select("id").eq("user_id", userId).eq("status", "active").maybeSingle(),
+    ]);
+
+    let authorized = !!inOrg || !!sysAdmin;
+
+    if (!authorized && csAgent) {
+      // CS agents only act on orgs that have actively delegated to them.
+      const nowIso = new Date().toISOString();
+      const { data: grants } = await supabase
+        .from("delegation_grants")
+        .select("grantor_id")
+        .eq("grantee_id", userId)
+        .eq("status", "active")
+        .gt("expires_at", nowIso);
+
+      const grantorIds = (grants || []).map((g: any) => g.grantor_id);
+      if (grantorIds.length > 0) {
+        // Does any grantor belong to the target org?
+        const checks = await Promise.all(
+          grantorIds.map((gid: string) =>
+            supabase.rpc("user_in_org", { _user_id: gid, _org_id: orgId })
+          ),
+        );
+        authorized = checks.some((r) => r.data === true);
+      }
+    }
+
+    if (!authorized) return err({ error: "Forbidden" }, 403);
 
     const widthRaw          = formData.get("width")            as string | null;
     const heightRaw         = formData.get("height")           as string | null;
@@ -115,8 +147,6 @@ Deno.serve(async (req) => {
       name.startsWith("data:")       ||
       originalName.startsWith("data:")
     ) return err({ error: "base64_not_allowed" }, 400);
-
-    if (!orgId) return err({ error: "org_id is required" }, 400);
 
     // md5 is still accepted from clients for backward compat; validate format
     // if provided, but no longer required (sha256 is now the authoritative hash).
