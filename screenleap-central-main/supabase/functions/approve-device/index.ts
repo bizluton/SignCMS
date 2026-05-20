@@ -122,13 +122,16 @@ Deno.serve(async (req) => {
     created_by:    user.id,
   });
 
-  // 5. Mark registration as approved
+  // 5. Mark registration as approved.
+  //    Important: do NOT write device_token into the row — it is delivered
+  //    exclusively via the Realtime broadcast below. Persisting the bearer
+  //    token alongside an unauthenticated-readable row has historically
+  //    leaked tokens (see 20260520000002 migration).
   await admin
     .from("device_registrations")
     .update({
       status:      "approved",
       screen_id:   screen.id,
-      device_token: deviceToken,
       approved_at: new Date().toISOString(),
       approved_by: user.id,
       updated_at:  new Date().toISOString(),

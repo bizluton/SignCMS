@@ -26,6 +26,7 @@ Deno.serve(async (req) => {
 
   const SUPABASE_URL  = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_ROLE  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const ANON_KEY      = Deno.env.get("SUPABASE_ANON_KEY")!;
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
@@ -63,12 +64,20 @@ Deno.serve(async (req) => {
 
   if (!org) return json({ ok: false, error: "invalid_join_token" }, 404);
 
-  // Prevent duplicate: if a pending registration with same fingerprint exists,
-  // return the existing one so the device can re-use it after a page reload.
+  // Prevent duplicate: if a pending/approved registration with the same
+  // fingerprint exists, return the existing registrationId so the device
+  // can re-use it after a page reload.
+  //
+  // Security note: we no longer return device_token over HTTP. For an
+  // already-approved registration, we look up the screen's current
+  // device_token and RE-BROADCAST it via the device-reg:<id> Realtime
+  // channel. The device just needs to be subscribed to receive it.
+  // device_token is never sent in this HTTP response — Realtime is the
+  // only delivery path. (See migration 20260520000002.)
   if (fingerprint) {
     const { data: existing } = await admin
       .from("device_registrations")
-      .select("id, status, device_token")
+      .select("id, status, screen_id")
       .eq("org_id", org.id)
       .eq("fingerprint", fingerprint)
       .in("status", ["pending", "approved"])
@@ -77,12 +86,32 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (existing) {
-      if (existing.status === "approved" && existing.device_token) {
+      if (existing.status === "approved" && existing.screen_id) {
+        // Look up the current device_token from screens and re-broadcast.
+        const { data: scr } = await admin
+          .from("screens")
+          .select("id, device_token")
+          .eq("id", existing.screen_id)
+          .maybeSingle();
+        if (scr?.device_token) {
+          try {
+            const realtimeClient = createClient(SUPABASE_URL, ANON_KEY);
+            await realtimeClient
+              .channel(`device-reg:${existing.id}`)
+              .send({
+                type:    "broadcast",
+                event:   "approved",
+                payload: { deviceToken: scr.device_token, screenId: scr.id },
+              });
+          } catch (e) {
+            console.error("rebroadcast failed", e);
+          }
+        }
         return json({
-          ok:            true,
-          registrationId: existing.id,
-          status:        "approved",
-          deviceToken:   existing.device_token,
+          ok:              true,
+          registrationId:  existing.id,
+          status:          "approved",
+          realtimeChannel: `device-reg:${existing.id}`,
         });
       }
       return json({
