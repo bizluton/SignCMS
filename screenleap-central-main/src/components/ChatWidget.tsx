@@ -342,12 +342,19 @@ const ChatWidget = () => {
     toast.success("感謝您的評分！");
   };
 
-  // Poll unread count even when chat is closed
+  // Track unread agent messages when chat is closed (or in AI mode).
+  //
+  // Previously polled every 5s. Now: one initial fetch to discover the
+  // session + seed the count, then a Realtime subscription to bump on each
+  // new agent message. Saves ~12 DB hits/min/user when chat is idle.
   useEffect(() => {
     if (!user) return;
+    if (!(!open || isAI)) return;          // only track while chat is closed / AI mode
 
-    const pollUnread = async () => {
-      // Find the user's open session
+    let cancelled = false;
+    let removeChannel: (() => void) | null = null;
+
+    const init = async () => {
       const { data: sessions } = await supabase
         .from('customer_chat_sessions')
         .select('id')
@@ -356,7 +363,7 @@ const ChatWidget = () => {
         .order('created_at', { ascending: false })
         .limit(1);
 
-      if (!sessions || sessions.length === 0) return;
+      if (cancelled || !sessions || sessions.length === 0) return;
 
       const sid = sessions[0].id;
       if (!sessionId) setSessionId(sid);
@@ -368,15 +375,38 @@ const ChatWidget = () => {
         .eq('sender_type', 'agent')
         .eq('is_read', false);
 
+      if (cancelled) return;
       setUnreadCount(count || 0);
+
+      // Subscribe for incremental updates.
+      const ch = supabase
+        .channel(`chat-unread:${user.id}:${sid}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'customer_chat_messages',
+            filter: `session_id=eq.${sid}`,
+          },
+          (payload: { new: { sender_type?: string; is_read?: boolean } }) => {
+            const m = payload?.new;
+            if (m?.sender_type === 'agent' && m.is_read === false) {
+              setUnreadCount((c) => c + 1);
+            }
+          },
+        )
+        .subscribe();
+
+      removeChannel = () => { supabase.removeChannel(ch); };
     };
 
-    // Only poll when chat is closed or in AI mode
-    if (!open || isAI) {
-      void pollUnread();
-      const id = window.setInterval(pollUnread, 5000);
-      return () => window.clearInterval(id);
-    }
+    void init();
+
+    return () => {
+      cancelled = true;
+      removeChannel?.();
+    };
   }, [user, open, isAI, sessionId]);
 
   // When chat opens in human mode, mark messages as read
@@ -401,21 +431,26 @@ const ChatWidget = () => {
         },
         async () => {
           await syncHumanMessages(sessionId, true);
-        }
+        },
       )
       .subscribe();
 
-    const intervalId = window.setInterval(() => {
-      void syncHumanMessages(sessionId, true);
-    }, 3000);
-
+    // Initial sync to seed the conversation. Subsequent updates ride the
+    // Realtime channel above. The previous 3-second sync interval (~20
+    // DB hits/min/user) was redundant whenever Realtime was working —
+    // we keep a much sparser 60-second fallback to recover from any
+    // dropped postgres_changes event without slamming the DB.
     void syncHumanMessages(sessionId);
 
+    const fallbackId = window.setInterval(() => {
+      void syncHumanMessages(sessionId, true);
+    }, 60_000);
+
     return () => {
-      window.clearInterval(intervalId);
+      window.clearInterval(fallbackId);
       supabase.removeChannel(channel);
     };
-  }, [sessionId, isAI, syncHumanMessages]);
+  }, [sessionId, isAI, syncHumanMessages, user?.id]);
 
   const handleModeSwitch = async (toHuman: boolean) => {
     if (toHuman && !user) {
