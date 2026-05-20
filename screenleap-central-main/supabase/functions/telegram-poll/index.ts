@@ -59,6 +59,17 @@ Deno.serve(async () => {
 
   let totalProcessed = 0;
 
+  // Single-runner gate: refuse to start if another invocation is already
+  // pulling updates. The RPC's 5-minute stale window auto-reclaims locks
+  // left behind by a crashed prior run.
+  const { data: claimed } = await supabase.rpc('claim_telegram_poll_run');
+  if (claimed !== true) {
+    return new Response(
+      JSON.stringify({ skipped: true, reason: 'another_invocation_running' }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  }
+
   const { data: state, error: stateErr } = await supabase
     .from('telegram_bot_state')
     .select('update_offset')
@@ -66,6 +77,7 @@ Deno.serve(async () => {
     .single();
 
   if (stateErr) {
+    await supabase.rpc('release_telegram_poll_run').catch(() => {});
     return new Response(JSON.stringify({ error: stateErr.message }), { status: 500 });
   }
 
@@ -165,5 +177,6 @@ Deno.serve(async () => {
     currentOffset = newOffset;
   }
 
+  await supabase.rpc('release_telegram_poll_run').catch(() => {});
   return new Response(JSON.stringify({ ok: true, processed: totalProcessed, finalOffset: currentOffset }));
 });
