@@ -180,7 +180,7 @@ Deno.serve(async (req) => {
 
     const { data: item, error: itemError } = await supabase
       .from("media_items")
-      .select("id, org_id, md5")
+      .select("id, org_id, md5, sha256")
       .eq("id", mediaId)
       .maybeSingle();
     if (itemError || !item) return json({ error: "media_not_found" }, 404);
@@ -200,8 +200,22 @@ Deno.serve(async (req) => {
     }
     const fileBytes = await dlRes.arrayBuffer();
 
-    // Overwrite in Supabase Storage
-    const storagePath = `${item.org_id}/${item.md5}.mp4`;
+    // Overwrite in Supabase Storage. Use sha256 when available (CAS layout),
+    // fall back to md5 for legacy rows. NEVER fall through to "null" — that
+    // collapses every legacy null-md5 row onto the same path and silently
+    // overwrites other orgs' transcodes.
+    const pathKey = item.sha256 || item.md5;
+    if (!pathKey) {
+      console.error("No sha256 / md5 on media_items row", mediaId);
+      await supabase
+        .from("media_items")
+        .update({ transcode_status: "failed", transcode_error: "missing_content_hash" })
+        .eq("id", mediaId);
+      return json({ error: "missing_content_hash" }, 500);
+    }
+    const storagePath = item.sha256
+      ? `assets/${item.sha256}.mp4`
+      : `${item.org_id}/${item.md5}.mp4`;
     const { error: uploadError } = await supabase.storage
       .from(BUCKET)
       .upload(storagePath, fileBytes, {
