@@ -234,7 +234,23 @@ Deno.serve(async (req) => {
     }
 
     const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
-    const newUrl = pub.publicUrl;
+    // Rewrite host to our CDN (Cloudflare Worker) so player downloads hit
+    // the cache instead of Supabase Storage origin. Matches the same logic
+    // in upload-media. If MEDIA_CDN_BASE_URL is unset, fall through with
+    // the original Supabase URL.
+    const mediaCdnBase = (Deno.env.get("MEDIA_CDN_BASE_URL") ?? "").replace(/\/$/, "");
+    let newUrl = pub.publicUrl;
+    if (mediaCdnBase) {
+      try {
+        const u   = new URL(newUrl);
+        const cdn = new URL(mediaCdnBase);
+        u.protocol = cdn.protocol;
+        u.host     = cdn.host;
+        newUrl = u.toString();
+      } catch {
+        // keep original on parse error
+      }
+    }
 
     const videoTrack = data.tracks?.find((t) => t.type === "video");
 

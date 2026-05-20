@@ -210,9 +210,28 @@ Deno.serve(async (req) => {
     const casPath   = `assets/${sha256}${extStr}`;  // CAS path (global, cross-org)
     let   publicUrl: string;
 
+    // Optional: rewrite the publicUrl host so player downloads hit our
+    // Cloudflare Worker (which caches storage paths for 1 year). At 10k
+    // device scale the Supabase Storage egress saving is real ($0.09/GB).
+    // Set env var MEDIA_CDN_BASE_URL=https://cdn.signcms.net (or whatever
+    // host the worker is mapped to). If unset, fall back to Supabase URL.
+    const mediaCdnBase = (Deno.env.get("MEDIA_CDN_BASE_URL") ?? "").replace(/\/$/, "");
+    const rewriteHost = (raw: string): string => {
+      if (!mediaCdnBase) return raw;
+      try {
+        const u   = new URL(raw);
+        const cdn = new URL(mediaCdnBase);
+        u.protocol = cdn.protocol;
+        u.host     = cdn.host;
+        return u.toString();
+      } catch {
+        return raw;
+      }
+    };
+
     if (globalSha256Res.data?.url) {
       // 2 → reuse existing Storage object from another org; no upload needed
-      publicUrl = globalSha256Res.data.url;
+      publicUrl = rewriteHost(globalSha256Res.data.url);
       console.log(`[upload] cross-org dedup hit: ${sha256.slice(0, 16)}… reusing existing URL`);
     } else {
       // New content — upload to CAS path
@@ -235,7 +254,7 @@ Deno.serve(async (req) => {
       }
 
       const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(casPath);
-      publicUrl = pub.publicUrl;
+      publicUrl = rewriteHost(pub.publicUrl);
     }
 
     const thumbnail = type === "image" ? publicUrl : "";
