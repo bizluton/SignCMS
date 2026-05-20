@@ -19,12 +19,21 @@ class ResendError extends Error {
 }
 
 async function sendResendEmail(payload: any, apiKey: string): Promise<void> {
+  // Provider-side idempotency: Resend dedupes any request with the same
+  // Idempotency-Key for 24h. This is the outer half of the belt-and-suspenders
+  // fix for the queue-worker race (see migration 20260520000009 for the DB
+  // half).
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${apiKey}`,
+    'Content-Type': 'application/json',
+  }
+  if (payload?.message_id && typeof payload.message_id === 'string') {
+    headers['Idempotency-Key'] = payload.message_id
+  }
+
   const resp = await fetch(RESEND_API, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
       from: payload.from,
       to: [payload.to],
@@ -261,12 +270,18 @@ Deno.serve(async (req) => {
       try {
         await sendResendEmail(payload, resendApiKey)
 
-        await supabase.from('email_send_log').insert({
+        const { error: insertErr } = await supabase.from('email_send_log').insert({
           message_id: payload.message_id,
           template_name: payload.label || queue,
           recipient_email: payload.to,
           status: 'sent',
         })
+        // If another worker already inserted a 'sent' row for this
+        // message_id, the partial unique index (email_send_log_message_sent_uniq)
+        // will reject ours with SQLSTATE 23505 — treat that as benign.
+        if (insertErr && insertErr.code !== '23505') {
+          throw insertErr
+        }
 
         const { error: delError } = await supabase.rpc('delete_email', {
           queue_name: queue,
