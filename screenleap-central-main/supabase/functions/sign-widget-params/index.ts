@@ -13,16 +13,12 @@
 // replayed requests older than 1 hour.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { corsHeaders, corsPreflight } from "../_shared/cors.ts";
 
-function json(body: unknown, status = 200) {
+function json(req: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders(req), "Content-Type": "application/json" },
   });
 }
 
@@ -50,12 +46,12 @@ async function hmacSign(secret: string, payload: unknown): Promise<string> {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  if (req.method === "OPTIONS") return corsPreflight(req);
+  if (req.method !== "POST") return json(req, { error: "Method not allowed" }, 405);
 
   // Require user auth
   const authHeader = req.headers.get("authorization");
-  if (!authHeader) return json({ error: "Unauthorized" }, 401);
+  if (!authHeader) return json(req, { error: "Unauthorized" }, 401);
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -64,13 +60,13 @@ Deno.serve(async (req) => {
   );
 
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !user) return json({ error: "Unauthorized" }, 401);
+  if (authErr || !user) return json(req, { error: "Unauthorized" }, 401);
 
   let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+  try { body = await req.json(); } catch { return json(req, { error: "Invalid JSON body" }, 400); }
 
   const { appId, orgId, lang = "zh" } = body as { appId?: string; orgId?: string; lang?: string };
-  if (!appId || !orgId) return json({ error: "appId and orgId are required" }, 400);
+  if (!appId || !orgId) return json(req, { error: "appId and orgId are required" }, 400);
 
   // Verify the caller belongs to the requested org
   const { data: membership } = await supabase
@@ -80,7 +76,7 @@ Deno.serve(async (req) => {
     .eq("org_id", orgId)
     .maybeSingle();
 
-  if (!membership) return json({ error: "Not a member of this org" }, 403);
+  if (!membership) return json(req, { error: "Not a member of this org" }, 403);
 
   // Fetch app secret + install token (service role needed for api_secret)
   const sbService = createClient(
@@ -94,8 +90,8 @@ Deno.serve(async (req) => {
     .eq("id", appId)
     .maybeSingle();
 
-  if (appErr || !app) return json({ error: "App not found" }, 404);
-  if (app.status !== "approved") return json({ error: "App not approved" }, 403);
+  if (appErr || !app) return json(req, { error: "App not found" }, 404);
+  if (app.status !== "approved") return json(req, { error: "App not approved" }, 403);
 
   const { data: install } = await sbService
     .from("org_installed_apps")
@@ -104,7 +100,7 @@ Deno.serve(async (req) => {
     .eq("app_id", appId)
     .maybeSingle();
 
-  if (!install) return json({ error: "App not installed for this org" }, 403);
+  if (!install) return json(req, { error: "App not installed for this org" }, 403);
 
   const ts  = Math.floor(Date.now() / 1000);
   const exp = ts + 3600;
@@ -121,5 +117,5 @@ Deno.serve(async (req) => {
     sig,
   });
 
-  return json({ signedParams: params.toString(), widgetUrl: app.widget_url });
+  return json(req, { signedParams: params.toString(), widgetUrl: app.widget_url });
 });

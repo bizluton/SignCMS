@@ -1,20 +1,16 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
-};
+import { corsHeaders, corsPreflight } from "../_shared/cors.ts";
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return corsPreflight(req);
 
   try {
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Missing auth" }), {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -29,7 +25,7 @@ Deno.serve(async (req) => {
     if (userErr || !userData?.user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
     const user = userData.user;
@@ -39,7 +35,7 @@ Deno.serve(async (req) => {
     if (!request_id || !action || !["accept", "decline"].includes(action)) {
       return new Response(JSON.stringify({ error: "Invalid params" }), {
         status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -54,25 +50,25 @@ Deno.serve(async (req) => {
     if (reqErr || !reqRow) {
       return new Response(JSON.stringify({ error: "Request not found" }), {
         status: 404,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
     if (reqRow.customer_id !== user.id) {
       return new Response(JSON.stringify({ error: "Forbidden" }), {
         status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
     if (reqRow.status !== "pending") {
       return new Response(JSON.stringify({ error: "Already resolved" }), {
         status: 409,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
     if (reqRow.customer_id === reqRow.requester_id) {
       return new Response(
         JSON.stringify({ error: "客戶與客服為同一帳號，無法建立代理授權（請改用其他帳號測試）" }),
-        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        { status: 400, headers: { ...corsHeaders(req), "Content-Type": "application/json" } },
       );
     }
 
@@ -101,7 +97,7 @@ Deno.serve(async (req) => {
       });
 
       return new Response(JSON.stringify({ ok: true, status: "declined" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -123,7 +119,7 @@ Deno.serve(async (req) => {
     if (grantErr || !grant) {
       return new Response(JSON.stringify({ error: grantErr?.message || "Grant failed" }), {
         status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        headers: { ...corsHeaders(req), "Content-Type": "application/json" },
       });
     }
 
@@ -149,12 +145,12 @@ Deno.serve(async (req) => {
     });
 
     return new Response(JSON.stringify({ ok: true, status: "accepted", grant_id: grant.id }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     });
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e) }), {
       status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      headers: { ...corsHeaders(req), "Content-Type": "application/json" },
     });
   }
 });

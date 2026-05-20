@@ -1,9 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { corsHeaders, corsPreflight } from "../_shared/cors.ts";
 
 // Decode a data:<mime>;base64,<payload> URL → { mimeType, bytes }
 function decodeDataUrl(url: string): { mimeType: string; bytes: Uint8Array } | null {
@@ -26,7 +23,7 @@ function extFromMime(mime: string, fallback: string) {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return corsPreflight(req);
 
   try {
     const supabase = createClient(
@@ -36,13 +33,13 @@ Deno.serve(async (req) => {
 
     // Auth check: only system admins can run this
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) return new Response(JSON.stringify({ error: "no auth" }), { status: 401, headers: corsHeaders });
+    if (!authHeader) return new Response(JSON.stringify({ error: "no auth" }), { status: 401, headers: corsHeaders(req) });
     const { data: userData } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
-    if (!userData?.user?.id) return new Response(JSON.stringify({ error: "forbidden" }), { status: 403, headers: corsHeaders });
+    if (!userData?.user?.id) return new Response(JSON.stringify({ error: "forbidden" }), { status: 403, headers: corsHeaders(req) });
     const { data: sysAdminRow } = await supabase
       .from("system_admins").select("id").eq("user_id", userData.user.id).maybeSingle();
     if (!sysAdminRow) {
-      return new Response(JSON.stringify({ error: "forbidden" }), { status: 403, headers: corsHeaders });
+      return new Response(JSON.stringify({ error: "forbidden" }), { status: 403, headers: corsHeaders(req) });
     }
 
     const body = await req.json().catch(() => ({}));
@@ -155,12 +152,12 @@ Deno.serve(async (req) => {
         results,
         remaining: { url_base64: remainingUrl ?? 0, thumbnail_base64: remainingThumb ?? 0 },
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { headers: { ...corsHeaders(req), "Content-Type": "application/json" } },
     );
   } catch (e: any) {
     return new Response(
       JSON.stringify({ error: String(e?.message || e) }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      { status: 500, headers: { ...corsHeaders(req), "Content-Type": "application/json" } },
     );
   }
 });

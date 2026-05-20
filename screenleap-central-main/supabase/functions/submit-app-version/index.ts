@@ -8,25 +8,21 @@
 // Returns: { id, versionTag }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { corsHeaders, corsPreflight } from "../_shared/cors.ts";
 
-function json(body: unknown, status = 200) {
+function json(req: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders(req), "Content-Type": "application/json" },
   });
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  if (req.method === "OPTIONS") return corsPreflight(req);
+  if (req.method !== "POST") return json(req, { error: "Method not allowed" }, 405);
 
   const authHeader = req.headers.get("authorization");
-  if (!authHeader) return json({ error: "Unauthorized" }, 401);
+  if (!authHeader) return json(req, { error: "Unauthorized" }, 401);
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -35,7 +31,7 @@ Deno.serve(async (req) => {
   );
 
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !user) return json({ error: "Unauthorized" }, 401);
+  if (authErr || !user) return json(req, { error: "Unauthorized" }, 401);
 
   const sbService = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -61,16 +57,16 @@ Deno.serve(async (req) => {
     }
   } else {
     let body: Record<string, unknown>;
-    try { body = await req.json(); } catch { return json({ error: "Invalid body" }, 400); }
+    try { body = await req.json(); } catch { return json(req, { error: "Invalid body" }, 400); }
     appId      = String(body.appId      || "");
     versionTag = String(body.versionTag || "");
     widgetUrl  = String(body.widgetUrl  || "");
     changelog  = (body.changelog as Record<string, string>) || {};
   }
 
-  if (!appId || !versionTag) return json({ error: "appId and versionTag are required" }, 400);
+  if (!appId || !versionTag) return json(req, { error: "appId and versionTag are required" }, 400);
   if (!/^\d+\.\d+(\.\d+)?(-\S+)?$/.test(versionTag)) {
-    return json({ error: "versionTag must be semver, e.g. 1.0.0" }, 400);
+    return json(req, { error: "versionTag must be semver, e.g. 1.0.0" }, 400);
   }
 
   // Verify caller owns the app
@@ -80,10 +76,10 @@ Deno.serve(async (req) => {
     .eq("id", appId)
     .maybeSingle();
 
-  if (!app) return json({ error: "App not found" }, 404);
-  if (app.submitted_by !== user.id) return json({ error: "Forbidden" }, 403);
+  if (!app) return json(req, { error: "App not found" }, 404);
+  if (app.submitted_by !== user.id) return json(req, { error: "Forbidden" }, 403);
   if (app.status === "rejected" || app.status === "suspended") {
-    return json({ error: "Cannot submit versions for a rejected or suspended app" }, 403);
+    return json(req, { error: "Cannot submit versions for a rejected or suspended app" }, 403);
   }
 
   // If HTML bytes provided, upload to storage
@@ -97,12 +93,12 @@ Deno.serve(async (req) => {
         cacheControl: "31536000",
         upsert: false,
       });
-    if (upErr) return json({ error: `Upload failed: ${upErr.message}` }, 500);
+    if (upErr) return json(req, { error: `Upload failed: ${upErr.message}` }, 500);
     const { data: pub } = sbService.storage.from("media").getPublicUrl(storagePath);
     widgetUrl = pub.publicUrl;
   }
 
-  if (!widgetUrl) return json({ error: "widgetUrl or html file is required" }, 400);
+  if (!widgetUrl) return json(req, { error: "widgetUrl or html file is required" }, 400);
 
   // Check version tag not already in use
   const { data: existingVer } = await sbService
@@ -112,7 +108,7 @@ Deno.serve(async (req) => {
     .eq("version_tag", versionTag)
     .maybeSingle();
 
-  if (existingVer) return json({ error: "Version tag already exists for this app" }, 409);
+  if (existingVer) return json(req, { error: "Version tag already exists for this app" }, 409);
 
   const { data: inserted, error: insertErr } = await sbService
     .from("store_app_versions")
@@ -127,7 +123,7 @@ Deno.serve(async (req) => {
     .select("id")
     .single();
 
-  if (insertErr) return json({ error: insertErr.message }, 500);
+  if (insertErr) return json(req, { error: insertErr.message }, 500);
 
-  return json({ id: inserted.id, versionTag }, 201);
+  return json(req, { id: inserted.id, versionTag }, 201);
 });

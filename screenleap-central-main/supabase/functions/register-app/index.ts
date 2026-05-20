@@ -18,16 +18,12 @@
 // NOTE: api_secret is returned once here and never again. The developer must store it.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { corsHeaders, corsPreflight } from "../_shared/cors.ts";
 
-function json(body: unknown, status = 200) {
+function json(req: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders(req), "Content-Type": "application/json" },
   });
 }
 
@@ -38,12 +34,12 @@ function randomHex(bytes: number): string {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  if (req.method === "OPTIONS") return corsPreflight(req);
+  if (req.method !== "POST") return json(req, { error: "Method not allowed" }, 405);
 
   // Require user auth
   const authHeader = req.headers.get("authorization");
-  if (!authHeader) return json({ error: "Unauthorized" }, 401);
+  if (!authHeader) return json(req, { error: "Unauthorized" }, 401);
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -52,21 +48,21 @@ Deno.serve(async (req) => {
   );
 
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !user) return json({ error: "Unauthorized" }, 401);
+  if (authErr || !user) return json(req, { error: "Unauthorized" }, 401);
 
   let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+  try { body = await req.json(); } catch { return json(req, { error: "Invalid JSON body" }, 400); }
 
   const { slug, name_i18n, desc_i18n, icon_url, gradient, publisher, website_url, webhook_url, widget_url } = body as Record<string, unknown>;
 
   if (!slug || typeof slug !== "string" || !/^[a-z0-9-]+$/.test(slug)) {
-    return json({ error: "slug must be lowercase alphanumeric with hyphens" }, 400);
+    return json(req, { error: "slug must be lowercase alphanumeric with hyphens" }, 400);
   }
   if (!widget_url || typeof widget_url !== "string") {
-    return json({ error: "widget_url is required" }, 400);
+    return json(req, { error: "widget_url is required" }, 400);
   }
   if (!publisher || typeof publisher !== "string") {
-    return json({ error: "publisher is required" }, 400);
+    return json(req, { error: "publisher is required" }, 400);
   }
 
   // Check slug not already taken
@@ -81,7 +77,7 @@ Deno.serve(async (req) => {
     .eq("slug", slug)
     .maybeSingle();
 
-  if (existing) return json({ error: "slug already registered" }, 409);
+  if (existing) return json(req, { error: "slug already registered" }, 409);
 
   const api_key    = `sak_${randomHex(16)}`;   // Store App Key
   const api_secret = `sas_${randomHex(32)}`;   // Store App Secret
@@ -102,9 +98,9 @@ Deno.serve(async (req) => {
     submitted_by: user.id,
   });
 
-  if (insertErr) return json({ error: insertErr.message }, 500);
+  if (insertErr) return json(req, { error: insertErr.message }, 500);
 
-  return json({
+  return json(req, {
     api_key,
     api_secret,   // returned ONCE — developer must persist this
     message: "App registered. A system admin will review your submission.",

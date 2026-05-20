@@ -6,16 +6,12 @@
 // Returns: { api_secret: string }
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { corsHeaders, corsPreflight } from "../_shared/cors.ts";
 
-function json(body: unknown, status = 200) {
+function json(req: Request, body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...corsHeaders(req), "Content-Type": "application/json" },
   });
 }
 
@@ -26,11 +22,11 @@ function randomHex(bytes: number): string {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
+  if (req.method === "OPTIONS") return corsPreflight(req);
+  if (req.method !== "POST") return json(req, { error: "Method not allowed" }, 405);
 
   const authHeader = req.headers.get("authorization");
-  if (!authHeader) return json({ error: "Unauthorized" }, 401);
+  if (!authHeader) return json(req, { error: "Unauthorized" }, 401);
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -39,13 +35,13 @@ Deno.serve(async (req) => {
   );
 
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
-  if (authErr || !user) return json({ error: "Unauthorized" }, 401);
+  if (authErr || !user) return json(req, { error: "Unauthorized" }, 401);
 
   let body: Record<string, unknown>;
-  try { body = await req.json(); } catch { return json({ error: "Invalid JSON body" }, 400); }
+  try { body = await req.json(); } catch { return json(req, { error: "Invalid JSON body" }, 400); }
 
   const { appId } = body as { appId?: string };
-  if (!appId) return json({ error: "appId is required" }, 400);
+  if (!appId) return json(req, { error: "appId is required" }, 400);
 
   // Verify caller is the submitter
   const { data: app } = await supabase
@@ -54,8 +50,8 @@ Deno.serve(async (req) => {
     .eq("id", appId)
     .maybeSingle();
 
-  if (!app) return json({ error: "App not found" }, 404);
-  if (app.submitted_by !== user.id) return json({ error: "Forbidden — not your app" }, 403);
+  if (!app) return json(req, { error: "App not found" }, 404);
+  if (app.submitted_by !== user.id) return json(req, { error: "Forbidden — not your app" }, 403);
 
   const api_secret = `sas_${randomHex(32)}`;
 
@@ -69,7 +65,7 @@ Deno.serve(async (req) => {
     .update({ api_secret, updated_at: new Date().toISOString() })
     .eq("id", appId);
 
-  if (updateErr) return json({ error: updateErr.message }, 500);
+  if (updateErr) return json(req, { error: updateErr.message }, 500);
 
-  return json({ api_secret });
+  return json(req, { api_secret });
 });
