@@ -3,17 +3,40 @@ import { useNavigate } from "react-router-dom";
 import { Send } from "lucide-react";
 import { clsx } from "clsx";
 
-import type { ChatMessage, MCPToolCall } from "@/types";
+import type { ChatMessage, MCPToolCall, ActionCard } from "@/types";
 import { loadSettings, isConfigured } from "@/store/settings";
 import { makeMCPClient } from "@/lib/mcp";
 import type { MCPTool } from "@/lib/mcp";
 import { getAdapter } from "@/lib/llm";
 import { MessageBubble, TypingIndicator } from "@/components/MessageBubble";
+import { ActionCardView } from "@/components/ActionCard";
 import { StatusBar } from "@/components/StatusBar";
 import { QuickActions } from "@/components/QuickActions";
 import { VoiceButton } from "@/components/VoiceButton";
 import { AttachButton } from "@/components/AttachButton";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
+
+// Tools that always require explicit user confirmation before execution
+const DANGEROUS_TOOLS = new Set([
+  "emergency_broadcast",
+  "delete_media",
+  "delete_screen",
+  "delete_channel",
+]);
+// Tools that require confirmation only when targeting all screens
+const BULK_TOOLS = new Set([
+  "switch_screens_to_channel",
+  "push_content_to_screens",
+  "assign_channel_to_screens",
+]);
+
+function requiresConfirmation(tc: MCPToolCall): boolean {
+  if (DANGEROUS_TOOLS.has(tc.name)) return true;
+  if (BULK_TOOLS.has(tc.name)) {
+    return Object.values(tc.arguments).some((v) => v === "all" || v === "*");
+  }
+  return false;
+}
 
 function makeId() {
   return Math.random().toString(36).slice(2);
@@ -47,8 +70,12 @@ export default function ChatPage() {
   const [tools,       setTools]       = useState<MCPTool[]>([]);
   const [orgSummary,  setOrgSummary]  = useState<{ total: number; online: number; offline: number } | null>(null);
   const [mcpClient,   setMcpClient]   = useState<ReturnType<typeof makeMCPClient> | null>(null);
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [uploading,   setUploading]   = useState(false);
+  const [pendingFile,    setPendingFile]    = useState<File | null>(null);
+  const [uploading,      setUploading]      = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<{
+    card:    ActionCard;
+    resolve: (ok: boolean) => void;
+  } | null>(null);
 
   const { state: pushState, subscribe: subscribePush, unsubscribe: unsubscribePush } = usePushNotifications();
 
@@ -198,6 +225,33 @@ export default function ChatPage() {
         // ── Execute every tool called this turn ────────────────────────────
         const toolResults: string[] = [];
         for (const tc of turnCalls) {
+          // Pause for user confirmation before dangerous or bulk operations
+          if (requiresConfirmation(tc)) {
+            const argSummary = Object.entries(tc.arguments)
+              .map(([k, v]) => `${k}: ${String(v)}`)
+              .join("、") || "（無參數）";
+            const confirmed = await new Promise<boolean>((resolve) => {
+              setPendingConfirm({
+                resolve,
+                card: {
+                  variant:      "confirm",
+                  title:        `確認執行：${tc.name}`,
+                  body:         argSummary,
+                  confirmLabel: "確認執行",
+                  cancelLabel:  "取消",
+                  onConfirm: () => { setPendingConfirm(null); resolve(true); },
+                  onCancel:  () => { setPendingConfirm(null); resolve(false); },
+                },
+              });
+            });
+            if (!confirmed) {
+              const cancelResult = { cancelled: true, reason: "user_rejected" };
+              toolResults.push(`[工具結果 ${tc.name}]: ${JSON.stringify(cancelResult)}`);
+              allToolCalls.push({ tool: tc.name, args: tc.arguments, result: cancelResult, ms: 0 });
+              continue;
+            }
+          }
+
           const t0 = Date.now();
           let resultText = "{}";
           try {
@@ -334,6 +388,13 @@ export default function ChatPage() {
           >
             ×
           </button>
+        </div>
+      )}
+
+      {/* Confirmation gate — shown when a dangerous/bulk tool is awaiting user approval */}
+      {pendingConfirm && (
+        <div className="border-t border-slate-800 bg-slate-900/90 backdrop-blur-sm px-1 py-2">
+          <ActionCardView card={pendingConfirm.card} />
         </div>
       )}
 

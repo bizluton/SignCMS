@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Tags, Plus, X, Check } from "lucide-react";
 import { toast } from "sonner";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { formatUserError } from "@/lib/formatUserError";
 
 export interface MediaTag {
   id: string;
@@ -132,11 +133,11 @@ export function MediaTagEditor({
     if (selectedIds.includes(tagId)) {
       const { error } = await supabase
         .from("media_item_tags").delete().eq("media_id", mediaId).eq("tag_id", tagId);
-      if (error) toast.error(error.message);
+      if (error) toast.error(formatUserError(error, t));
     } else {
       const { error } = await supabase
         .from("media_item_tags").insert({ media_id: mediaId, tag_id: tagId });
-      if (error) toast.error(error.message);
+      if (error) toast.error(formatUserError(error, t));
     }
     onChanged();
     setBusy(false);
@@ -148,7 +149,7 @@ export function MediaTagEditor({
     setBusy(true);
     const { data, error } = await supabase
       .from("media_tags").insert({ org_id: orgId, name }).select("id").single();
-    if (error) { toast.error(error.message); setBusy(false); return; }
+    if (error) { toast.error(formatUserError(error, t)); setBusy(false); return; }
     await supabase.from("media_item_tags").insert({ media_id: mediaId, tag_id: data.id });
     setNewName("");
     onChanged();

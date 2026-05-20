@@ -12,6 +12,7 @@ import { Users, User as UserIcon, Building2 } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 import type { Channel } from "@/hooks/useChannels";
+import { formatUserError } from "@/lib/formatUserError";
 
 const PRESET_COLORS = ["#3b82f6", "#ef4444", "#10b981", "#f59e0b", "#8b5cf6", "#ec4899", "#06b6d4", "#64748b"];
 
@@ -114,7 +115,7 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, onSaved }: P
     }
     if (error) {
       setSaving(false);
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       return;
     }
     setSaving(false);

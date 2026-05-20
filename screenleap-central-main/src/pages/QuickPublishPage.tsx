@@ -43,6 +43,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
+import { formatUserError } from "@/lib/formatUserError";
   STUDIO_DATA_VERSION,
   getStudioName,
   getStudioLayouts,
@@ -503,7 +504,7 @@ function QuickPublishZonePreview({
 }
 
 export default function QuickPublishPage() {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const t = (k: keyof typeof L) => L[k][language];
   const studioText = (key: string) => getStudioName(key, language);
   const { user } = useAuth();
@@ -844,7 +845,7 @@ export default function QuickPublishPage() {
     });
     const { error } = await supabase.from("publish_records").insert(records);
     setPublishing(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     logActivity({
       action: "quick_publish",
       category: "publish",

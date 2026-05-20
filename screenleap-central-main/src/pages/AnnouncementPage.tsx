@@ -23,6 +23,7 @@ import AnnouncementSettings, { type LabelItem, type DbCategory } from "@/compone
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { formatUserError } from "@/lib/formatUserError";
 
 // ── DB types ──────────────────────────────────────────────────────────────────
 interface DbAnnouncement {
@@ -177,13 +178,13 @@ const AnnouncementPage = () => {
       sort_order: categories.length,
       created_by: user?.id,
     });
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, globalT)); return; }
     await loadCategories(activeOrgId);
   };
 
   const handleDeleteCategory = async (id: string) => {
     const { error } = await supabase.from("announcement_categories").delete().eq("id", id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, globalT)); return; }
     if (activeOrgId) await loadCategories(activeOrgId);
   };
 
@@ -320,7 +321,7 @@ const AnnouncementPage = () => {
         end_at:        endDate.toISOString(),
         created_by:    user?.id,
       });
-      if (error) { toast.error(error.message); return; }
+      if (error) { toast.error(formatUserError(error, globalT)); return; }
       toast.success(t("successPublish"));
       setSubject(""); setTeamId(""); setDepartment(""); setCategoryId("");
       setPinned(false); setContent(""); setImageUrl(null);
@@ -336,7 +337,7 @@ const AnnouncementPage = () => {
 
   const handleDelete = async (id: string) => {
     const { error } = await supabase.from("announcements").delete().eq("id", id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, globalT)); return; }
     toast.success(t("deleted"));
     if (activeOrgId) await loadAnnouncements(activeOrgId);
   };
@@ -397,7 +398,7 @@ const AnnouncementPage = () => {
         end_at:        editEndDate.toISOString(),
         updated_at:    new Date().toISOString(),
       }).eq("id", editTarget.id);
-      if (error) { toast.error(error.message); return; }
+      if (error) { toast.error(formatUserError(error, globalT)); return; }
       toast.success(texts.successEdit[language]);
       setEditOpen(false); setEditTarget(null);
       await loadAnnouncements(activeOrgId);

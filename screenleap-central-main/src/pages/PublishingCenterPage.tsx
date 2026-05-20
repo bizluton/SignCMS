@@ -45,6 +45,7 @@ import {
 import SchedulePreviewDialog from "@/components/SchedulePreviewDialog";
 import { SmartTriggerPanel } from "@/components/triggers/SmartTriggerPanel";
 import {
+import { formatUserError } from "@/lib/formatUserError";
   zonedDateTimeToUtc,
   formatDateInTz,
   formatInTz,
@@ -603,7 +604,7 @@ export default function PublishingCenterPage() {
 
     const { error } = await supabase.from("publish_records").insert(inserts);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
     } else {
       setShowSuccess(true);
       setTimeout(() => setShowSuccess(false), 2500);
@@ -668,7 +669,7 @@ export default function PublishingCenterPage() {
 
     const { error } = await supabase.from("publish_records").insert(inserts);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
     } else {
       setShowEmergencySuccess(true);
       setTimeout(() => setShowEmergencySuccess(false), 3000);
@@ -695,7 +696,7 @@ export default function PublishingCenterPage() {
       .eq("status", "emergency");
 
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
     } else {
       setShowRestoreSuccess(true);
       setTimeout(() => setShowRestoreSuccess(false), 2500);

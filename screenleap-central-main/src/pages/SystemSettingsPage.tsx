@@ -27,6 +27,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import DbHealthPanel from "@/components/admin/DbHealthPanel";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface EmailState {
   id: number;
@@ -312,7 +313,7 @@ const SystemSettingsPage = () => {
       setNewTokenPerms(["read", "write"]);
       await loadMcpTokens();
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(formatUserError(e, t));
     } finally {
       setCreatingToken(false);
     }
@@ -336,7 +337,7 @@ const SystemSettingsPage = () => {
       setCreatedRawToken(rawToken);   // reuse the existing QR dialog
       await loadMcpTokens();
     } catch (e: any) {
-      toast.error(e.message);
+      toast.error(formatUserError(e, t));
     } finally {
       setReissuing(false);
     }
@@ -346,7 +347,7 @@ const SystemSettingsPage = () => {
     if (!revokeTarget) return;
     const { error } = await supabase.from("mcp_tokens").delete().eq("id", revokeTarget.id);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
     } else {
       setMcpTokens((prev) => prev.filter((t) => t.id !== revokeTarget.id));
       toast.success(L("mcpRevoked"));

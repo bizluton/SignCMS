@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface DeviceLicense {
   id: string;
@@ -58,6 +60,7 @@ const ERROR_MAP: Record<string, string> = {
 
 
 export default function DeviceLicenseManagement() {
+  const { t } = useLanguage();
   const { isCsAgent } = useUserRole();
   const { isSystemAdmin } = useIsSystemAdmin();
   const canManage = isSystemAdmin || isCsAgent;
@@ -164,7 +167,7 @@ export default function DeviceLicenseManagement() {
       _org_id: orgId,
       _note: note.trim(),
     });
-    if (error) toast.error(error.message);
+    if (error) toast.error(formatUserError(error, t));
     else if (data?.success === false) toast.error(ERROR_MAP[data.error] || data.error);
     else {
       toast.success(`已產生設備授權碼：${data.code}`);
@@ -178,14 +181,14 @@ export default function DeviceLicenseManagement() {
   const revoke = async (id: string) => {
     if (!confirm("確定要撤銷此設備授權？撤銷後該設備將無法通過驗證。")) return;
     const { data, error } = await supabase.rpc("revoke_device_license", { _id: id });
-    if (error) toast.error(error.message);
+    if (error) toast.error(formatUserError(error, t));
     else if (data?.success === false) toast.error(ERROR_MAP[data.error] || data.error);
     else { toast.success("已撤銷"); fetchData(); }
   };
 
   const restore = async (id: string) => {
     const { data, error } = await supabase.rpc("restore_device_license", { _id: id });
-    if (error) toast.error(error.message);
+    if (error) toast.error(formatUserError(error, t));
     else if (data?.success === false) toast.error(ERROR_MAP[data.error] || data.error);
     else { toast.success("已恢復為啟用"); fetchData(); }
   };
@@ -193,7 +196,7 @@ export default function DeviceLicenseManagement() {
   const remove = async (id: string, label: string) => {
     if (!confirm(`確定要刪除設備授權 ${label} 嗎？此動作無法復原。`)) return;
     const { data, error } = await supabase.rpc("delete_device_license", { _id: id });
-    if (error) toast.error(error.message);
+    if (error) toast.error(formatUserError(error, t));
     else if (data?.success === false) toast.error(ERROR_MAP[data.error] || data.error);
     else { toast.success("已刪除"); fetchData(); }
   };
@@ -538,7 +541,7 @@ function DeviceModelsDialog({
     setBusy(false);
     if (error) {
       if (error.code === "23505") toast.error("此型號已存在");
-      else toast.error(error.message);
+      else toast.error(formatUserError(error, t));
     } else {
       toast.success("已新增型號");
       setNewName(""); setNewSort("0");
@@ -557,7 +560,7 @@ function DeviceModelsDialog({
     setBusy(false);
     if (error) {
       if (error.code === "23505") toast.error("此型號已存在");
-      else toast.error(error.message);
+      else toast.error(formatUserError(error, t));
     } else {
       toast.success("已更新");
       cancelEdit();
@@ -583,7 +586,7 @@ function DeviceModelsDialog({
     if (!confirm(message)) { setBusy(false); return; }
     const { error } = await supabase.from("device_models").delete().eq("id", m.id);
     setBusy(false);
-    if (error) toast.error(error.message);
+    if (error) toast.error(formatUserError(error, t));
     else { toast.success("已刪除"); onChanged(); }
   };
 

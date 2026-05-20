@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { SmartTriggerDialog, type SmartTriggerRule } from "@/components/triggers/SmartTriggerDialog";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface Props {
   open: boolean;
@@ -32,7 +33,7 @@ const SOURCE_ICON: Record<string, React.ComponentType<{ className?: string }>> =
 };
 
 export function ScreenSmartTriggerDialog({ open, onOpenChange, screenId, screenName, orgId }: Props) {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [orgRules, setOrgRules] = useState<RuleRow[]>([]);
@@ -111,13 +112,13 @@ export function ScreenSmartTriggerDialog({ open, onOpenChange, screenId, screenN
       rule_id: ruleId,
       enabled: nextEnabled,
     }, { onConflict: "screen_id,rule_id" });
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     setOverrides((prev) => ({ ...prev, [ruleId]: nextEnabled }));
   };
 
   const toggleScreenRule = async (ruleId: string, nextEnabled: boolean) => {
     const { error } = await supabase.from("smart_trigger_rules").update({ enabled: nextEnabled }).eq("id", ruleId);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     setScreenRules((prev) => prev.map((r) => r.id === ruleId ? { ...r, enabled: nextEnabled } : r));
   };
 
@@ -125,7 +126,7 @@ export function ScreenSmartTriggerDialog({ open, onOpenChange, screenId, screenN
     if (!confirm(t.confirmRemove)) return;
     // Delete the underlying rule (cascade removes the link row)
     const { error } = await supabase.from("smart_trigger_rules").delete().eq("id", ruleId);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     setScreenRules((prev) => prev.filter((r) => r.id !== ruleId));
   };
 

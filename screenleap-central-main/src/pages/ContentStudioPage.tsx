@@ -77,6 +77,7 @@ import JSZip from "jszip";
 import { useProfiles } from "@/contexts/ProfilesContext";
 import { Users, User as UserIcon, Building2 } from "lucide-react";
 import {
+import { formatUserError } from "@/lib/formatUserError";
   checkDesignProjectReferences,
   unassignProjectReference,
   queueDesignProjectDelete,
@@ -919,7 +920,7 @@ function MediaLibraryDock({
     const newName = renameValue.trim();
     if (!newName || newName === renameTarget.defaultName) { setRenameTarget(null); return; }
     const { error } = await supabase.from("media_items").update({ original_name: newName }).eq("id", renameTarget.id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     toast.success(t("studioRenameSaved"));
     await onMediaUploaded?.();
     setRenameTarget(null);
@@ -2716,7 +2717,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
       .update({ original_name: newName })
       .eq("id", renameTarget.id);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       return;
     }
     toast.success(t("studioRenameSaved"));
@@ -2743,7 +2744,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
         .in("id", mediaIds);
 
       if (error) {
-        toast.error(error.message);
+        toast.error(formatUserError(error, t));
         return;
       }
 
@@ -5927,7 +5928,7 @@ export default function ContentStudioPage() {
         .select("id, name, original_name, type, url, thumbnail, duration_seconds")
         .is("deleted_at", null)
         .in("id", mediaIds);
-      if (error) { toast.error(error.message); return; }
+      if (error) { toast.error(formatUserError(error, t)); return; }
       (data || []).forEach((m) => detailMap.set(m.id, m));
     }
 

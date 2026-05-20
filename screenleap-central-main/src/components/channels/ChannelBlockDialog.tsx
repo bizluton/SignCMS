@@ -13,6 +13,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 import type { ChannelBlock, Channel } from "@/hooks/useChannels";
 import { WEEKDAY_KEYS, type WeekdayKey } from "@/lib/weekdays";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface DesignProjectLite { id: string; name: string; aspect: string }
 
@@ -256,7 +257,7 @@ export function ChannelBlockDialog({ open, onOpenChange, channelId, orgId, block
       ({ error } = await supabase.from("channel_blocks").insert(payload as Parameters<ReturnType<typeof supabase.from<"channel_blocks">>["insert"]>[0]));
     }
     setSaving(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     toast.success(t("blockSaved"));
     onSaved();
     onOpenChange(false);

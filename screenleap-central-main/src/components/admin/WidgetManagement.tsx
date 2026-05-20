@@ -25,6 +25,7 @@ import { logActivity } from "@/lib/activityLogger";
 import { WidgetPreviewCard } from "@/components/widgets/WidgetPreviewCard";
 import type { WidgetConfig } from "@/components/widgets/WidgetPreviewCard";
 import { APP_DEFINITIONS } from "@/contexts/InstalledAppsContext";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface WidgetRow {
   id: string;
@@ -164,7 +165,7 @@ export default function WidgetManagement() {
       .order("scope", { ascending: true })
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: false });
-    if (error) toast.error(error.message);
+    if (error) toast.error(formatUserError(error, t));
     else setRows((data || []) as WidgetRow[]);
     setLoading(false);
   }, []);
@@ -188,7 +189,7 @@ export default function WidgetManagement() {
   const handleRemoveExclusion = async (exclusionId: string) => {
     const { error } = await supabase.from("widget_org_exclusions").delete().eq("id", exclusionId);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
     } else {
       toast.success(t("widgetMgmtExclRemoved"));
       loadExclusions();
@@ -333,7 +334,7 @@ export default function WidgetManagement() {
 
       const { error } = await supabase.from("widgets").insert(payload);
       if (error) {
-        toast.error(error.message);
+        toast.error(formatUserError(error, t));
       } else {
         toast.success(`${t("widgetMgmtZipImported")}：${name}`);
         logActivity({ action: "create_widget", category: "admin", targetName: name });
@@ -410,7 +411,7 @@ export default function WidgetManagement() {
 
     if (editing) {
       const { error } = await supabase.from("widgets").update(payload).eq("id", editing.id);
-      if (error) toast.error(error.message);
+      if (error) toast.error(formatUserError(error, t));
       else {
         toast.success(t("widgetMgmtUpdated"));
         logActivity({ action: "update_widget", category: "admin", targetName: payload.name });
@@ -419,7 +420,7 @@ export default function WidgetManagement() {
       }
     } else {
       const { error } = await supabase.from("widgets").insert({ ...payload, created_by: user?.id });
-      if (error) toast.error(error.message);
+      if (error) toast.error(formatUserError(error, t));
       else {
         toast.success(t("widgetMgmtCreated"));
         logActivity({ action: "create_widget", category: "admin", targetName: payload.name });
@@ -435,7 +436,7 @@ export default function WidgetManagement() {
     if (!deleteId) return;
     const row = rows.find((r) => r.id === deleteId);
     const { error } = await supabase.from("widgets").delete().eq("id", deleteId);
-    if (error) toast.error(error.message);
+    if (error) toast.error(formatUserError(error, t));
     else {
       toast.success(t("widgetMgmtDeleted"));
       logActivity({ action: "delete_widget", category: "admin", targetName: row?.name || "" });

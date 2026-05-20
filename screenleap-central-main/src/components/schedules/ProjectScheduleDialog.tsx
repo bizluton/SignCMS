@@ -14,6 +14,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 import type { ProjectSchedule } from "@/hooks/useProjectSchedules";
 import { WEEKDAY_KEYS, type WeekdayKey } from "@/lib/weekdays";
+import { formatUserError } from "@/lib/formatUserError";
 
 const PRESET_COLORS = [
   "#3b82f6", "#6366f1", "#8b5cf6", "#ec4899", "#ef4444",
@@ -153,7 +154,7 @@ export function ProjectScheduleDialog({ open, onOpenChange, orgId, schedule, des
       ({ error } = await supabase.from("project_schedules").insert({ ...payload, created_by: user?.id }));
     }
     setSaving(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     toast.success(t("blockSaved"));
     onSaved();
     onOpenChange(false);

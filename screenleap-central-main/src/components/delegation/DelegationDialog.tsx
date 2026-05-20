@@ -26,6 +26,7 @@ interface Candidate {
 }
 
 import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
+import { formatUserError } from "@/lib/formatUserError";
 
 function defaultExpiresLocal(): string {
   // default = now + 4h, in datetime-local format
@@ -168,7 +169,7 @@ export function DelegationDialog({ open, onOpenChange }: Props) {
       .update({ status: "revoked", revoked_by: user?.id, revoked_at: new Date().toISOString() })
       .eq("id", id);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       return;
     }
     await logActivity({

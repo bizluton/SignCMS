@@ -15,6 +15,7 @@ import { Mail, Plus, Trash2, Loader2, Clock, CheckCircle, Building2, RefreshCw, 
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
 import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface Invitation {
   id: string;
@@ -152,7 +153,7 @@ export default function InvitationManagement() {
 
   const handleDelete = async (inv: Invitation) => {
     const { error } = await supabase.from("invitations").delete().eq("id", inv.id);
-    if (error) toast.error(error.message);
+    if (error) toast.error(formatUserError(error, t));
     else {
       toast.success(t("invDeleted"));
       logActivity({ action: "delete_invitation", category: "admin", targetName: inv.email });

@@ -32,6 +32,7 @@ import {
   type ReferenceItem,
 } from "@/lib/referenceCheck";
 import { useAuth } from "@/contexts/AuthContext";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface DesignProjectLite { id: string; name: string; aspect: string }
 interface TeamLite { id: string; name: string }
@@ -362,7 +363,7 @@ export default function SchedulesPage() {
   const handleDeleteChannel = async () => {
     if (!deletingChannel) return;
     const { error } = await supabase.from("channels").delete().eq("id", deletingChannel.id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     toast.success(t("channelDeleted"));
     setDeletingChannel(null);
     setChannelImpact(null);
@@ -372,7 +373,7 @@ export default function SchedulesPage() {
   const handleDeleteBlock = async () => {
     if (!deletingBlock) return;
     const { error } = await supabase.from("channel_blocks").delete().eq("id", deletingBlock.id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     toast.success(t("blockDeleted"));
     setDeletingBlock(null);
     reloadBlocks();
@@ -381,7 +382,7 @@ export default function SchedulesPage() {
   const handleDeleteProjectSchedule = async () => {
     if (!deletingProjectSchedule) return;
     const { error } = await supabase.from("project_schedules").delete().eq("id", deletingProjectSchedule.id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     toast.success(t("blockDeleted"));
     setDeletingProjectSchedule(null);
     reloadProjectSchedules();
@@ -389,13 +390,13 @@ export default function SchedulesPage() {
 
   const toggleChannelEnabled = async (c: Channel, next: boolean) => {
     const { error } = await supabase.from("channels").update({ enabled: next }).eq("id", c.id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     reloadChannels();
   };
 
   const toggleBlockEnabled = async (b: ChannelBlock, next: boolean) => {
     const { error } = await supabase.from("channel_blocks").update({ enabled: next }).eq("id", b.id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     reloadBlocks();
   };
 

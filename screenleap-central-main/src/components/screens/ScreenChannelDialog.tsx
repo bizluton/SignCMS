@@ -17,6 +17,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface Subscription {
   id: string;
@@ -47,7 +48,7 @@ const TRIGGER_TYPES: { value: Trigger["trigger_type"]; label: { zh: string; en: 
 ];
 
 export function ScreenChannelDialog({ open, onOpenChange, screenId, screenName, orgId }: Props) {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const { channels } = useChannels(orgId);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -147,7 +148,7 @@ export function ScreenChannelDialog({ open, onOpenChange, screenId, screenName, 
       const { error } = await supabase.from("screen_channel_subscriptions").insert(
         subs.map((s) => ({ screen_id: screenId, channel_id: s.channel_id, is_default: s.is_default }))
       );
-      if (error) { toast.error(error.message); setSaving(false); return; }
+      if (error) { toast.error(formatUserError(error, t)); setSaving(false); return; }
     }
     if (triggers.length > 0) {
       const { error } = await supabase.from("screen_channel_switch_triggers").insert(
@@ -159,7 +160,7 @@ export function ScreenChannelDialog({ open, onOpenChange, screenId, screenName, 
           enabled: t.enabled,
         }))
       );
-      if (error) { toast.error(error.message); setSaving(false); return; }
+      if (error) { toast.error(formatUserError(error, t)); setSaving(false); return; }
     }
     setSaving(false);
     toast.success(text.save + " ✓");

@@ -25,6 +25,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useActiveOrg } from "@/contexts/ActiveOrgContext";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface Schedule {
   id: string;
@@ -130,7 +131,7 @@ export function ScreenHealthScheduleDialog() {
     ]);
     setLoading(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       return;
     }
     setSchedules((data ?? []) as Schedule[]);
@@ -180,7 +181,7 @@ export function ScreenHealthScheduleDialog() {
       });
     setSaving(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       return;
     }
     toast.success(t("scheduleCreated"));
@@ -193,7 +194,7 @@ export function ScreenHealthScheduleDialog() {
       .from("screen_health_report_schedules")
       .update({ enabled: !s.enabled })
       .eq("id", s.id);
-    if (error) toast.error(error.message);
+    if (error) toast.error(formatUserError(error, t));
     else void load();
   };
 
@@ -202,7 +203,7 @@ export function ScreenHealthScheduleDialog() {
       .from("screen_health_report_schedules")
       .delete()
       .eq("id", s.id);
-    if (error) toast.error(error.message);
+    if (error) toast.error(formatUserError(error, t));
     else {
       toast.success(t("scheduleDeleted"));
       void load();

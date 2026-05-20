@@ -47,6 +47,7 @@ import { ScreenLogPanel } from "@/components/ScreenLogPanel";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { PageSkeleton } from "@/components/PageSkeleton";
+import { formatUserError } from "@/lib/formatUserError";
 
 const UNGROUPED = "__ungrouped__";
 
@@ -225,7 +226,7 @@ export default function ScreensPage() {
     const fetchIotDevices = async () => {
       setIotLoading(true);
       const { data, error } = await supabase.from("iot_devices").select("*").eq("screen_id", iotScreen.id).order("created_at", { ascending: true });
-      if (error) toast.error(error.message);
+      if (error) toast.error(formatUserError(error, t));
       else setIotDevices(data || []);
       setIotLoading(false);
     };
@@ -276,7 +277,7 @@ export default function ScreensPage() {
       default_project_id: dbPlayback === "project" ? settingsForm.defaultDesignId  || null : null,
       updated_at:         new Date().toISOString(),
     }).eq("id", settingsScreen.id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     toast.success(t("screenSettingsSaved"));
     setSettingsScreen(null);
   };
@@ -288,7 +289,7 @@ export default function ScreensPage() {
     let query = supabase.from("screens").select("id, name, branch, location, resolution, online, org_id, team_id, serial_number, ip_address, connection_type, avg_upload_speed, avg_download_speed, firmware_version, updated_at").order("created_at", { ascending: true });
     if (activeOrgId) query = query.eq("org_id", activeOrgId);
     const { data, error } = await query;
-    if (error) { toast.error(error.message); }
+    if (error) { toast.error(formatUserError(error, t)); }
     else {
       setScreens(data || []);
       const uniqueGroups = Array.from(new Set((data || []).map((s: Screen) => s.branch).filter(Boolean))) as string[];
@@ -557,7 +558,7 @@ export default function ScreensPage() {
     setSaving(true);
     if (editingId) {
       const { error } = await supabase.from("screens").update({ name: form.name, branch: finalBranch || "", location: form.location, resolution: form.resolution, org_id: resolvedOrgId, team_id: form.team_id || null, serial_number: form.serial_number, ip_address: form.ip_address, connection_type: form.connection_type, avg_upload_speed: form.avg_upload_speed, avg_download_speed: form.avg_download_speed, firmware_version: form.firmware_version, updated_at: new Date().toISOString() }).eq("id", editingId);
-      if (error) toast.error(error.message);
+      if (error) toast.error(formatUserError(error, t));
       else {
         toast.success(t("screensUpdated"));
         logActivity({ action: "edit_screen", category: "screen", targetName: form.name, targetId: editingId, orgId: resolvedOrgId });
@@ -594,7 +595,7 @@ export default function ScreensPage() {
         await logScreenEvent({ screenId: deleteId, orgId: deleted.org_id, eventType: "system", eventCode: "screen.deleted", eventParams: { name: deleted.name }, eventTitle: "螢幕已刪除", eventDetail: `名稱：${deleted.name}` });
       }
       const { error } = await supabase.from("screens").delete().eq("id", deleteId);
-      if (error) toast.error(error.message);
+      if (error) toast.error(formatUserError(error, t));
       else {
         toast.success(t("screensDeleted"));
         logActivity({ action: "delete_screen", category: "screen", targetName: deleted?.name || "", targetId: deleteId });
@@ -622,7 +623,7 @@ export default function ScreensPage() {
     // Update all screens with old group name
     const affected = screens.filter((s) => s.branch === renameTarget);
     const { error } = await supabase.from("screens").update({ branch: newName, updated_at: new Date().toISOString() }).eq("branch", renameTarget);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     setGroups((prev) => prev.map((g) => g === renameTarget ? newName : g).sort());
     if (groupFilter === renameTarget) setGroupFilter(newName);
     toast.success(t("screensGroupRenamed"));
@@ -640,7 +641,7 @@ export default function ScreensPage() {
     const affected = screens.filter((s) => s.branch === deleteGroupTarget);
     // Set screens in this group to empty (ungrouped)
     const { error } = await supabase.from("screens").update({ branch: "", updated_at: new Date().toISOString() }).eq("branch", deleteGroupTarget);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     setGroups((prev) => prev.filter((g) => g !== deleteGroupTarget));
     if (groupFilter === deleteGroupTarget) setGroupFilter("all");
     toast.success(t("screensGroupDeleted"));
@@ -1796,7 +1797,7 @@ export default function ScreensPage() {
                           </span>
                           <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={async () => {
                             const { error } = await supabase.from("iot_devices").delete().eq("id", device.id);
-                            if (error) { toast.error(error.message); return; }
+                            if (error) { toast.error(formatUserError(error, t)); return; }
                             setIotDevices((prev) => prev.filter((d) => d.id !== device.id));
                             toast.success(t("iotDeviceRemoved"));
                           }}>
@@ -1881,7 +1882,7 @@ export default function ScreensPage() {
                   created_by: user?.id,
                 }).select().single();
                 setIotSaving(false);
-                if (error) { toast.error(error.message); return; }
+                if (error) { toast.error(formatUserError(error, t)); return; }
                 setIotDevices((prev) => [...prev, data]);
                 toast.success(t("iotDeviceAdded"));
                 setNewIotDevice({ name: "", type: "air_quality" });

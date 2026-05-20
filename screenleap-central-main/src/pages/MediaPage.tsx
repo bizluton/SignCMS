@@ -101,6 +101,7 @@ import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
 import { useWidgets, widgetsToMediaRows, isCatalogWidgetId } from "@/hooks/useWidgets";
 import { useInstalledApps } from "@/contexts/InstalledAppsContext";
+import { formatUserError } from "@/lib/formatUserError";
 
 type MediaType = "image" | "video" | "widget" | "audio";
 
@@ -676,7 +677,7 @@ const MediaPage = () => {
       q = q.eq("org_id", trashOrgFilter);
     }
     const { data, error } = await q;
-    if (error) toast.error(error.message);
+    if (error) toast.error(formatUserError(error, t));
     else setTrashRows((data || []) as TrashRow[]);
     setTrashLoading(false);
   }, [activeOrgId, trashOrgFilter]);
@@ -806,7 +807,7 @@ const MediaPage = () => {
     const { data, error } = await supabase.rpc("restore_soft_deleted_media", { _media_id: id });
     setTrashBusyId(null);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       return;
     }
     const res = data as { success?: boolean; error?: string } | null;
@@ -825,7 +826,7 @@ const MediaPage = () => {
     setTrashBusyId(null);
     setPurgeConfirmId(null);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       return;
     }
     const res = data as { success?: boolean; error?: string } | null;
@@ -1458,7 +1459,7 @@ const MediaPage = () => {
           .from("widget_org_exclusions")
           .insert({ widget_id: dbId, org_id: activeOrgId, created_by: user?.id });
         if (error) {
-          toast.error(error.message);
+          toast.error(formatUserError(error, t));
         } else {
           toast.success(`${t("widgetHiddenForOrg")}：${item?.name || ""}`);
           setDeleteId(null);
@@ -1476,7 +1477,7 @@ const MediaPage = () => {
           .eq("org_id", activeOrgId)
           .eq("widget_id", dbId);
         if (error) {
-          toast.error(error.message);
+          toast.error(formatUserError(error, t));
         } else {
           toast.success(`${t("widgetUninstalledForOrg")}：${item?.name || ""}`);
           setDeleteId(null);
@@ -1489,7 +1490,7 @@ const MediaPage = () => {
         // User-scope widget: hard-delete from the widgets table
         const { error } = await supabase.from("widgets").delete().eq("id", dbId);
         if (error) {
-          toast.error(error.message);
+          toast.error(formatUserError(error, t));
         } else {
           toast.success(`${t("mediaDeleted")}：${item?.name || ""}`);
           setDeleteId(null);
@@ -1512,7 +1513,7 @@ const MediaPage = () => {
       .is("deleted_at", null);
 
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
     } else {
       toast.success(`${t("mediaDeleted")}：${item?.name || ""}`);
       logActivity({ action: "soft_delete_media", category: "media", targetName: item?.name || "", targetId: deleteId });
@@ -1581,7 +1582,7 @@ const MediaPage = () => {
       .in("id", deletableIds)
       .is("deleted_at", null);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       setBulkBusy(false);
       return;
     }

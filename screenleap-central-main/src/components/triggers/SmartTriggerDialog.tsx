@@ -17,6 +17,7 @@ import {
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { formatUserError } from "@/lib/formatUserError";
 
 export interface SmartTriggerRule {
   id?: string;
@@ -95,7 +96,7 @@ function emptyRule(orgId: string, userId: string | undefined): SmartTriggerRule 
 }
 
 export function SmartTriggerDialog({ open, onOpenChange, orgId, rule, onSaved }: Props) {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const { user } = useAuth();
   const [form, setForm] = useState<SmartTriggerRule>(() => rule ?? emptyRule(orgId, user?.id));
   const [projects, setProjects] = useState<DesignProjectOption[]>([]);
@@ -192,7 +193,7 @@ export function SmartTriggerDialog({ open, onOpenChange, orgId, rule, onSaved }:
       ? await db.from("smart_trigger_rules").update(payload).eq("id", form.id)
       : await db.from("smart_trigger_rules").insert(payload);
     setSaving(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     toast.success(T.saved);
     onSaved();
     onOpenChange(false);

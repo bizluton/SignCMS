@@ -27,6 +27,7 @@ interface Profile { user_id: string; display_name: string | null; avatar_url: st
 interface Org { id: string; name: string; }
 
 import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
+import { formatUserError } from "@/lib/formatUserError";
 const PERMISSION_KEYS = ["screens", "media", "schedules", "publish", "studio"] as const;
 
 export default function TeamManagement() {
@@ -129,10 +130,10 @@ export default function TeamManagement() {
     const payload = { name: name.trim(), org_id: orgId, permissions: perms };
     if (editTeam) {
       const { error } = await supabase.from("teams").update(payload).eq("id", editTeam.id);
-      if (error) toast.error(error.message); else { toast.success(t("teamUpdated")); logActivity({ action: "edit_team", category: "admin", targetName: name.trim(), targetId: editTeam.id }); fetchData(); }
+      if (error) toast.error(formatUserError(error, t)); else { toast.success(t("teamUpdated")); logActivity({ action: "edit_team", category: "admin", targetName: name.trim(), targetId: editTeam.id }); fetchData(); }
     } else {
       const { error } = await supabase.from("teams").insert(payload);
-      if (error) toast.error(error.message); else { toast.success(t("teamCreated")); logActivity({ action: "create_team", category: "admin", targetName: name.trim() }); fetchData(); }
+      if (error) toast.error(formatUserError(error, t)); else { toast.success(t("teamCreated")); logActivity({ action: "create_team", category: "admin", targetName: name.trim() }); fetchData(); }
     }
     setSaving(false); setDialogOpen(false);
   };
@@ -140,7 +141,7 @@ export default function TeamManagement() {
   const handleDelete = async () => {
     if (!deleteDialog) return;
     const { error } = await supabase.from("teams").delete().eq("id", deleteDialog.id);
-    if (error) toast.error(error.message); else { toast.success(t("teamDeleted")); logActivity({ action: "delete_team", category: "admin", targetName: deleteDialog.name, targetId: deleteDialog.id }); fetchData(); }
+    if (error) toast.error(formatUserError(error, t)); else { toast.success(t("teamDeleted")); logActivity({ action: "delete_team", category: "admin", targetName: deleteDialog.name, targetId: deleteDialog.id }); fetchData(); }
     setDeleteDialog(null);
   };
 
@@ -150,14 +151,14 @@ export default function TeamManagement() {
     if (exists) { toast.error(t("memberAlreadyInTeam")); return; }
     setSaving(true);
     const { error } = await supabase.from("team_members").insert({ team_id: addMemberDialog.id, user_id: selectedUserId, role: memberRole });
-    if (error) toast.error(error.message); else { toast.success(t("memberAdded")); fetchData(); }
+    if (error) toast.error(formatUserError(error, t)); else { toast.success(t("memberAdded")); fetchData(); }
     setSaving(false); setAddMemberDialog(null); setSelectedUserId(""); setMemberRole("member");
   };
 
   const handleRemoveMember = async () => {
     if (!removeMemberDialog) return;
     const { error } = await supabase.from("team_members").delete().eq("id", removeMemberDialog.member.id);
-    if (error) toast.error(error.message); else { toast.success(t("memberRemoved")); fetchData(); }
+    if (error) toast.error(formatUserError(error, t)); else { toast.success(t("memberRemoved")); fetchData(); }
     setRemoveMemberDialog(null);
   };
 

@@ -6,6 +6,7 @@ import { logActivity } from "@/lib/activityLogger";
 import { Button } from "@/components/ui/button";
 import { ShieldAlert, X } from "lucide-react";
 import { toast } from "sonner";
+import { formatUserError } from "@/lib/formatUserError";
 
 /**
  * Shown to the GRANTEE while at least one delegation grant naming them is active.
@@ -25,7 +26,7 @@ export function DelegationBanner() {
       .update({ status: "revoked", revoked_by: user.id, revoked_at: new Date().toISOString() })
       .eq("id", id);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       return;
     }
     await logActivity({

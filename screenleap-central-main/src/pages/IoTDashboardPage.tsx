@@ -11,6 +11,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useActiveOrg } from "@/contexts/ActiveOrgContext";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from "recharts";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface IotDevice {
   id: string;
@@ -86,7 +87,7 @@ export default function IoTDashboardPage() {
       .order("created_at", { ascending: true });
     if (activeOrgId) query = query.eq("org_id", activeOrgId);
     const { data, error } = await query;
-    if (error) toast.error(error.message);
+    if (error) toast.error(formatUserError(error, t));
     else setDevices(data || []);
     setLoading(false);
   }, [activeOrgId]);
@@ -110,7 +111,7 @@ export default function IoTDashboardPage() {
       .limit(5000);
 
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       return;
     }
 

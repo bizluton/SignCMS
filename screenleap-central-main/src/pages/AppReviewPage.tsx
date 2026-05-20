@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 import {
+import { formatUserError } from "@/lib/formatUserError";
   CheckCircle2, XCircle, PauseCircle, Clock, Loader2, Puzzle,
   ExternalLink, RefreshCw, Eye, ShieldCheck, GitBranch, FileCheck2,
 } from "lucide-react";
@@ -82,7 +83,7 @@ const VER_STATUS_CONFIG: Record<string, { color: string; label: { zh: string; en
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function AppReviewPage() {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const { user } = useAuth();
   const lang = language as "zh" | "en" | "ja";
 
@@ -187,7 +188,7 @@ export default function AppReviewPage() {
       .update({ status: newStatus, reviewed_by: user.id, updated_at: new Date().toISOString() })
       .eq("id", app.id);
 
-    if (error) { toast.error(error.message); setActioning(false); return; }
+    if (error) { toast.error(formatUserError(error, t)); setActioning(false); return; }
 
     if (action === "approve") {
       const widgetName = app.name_i18n[lang] || app.name_i18n.en || app.slug;

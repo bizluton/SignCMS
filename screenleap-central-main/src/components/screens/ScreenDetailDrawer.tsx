@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
+import { formatUserError } from "@/lib/formatUserError";
 
 export interface ScreenDetailScreen {
   id: string;
@@ -85,7 +86,7 @@ export function ScreenDetailDrawer({
       .maybeSingle();
     setRechecking(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       return;
     }
     toast.success(
@@ -111,7 +112,7 @@ export function ScreenDetailDrawer({
       .eq("id", activeAlertId);
     setAcking(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       return;
     }
     toast.success(t("screenDetailAcknowledged"));
