@@ -42,6 +42,12 @@ Deno.serve(async (req) => {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
+  // Derive client IP for rate limiting. x-forwarded-for is set by Supabase's
+  // edge proxy; take the first hop.
+  const callerIp = (req.headers.get("x-forwarded-for") || "")
+    .split(",")[0]
+    .trim();
+
   let body: Record<string, unknown>;
   try { body = await req.json(); }
   catch { return json({ ok: false, error: "invalid_json" }, 400); }
@@ -57,7 +63,17 @@ Deno.serve(async (req) => {
   // Must be exactly 6 digits
   const trimmed = (code || "").trim();
   if (!/^\d{6}$/.test(trimmed)) {
+    // Still count toward rate limit so attackers can't slow-probe with junk.
+    await admin.rpc("log_device_activation_attempt", {
+      p_ip: callerIp, p_code: trimmed, p_ok: false,
+    }).catch(() => {});
     return json({ ok: false, error: "invalid_code" }, 400);
+  }
+
+  // ── Per-IP brute-force gate ──────────────────────────────────────────────
+  const { data: rateOk } = await admin.rpc("device_activation_rate_ok", { p_ip: callerIp });
+  if (rateOk === false) {
+    return json({ ok: false, error: "rate_limited" }, 429);
   }
 
   // ── 1. Check device_licenses (admin pre-registered physical device) ────────
@@ -127,18 +143,25 @@ Deno.serve(async (req) => {
       console.log(`Created new screen ${screenId} (${screenName})`);
     }
 
+    await admin.rpc("log_device_activation_attempt", {
+      p_ip: callerIp, p_code: trimmed, p_ok: true,
+    }).catch(() => {});
     return json({ ok: true, deviceToken, screenId });
   }
 
   // ── 2. Check screen_activation_codes (admin created a web player slot) ────
-  const { data: ac } = await admin
-    .from("screen_activation_codes")
-    .select("id, org_id, name, status")
-    .eq("code", trimmed)
-    .eq("status", "pending")
-    .maybeSingle();
+  //    Use the atomic claim RPC — UPDATE … RETURNING — so concurrent attempts
+  //    can't both succeed and create duplicate screens.
+  const { data: claimed } = await admin
+    .rpc("claim_screen_activation_code", { p_code: trimmed });
+  const ac = Array.isArray(claimed) ? claimed[0] : claimed;
 
-  if (!ac) return json({ ok: false, error: "invalid_code" }, 404);
+  if (!ac) {
+    await admin.rpc("log_device_activation_attempt", {
+      p_ip: callerIp, p_code: trimmed, p_ok: false,
+    }).catch(() => {});
+    return json({ ok: false, error: "invalid_code" }, 404);
+  }
 
   // Use device-reported serial, or fingerprint-based virtual serial
   const acSerial = (deviceSerial && deviceSerial.trim())
@@ -163,14 +186,25 @@ Deno.serve(async (req) => {
 
   if (acScrErr || !acScr) {
     console.error("screen create failed:", acScrErr);
+    // Roll back the claim so the code can be retried — set status back to
+    // pending only if we were the one who claimed it (best effort).
+    await admin
+      .from("screen_activation_codes")
+      .update({ status: "pending", used_at: null })
+      .eq("id", ac.id);
     return json({ ok: false, error: "screen_create_failed" }, 500);
   }
 
-  // Mark the code as used — triggers Realtime UPDATE that admin UI listens to
+  // Backfill the screen_id pointer on the claimed code row — the atomic
+  // claim only flipped status/used_at; the screen didn't exist yet.
   await admin
     .from("screen_activation_codes")
-    .update({ status: "used", screen_id: acScr.id, used_at: new Date().toISOString() })
+    .update({ screen_id: acScr.id })
     .eq("id", ac.id);
+
+  await admin.rpc("log_device_activation_attempt", {
+    p_ip: callerIp, p_code: trimmed, p_ok: true,
+  }).catch(() => {});
 
   console.log(`Web player activated: screen ${acScr.id} (${ac.name}), serial=${acSerial}, model=${acModel}`);
   return json({ ok: true, deviceToken: acToken, screenId: acScr.id });

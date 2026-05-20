@@ -25,6 +25,16 @@ function randomHex(bytes: number): string {
   return Array.from(buf).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// Crypto-secure 6-digit numeric code (100000–999999). Used for new
+// device_licenses created during approve-device. Math.random() is not
+// suitable because the output is predictable.
+function randomDigits6(): string {
+  // Read 4 bytes, treat as uint32, mod 900000, shift to 100000.
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return String(100000 + (buf[0] % 900000));
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   if (req.method !== "POST")    return json({ ok: false, error: "method_not_allowed" }, 405);
@@ -110,8 +120,8 @@ Deno.serve(async (req) => {
     return json({ ok: false, error: "screen_create_failed" }, 500);
   }
 
-  // 4. Create device license (code: 6-digit auto-generated)
-  const licenseCode = String(Math.floor(100000 + Math.random() * 900000));
+  // 4. Create device license (code: 6-digit auto-generated, crypto-secure)
+  const licenseCode = randomDigits6();
   await admin.from("device_licenses").insert({
     device_model:  deviceModel,
     device_serial: deviceSerial,
