@@ -1,4 +1,4 @@
-import { translations, type TranslationKey } from "@/contexts/translations";
+import { translations, type TranslationKey } from "@/contexts/translations/all";
 import type { Language } from "@/contexts/LanguageContext";
 import {
   STUDIO_LAYOUT_PRESETS,

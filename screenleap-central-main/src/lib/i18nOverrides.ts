@@ -9,7 +9,7 @@
  * built-in `translations` dictionary. We never mutate the source dictionary
  * at runtime — overrides are layered on top.
  */
-import { translations, type TranslationKey } from "@/contexts/translations";
+import { translations, type TranslationKey } from "@/contexts/translations/all";
 
 export type Locale = "zh" | "en" | "ja";
 export type I18nOverrides = Partial<Record<TranslationKey, Partial<Record<Locale, string>>>>;
