@@ -98,7 +98,12 @@ Deno.serve(async (req) => {
 
   const ts  = Math.floor(Date.now() / 1000);
   const exp = ts + 300;
-  const webhookPayload = { event: eventType, appId, ts, exp, ...(extraPayload || {}) };
+  // Random nonce so receivers can dedupe replays within the 5-minute window.
+  // 16 bytes hex = 128-bit entropy.
+  const nonceBuf = new Uint8Array(16);
+  crypto.getRandomValues(nonceBuf);
+  const nonce = Array.from(nonceBuf).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const webhookPayload = { event: eventType, appId, ts, exp, nonce, ...(extraPayload || {}) };
 
   // No webhook URL — log the skip and return ok
   if (!app.webhook_url) {
