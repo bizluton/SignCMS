@@ -784,6 +784,18 @@ const translations = {
   authErrSamePassword: { zh: "新密碼不可與舊密碼相同，請改用其他密碼。", en: "New password must be different from the old one.", ja: "新しいパスワードは現在のパスワードと異なるものを設定してください。" },
   authErrInvalidEmail: { zh: "Email 格式不正確，請檢查後重新輸入。", en: "Invalid email format. Please check and try again.", ja: "メール形式が正しくありません。確認してください。" },
   authErrSessionExpired: { zh: "工作階段已逾期，請重新登入後再試。", en: "Session expired. Please sign in again.", ja: "セッションが期限切れです。再度ログインしてください。" },
+
+  // Generic error messages used by formatUserError (src/lib/formatUserError.ts).
+  errGeneric:          { zh: "發生未預期的錯誤，請稍後再試。",          en: "Something went wrong. Please try again.",       ja: "予期しないエラーが発生しました。しばらくしてから再試行してください。" },
+  errSessionExpired:   { zh: "工作階段已逾期，請重新登入後再試。",      en: "Your session expired. Please sign in again.",   ja: "セッションが期限切れです。再度ログインしてください。" },
+  errPermissionDenied: { zh: "您沒有權限執行此操作。",                  en: "You don't have permission to do this.",         ja: "この操作を行う権限がありません。" },
+  errDuplicate:        { zh: "資料已存在，無法重複建立。",              en: "Already exists.",                                ja: "すでに存在します。" },
+  errConflict:         { zh: "目前狀態與此操作衝突，請重新整理後再試。", en: "Conflict with current state.",                   ja: "現在の状態と競合しています。再読み込みしてください。" },
+  errNotFound:         { zh: "找不到對應的資料。",                       en: "Not found.",                                     ja: "見つかりません。" },
+  errNetwork:          { zh: "網路連線異常，請檢查後重試。",            en: "Network error. Please check your connection.",   ja: "ネットワークエラー。接続を確認してください。" },
+  errTimeout:          { zh: "操作逾時，請稍後再試。",                  en: "Request timed out. Please try again.",          ja: "リクエストがタイムアウトしました。再試行してください。" },
+  errConstraint:       { zh: "輸入內容不符合此欄位的要求。",            en: "The value is invalid for this field.",           ja: "この項目の入力内容が条件を満たしていません。" },
+  errUserNotFound:     { zh: "找不到該使用者。",                         en: "User not found.",                                ja: "ユーザーが見つかりません。" },
   authLockedTitle: { zh: "登入已暫時鎖定", en: "Sign-in temporarily locked", ja: "ログインが一時的にロックされました" },
   authLockedBody: {
     zh: "為保護您的帳號，連續登入失敗 5 次後已暫停 10 分鐘。請於倒數結束後再試，或使用『忘記密碼』重設。",

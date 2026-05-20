@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { SmartTriggerDialog, type SmartTriggerRule } from "./SmartTriggerDialog";
 import { JsonPathTree } from "./JsonPathTree";
 import { WebhookTokenCard } from "./WebhookTokenCard";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface FilterPreset {
   id: string;
@@ -77,7 +78,7 @@ interface LastRun {
 }
 
 export function SmartTriggerPanel() {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const { orgs } = useUserOrgs();
   const { isAdmin } = useUserRole();
   const { activeOrgId } = useActiveOrg();
@@ -203,7 +204,7 @@ export function SmartTriggerPanel() {
       .eq("scope", "org")
       .order("created_at", { ascending: false });
     setLoading(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     const ruleRows = (data || []).map((r) => ({ ...r, target_name: (r.design_projects as { name?: string } | null)?.name }));
     setRules(ruleRows as unknown as RuleRow[]);
     // Fetch latest log per rule
@@ -431,7 +432,7 @@ export function SmartTriggerPanel() {
       error_message: null,
     });
     setRetrying(null);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     toast.success(T.retryDone);
     fetchRules();
   };
@@ -449,7 +450,7 @@ export function SmartTriggerPanel() {
       .order("created_at", { ascending: false })
       .limit(2000);
     setExporting(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     if (!data || data.length === 0) { toast.info(T.exportEmpty); return; }
     const ruleNameById = new Map(rules.map((r) => [r.id, r.name]));
     const esc = (v: unknown) => {
@@ -476,7 +477,7 @@ export function SmartTriggerPanel() {
     setRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, enabled } : r));
     const { error } = await db.from("smart_trigger_rules").update({ enabled }).eq("id", rule.id);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       setRules((prev) => prev.map((r) => r.id === rule.id ? { ...r, enabled: !enabled } : r));
     }
   };
@@ -484,7 +485,7 @@ export function SmartTriggerPanel() {
   const handleDelete = async () => {
     if (!deleting) return;
     const { error } = await db.from("smart_trigger_rules").delete().eq("id", deleting.id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(formatUserError(error, t)); return; }
     toast.success(T.deleted);
     setDeleting(null);
     fetchRules();

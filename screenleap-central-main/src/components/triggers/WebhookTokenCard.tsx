@@ -11,6 +11,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface Props {
   orgId: string;
@@ -18,7 +19,7 @@ interface Props {
 }
 
 export function WebhookTokenCard({ orgId, canManage }: Props) {
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const [token, setToken] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [revealed, setRevealed] = useState(false);
@@ -61,7 +62,7 @@ export function WebhookTokenCard({ orgId, canManage }: Props) {
         .maybeSingle();
       if (cancelled) return;
       if (error) {
-        toast.error(error.message);
+        toast.error(formatUserError(error, t));
       } else {
         setToken((data as { webhook_token?: string } | null)?.webhook_token || "");
       }
@@ -91,7 +92,7 @@ export function WebhookTokenCard({ orgId, canManage }: Props) {
     const { data, error } = await supabase.rpc("regenerate_org_webhook_token", { _org_id: orgId });
     setRegenerating(false);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
       return;
     }
     setToken(data as string);

@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
 import { useUserRole } from "@/hooks/useUserRole";
 import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
+import { formatUserError } from "@/lib/formatUserError";
 const ALLOWED_DOMAINS = ["bizlution.com", "signcms.net"];
 
 interface CSAgent {
@@ -28,7 +29,7 @@ interface CSAgent {
 
 export default function CSAgentManagement() {
   const { user } = useAuth();
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const { ensureProfiles, getDisplayName, profilesVersion } = useProfiles();
   const { isCsAgent } = useUserRole();
   const [agents, setAgents] = useState<CSAgent[]>([]);
@@ -122,7 +123,7 @@ export default function CSAgentManagement() {
         .eq("id", existingAgent.id);
 
       if (resetError) {
-        toast.error(resetError.message);
+        toast.error(formatUserError(resetError, t));
         setSending(false);
         return;
       }
@@ -134,7 +135,7 @@ export default function CSAgentManagement() {
       }).select("id").single();
 
       if (error) {
-        toast.error(error.message);
+        toast.error(formatUserError(error, t));
         setSending(false);
         return;
       }
@@ -167,7 +168,7 @@ export default function CSAgentManagement() {
     setDeleting(true);
     const { error } = await supabase.from("cs_agents").delete().eq("id", deleteTarget.id);
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
     } else {
       toast.success(t("deleted"));
       logActivity({ action: "remove_cs_agent", category: "customer-service", targetName: deleteTarget.email });

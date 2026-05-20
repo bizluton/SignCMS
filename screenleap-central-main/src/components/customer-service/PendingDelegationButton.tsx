@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface Props {
   sessionId: string;
@@ -83,7 +84,7 @@ export default function PendingDelegationButton({ sessionId, customerId, isSelf,
       .eq("id", pending.id);
     setCancelling(false);
     if (error) {
-      toast.error(t("delegationRequestCancelFailed") + error.message);
+      toast.error(formatUserError(error, t, t("delegationRequestCancelFailed")));
       return;
     }
     toast.success(t("delegationRequestCancelled"));

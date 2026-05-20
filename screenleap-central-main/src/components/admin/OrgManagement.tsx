@@ -17,6 +17,7 @@ const PLAN_TIERS: PlanTier[] = ["evaluation", "starter", "business", "profession
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
 import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface OrgAdmin {
   user_id: string;
@@ -154,7 +155,7 @@ export default function OrgManagement() {
       if (isSystemAdmin) payload.plan_tier = planTier;
       const { error } = await supabase.from("organizations").update(payload).eq("id", editOrg.id);
       if (error) {
-        toast.error(error.message);
+        toast.error(formatUserError(error, t));
       } else {
         toast.success(t("orgUpdated"));
         logActivity({ action: "edit_org", category: "admin", targetName: name.trim(), targetId: editOrg.id });
@@ -171,7 +172,7 @@ export default function OrgManagement() {
       }
     } else {
       const { error } = await supabase.from("organizations").insert({ name: name.trim(), description: description.trim(), plan_tier: planTier });
-      if (error) toast.error(error.message); else { toast.success(t("orgCreated")); logActivity({ action: "create_org", category: "admin", targetName: name.trim(), actionParams: { tier: planTier } }); fetchOrgs(); }
+      if (error) toast.error(formatUserError(error, t)); else { toast.success(t("orgCreated")); logActivity({ action: "create_org", category: "admin", targetName: name.trim(), actionParams: { tier: planTier } }); fetchOrgs(); }
     }
     setSaving(false);
     setDialogOpen(false);
@@ -180,7 +181,7 @@ export default function OrgManagement() {
   const handleDelete = async () => {
     if (!deleteDialog) return;
     const { error } = await supabase.from("organizations").delete().eq("id", deleteDialog.id);
-    if (error) toast.error(error.message); else { toast.success(t("orgDeleted")); logActivity({ action: "delete_org", category: "admin", targetName: deleteDialog.name, targetId: deleteDialog.id }); fetchOrgs(); }
+    if (error) toast.error(formatUserError(error, t)); else { toast.success(t("orgDeleted")); logActivity({ action: "delete_org", category: "admin", targetName: deleteDialog.name, targetId: deleteDialog.id }); fetchOrgs(); }
     setDeleteDialog(null);
   };
 

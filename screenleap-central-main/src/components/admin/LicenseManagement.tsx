@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Loader2, Plus, Key, Copy, CalendarClock, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PlanTier, PLAN_LABELS } from "@/hooks/useOrgPlan";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface LicenseCode {
   id: string;
@@ -123,7 +124,7 @@ export default function LicenseManagement() {
       _plan_tier: genPlanTier === "none" ? null : genPlanTier,
     });
     if (error) {
-      toast.error(error.message);
+      toast.error(formatUserError(error, t));
     } else if (data && data.success === false) {
       toast.error(ERROR_MAP[data.error as string] || data.error as string);
     } else {
@@ -162,7 +163,7 @@ export default function LicenseManagement() {
   const deleteCode = async (id: string, code: string) => {
     if (!confirm(`確定要刪除授權碼 ${code} 嗎？`)) return;
     const { data, error } = await (supabase.rpc as unknown as (fn: string, args: Record<string, unknown>) => Promise<{ data: Record<string, unknown> | null; error: { message: string } | null }>)("delete_license_code", { _id: id });
-    if (error) toast.error(error.message);
+    if (error) toast.error(formatUserError(error, t));
     else if (data && data.success === false) toast.error(ERROR_MAP[data.error as string] || data.error as string);
     else { toast.success("已刪除授權碼"); fetchData(); }
   };
