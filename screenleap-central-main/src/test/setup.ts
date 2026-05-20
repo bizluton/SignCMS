@@ -15,4 +15,14 @@ if (typeof window !== "undefined") {
       dispatchEvent: () => {},
     }),
   });
+
+  // jsdom doesn't ship ResizeObserver. Layout-aware components (DesignStage,
+  // some studio widgets) expect it; provide a no-op stub so tests don't crash.
+  if (typeof (globalThis as { ResizeObserver?: unknown }).ResizeObserver === "undefined") {
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+      observe()   {}
+      unobserve() {}
+      disconnect() {}
+    };
+  }
 }

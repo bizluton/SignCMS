@@ -33,7 +33,7 @@ const SOURCE_ICON: Record<string, React.ComponentType<{ className?: string }>> =
 };
 
 export function ScreenSmartTriggerDialog({ open, onOpenChange, screenId, screenName, orgId }: Props) {
-  const { language, t } = useLanguage();
+  const { language, t: globalT } = useLanguage();
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [orgRules, setOrgRules] = useState<RuleRow[]>([]);
@@ -112,13 +112,13 @@ export function ScreenSmartTriggerDialog({ open, onOpenChange, screenId, screenN
       rule_id: ruleId,
       enabled: nextEnabled,
     }, { onConflict: "screen_id,rule_id" });
-    if (error) { toast.error(formatUserError(error, t)); return; }
+    if (error) { toast.error(formatUserError(error, globalT)); return; }
     setOverrides((prev) => ({ ...prev, [ruleId]: nextEnabled }));
   };
 
   const toggleScreenRule = async (ruleId: string, nextEnabled: boolean) => {
     const { error } = await supabase.from("smart_trigger_rules").update({ enabled: nextEnabled }).eq("id", ruleId);
-    if (error) { toast.error(formatUserError(error, t)); return; }
+    if (error) { toast.error(formatUserError(error, globalT)); return; }
     setScreenRules((prev) => prev.map((r) => r.id === ruleId ? { ...r, enabled: nextEnabled } : r));
   };
 
@@ -126,7 +126,7 @@ export function ScreenSmartTriggerDialog({ open, onOpenChange, screenId, screenN
     if (!confirm(t.confirmRemove)) return;
     // Delete the underlying rule (cascade removes the link row)
     const { error } = await supabase.from("smart_trigger_rules").delete().eq("id", ruleId);
-    if (error) { toast.error(formatUserError(error, t)); return; }
+    if (error) { toast.error(formatUserError(error, globalT)); return; }
     setScreenRules((prev) => prev.filter((r) => r.id !== ruleId));
   };
 

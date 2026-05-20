@@ -12,16 +12,15 @@ import { Check, RotateCcw, Download, Languages, AlertCircle } from "lucide-react
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 import {
-  scanCandidates,
   loadOverrides,
   saveOverrides,
   clearOverrides,
   setOverride,
   removeOverride,
-  type AuditCandidate,
   type I18nOverrides,
   type Locale,
 } from "@/lib/i18nOverrides";
+import { scanCandidates, type AuditCandidate } from "@/lib/i18nAudit";
 import type { TranslationKey } from "@/contexts/translations";
 
 type Filter = "all" | "pending" | "approved";

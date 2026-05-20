@@ -29,7 +29,7 @@ interface CSAgent {
 
 export default function CSAgentManagement() {
   const { user } = useAuth();
-  const { language, t } = useLanguage();
+  const { language, t: globalT } = useLanguage();
   const { ensureProfiles, getDisplayName, profilesVersion } = useProfiles();
   const { isCsAgent } = useUserRole();
   const [agents, setAgents] = useState<CSAgent[]>([]);
@@ -123,7 +123,7 @@ export default function CSAgentManagement() {
         .eq("id", existingAgent.id);
 
       if (resetError) {
-        toast.error(formatUserError(resetError, t));
+        toast.error(formatUserError(resetError, globalT));
         setSending(false);
         return;
       }
@@ -135,7 +135,7 @@ export default function CSAgentManagement() {
       }).select("id").single();
 
       if (error) {
-        toast.error(formatUserError(error, t));
+        toast.error(formatUserError(error, globalT));
         setSending(false);
         return;
       }
@@ -168,7 +168,7 @@ export default function CSAgentManagement() {
     setDeleting(true);
     const { error } = await supabase.from("cs_agents").delete().eq("id", deleteTarget.id);
     if (error) {
-      toast.error(formatUserError(error, t));
+      toast.error(formatUserError(error, globalT));
     } else {
       toast.success(t("deleted"));
       logActivity({ action: "remove_cs_agent", category: "customer-service", targetName: deleteTarget.email });

@@ -45,12 +45,12 @@ import {
 import SchedulePreviewDialog from "@/components/SchedulePreviewDialog";
 import { SmartTriggerPanel } from "@/components/triggers/SmartTriggerPanel";
 import {
-import { formatUserError } from "@/lib/formatUserError";
   zonedDateTimeToUtc,
   formatDateInTz,
   formatInTz,
   getBrowserTimezone,
 } from "@/lib/timezone";
+import { formatUserError } from "@/lib/formatUserError";
 
 interface ScheduleOption {
   id: string;

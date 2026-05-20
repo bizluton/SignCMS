@@ -80,7 +80,6 @@ import JSZip from "jszip";
 import { useProfiles } from "@/contexts/ProfilesContext";
 import { Users, User as UserIcon, Building2 } from "lucide-react";
 import {
-import { formatUserError } from "@/lib/formatUserError";
   checkDesignProjectReferences,
   unassignProjectReference,
   queueDesignProjectDelete,
@@ -88,6 +87,7 @@ import { formatUserError } from "@/lib/formatUserError";
   fetchPendingDeleteRequests,
   type ReferenceItem,
 } from "@/lib/referenceCheck";
+import { formatUserError } from "@/lib/formatUserError";
 
 // ── Types ──────────────────────────────────────────────────────────
 
