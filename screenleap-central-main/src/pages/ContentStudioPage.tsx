@@ -2739,6 +2739,7 @@ function ZoneEditor({ zone, onUpdate, onClose, dbMedia, dbWidgets, isEmbedded, a
       const { data, error } = await supabase
         .from("media_items")
         .select("id, name, original_name, type, url, thumbnail, duration_seconds")
+        .is("deleted_at", null)
         .in("id", mediaIds);
 
       if (error) {
@@ -5345,6 +5346,7 @@ export default function ContentStudioPage() {
       .from("media_items")
       .select("id, name, original_name, type, url, thumbnail, size_bytes, width, height, duration_seconds, mime_type, transcode_status, created_at")
       .neq("type", "widget")
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
     let widgetQ = supabase
@@ -5923,6 +5925,7 @@ export default function ContentStudioPage() {
       const { data, error } = await supabase
         .from("media_items")
         .select("id, name, original_name, type, url, thumbnail, duration_seconds")
+        .is("deleted_at", null)
         .in("id", mediaIds);
       if (error) { toast.error(error.message); return; }
       (data || []).forEach((m) => detailMap.set(m.id, m));
@@ -6638,6 +6641,7 @@ export default function ContentStudioPage() {
         const { data } = await supabase
           .from("media_items")
           .select("id, name, original_name, type, mime_type, url, size_bytes, width, height, duration_seconds")
+          .is("deleted_at", null)
           .in("id", Array.from(mediaIds));
         mediaRows = (data || []) as MediaRow[];
       }
@@ -6775,6 +6779,7 @@ export default function ContentStudioPage() {
         const { data } = await supabase
           .from("media_items")
           .select("id, name, original_name, type, mime_type, url, size_bytes, width, height, duration_seconds")
+          .is("deleted_at", null)
           .in("id", Array.from(mediaIds));
         mediaRows = (data || []) as MediaRow[];
       }

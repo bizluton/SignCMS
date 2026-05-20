@@ -239,6 +239,7 @@ export async function checkDesignProjectReferences(
       .from("media_items")
       .select("id, name")
       .eq("design_project_id", projectId)
+      .is("deleted_at", null)
       .limit(limitPerSource),
     supabase
       .from("channels")

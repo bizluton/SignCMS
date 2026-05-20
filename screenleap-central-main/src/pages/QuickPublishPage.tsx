@@ -691,6 +691,7 @@ export default function QuickPublishPage() {
       .select("id, original_name, type, url, thumbnail, duration_seconds")
       .eq("org_id", activeOrgId)
       .in("type", ["image", "video"])
+      .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(60);
     setLibraryItems((data || []) as LibraryItem[]);

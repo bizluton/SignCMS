@@ -169,6 +169,7 @@ export async function runScheduleHealthCheck(scheduleId: string): Promise<Health
     const { data } = await supabase
       .from("media_items")
       .select("id, name, original_name, url, transcode_status, mime_type")
+      .is("deleted_at", null)
       .in("id", Array.from(mediaRefs.keys()));
     mediaRows = (data as MediaItemRow[] | null) || [];
   }

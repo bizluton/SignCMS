@@ -240,6 +240,7 @@ export async function exportScheduleToZip(input: ExportScheduleInput): Promise<E
     const { data } = await supabase
       .from("media_items")
       .select("id, name, original_name, type, mime_type, url, size_bytes, width, height, duration_seconds, transcode_status")
+      .is("deleted_at", null)
       .in("id", Array.from(mediaIds));
     mediaRows = (data || []) as MediaRow[];
   }
@@ -496,6 +497,7 @@ export async function exportScheduleToFolder(input: ExportScheduleInput): Promis
     const { data } = await supabase
       .from("media_items")
       .select("id, name, original_name, type, mime_type, url, size_bytes, width, height, duration_seconds, transcode_status")
+      .is("deleted_at", null)
       .in("id", Array.from(mediaIds));
     mediaRows = (data || []) as MediaRow[];
   }
@@ -724,6 +726,7 @@ export async function exportDesignProjectsToZip(input: ExportDesignProjectsInput
     const { data: mData } = await supabase
       .from("media_items")
       .select("id, name, original_name, type, mime_type, url, size_bytes, width, height, duration_seconds, transcode_status")
+      .is("deleted_at", null)
       .in("id", Array.from(mediaIds));
     mediaRows = (mData || []) as MediaRow[];
   }
@@ -916,6 +919,7 @@ export async function exportChannelBlockToZip(input: ChannelBlockExportInput): P
     const { data: mData } = await supabase
       .from("media_items")
       .select("id, name, original_name, type, mime_type, url, size_bytes, width, height, duration_seconds, transcode_status")
+      .is("deleted_at", null)
       .in("id", Array.from(mediaIds));
     mediaRows = (mData || []) as MediaRow[];
   }
