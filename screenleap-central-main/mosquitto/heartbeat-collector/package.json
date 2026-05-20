@@ -1,0 +1,18 @@
+{
+  "name": "signcms-heartbeat-collector",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "MQTT subscriber that bulk-updates screens.last_ping_at from player heartbeats. Runs as a sidecar on the broker VM.",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "mqtt":                  "^5.10.0"
+  }
+}

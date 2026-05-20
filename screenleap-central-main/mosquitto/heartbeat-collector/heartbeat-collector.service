@@ -1,0 +1,25 @@
+[Unit]
+Description=SignCMS MQTT heartbeat collector → Supabase bulk update
+After=network.target mosquitto.service
+Wants=mosquitto.service
+
+[Service]
+Type=simple
+User=signcms
+WorkingDirectory=/opt/signcms/heartbeat-collector
+EnvironmentFile=/etc/signcms/heartbeat-collector.env
+ExecStart=/usr/bin/node index.mjs
+Restart=on-failure
+RestartSec=10s
+
+MemoryMax=512M
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/log/signcms
+
+[Install]
+WantedBy=multi-user.target

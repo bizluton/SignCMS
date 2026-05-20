@@ -71,18 +71,102 @@ setInterval(async () => {
 
 heartbeat 仍多，但每個只 2 query；改成 1 分鐘 tick → 約 1 query / 設備 / 分鐘 = 432M query / 月，依然不少但比 player-sync 重 query 少 6 倍。
 
-### 進階：MQTT 心跳取代 HTTP heartbeat
+### 進階（已實作）：MQTT 心跳取代 HTTP heartbeat
 
-如果 broker 已穩定運行，可以把 heartbeat 從 HTTP 改成 MQTT publish：
+當需要更短的偵測延遲（< 1 分鐘）+ 10K device 不能破 Supabase tier 額度，
+把 heartbeat 走 MQTT broker：
 
 ```
-device → MQTT publish signage/player/{screenId}/heartbeat (retained, QoS 0)
-broker → mosquitto-go-auth 已經把連線狀態反映給 LWT（Last Will）
-server-side cron 每分鐘讀一次 retained message 表，批次更新 screens.last_ping_at
+Player (每 60s, retained QoS 0)
+  └─ MQTT publish signage/player/{screenId}/heartbeat  { "ts", "disk_status"? }
+                                                                ↓
+                                                       Mosquitto broker
+                                                                ↓
+                                              heartbeat-collector (sidecar)
+                                              ├ subscribe signage/player/+/heartbeat
+                                              ├ buffer 30s（latest-wins per screen）
+                                              └ flush → Supabase RPC
+                                                                ↓
+                                              update_screen_heartbeats(jsonb)
+                                                                ↓
+                                              bulk UPDATE screens
+                                                                ↓
+                                              pg_cron 每分鐘 mark_stale_screens_offline()
+                                              （> 3 分鐘沒 heartbeat 標為 offline）
 ```
 
-這條路：edge function 完全跳過，cost = MQTT broker 容量（單機可 10K+）。
-但實作複雜，建議先驗 heartbeat 方案再評估。
+成本對比：
+
+| 方案 | 10K device 月 Supabase invocation | 月 DB query |
+|---|---|---|
+| HTTP heartbeat 60s | 432M | 864M |
+| **MQTT heartbeat 60s** | **~86k**（每分鐘 2 個 RPC） | ~86k UPDATE（每次 bulk 5K rows） |
+
+**MQTT 心跳省 5000 倍 edge function 額度。**
+
+#### 實作
+
+**Backend（已 commit）**：
+- `supabase/migrations/20260521000008_screen_heartbeat_bulk_update.sql`
+  - `update_screen_heartbeats(jsonb)` RPC（service_role only）
+  - `mark_stale_screens_offline(seconds)` + 每分鐘 pg_cron
+- `mosquitto/heartbeat-collector/`
+  - Node.js subscriber service
+  - systemd unit + Dockerfile
+  - 部署 SOP 見 `mosquitto/heartbeat-collector/README.md`
+
+**Player（待 player codebase 各自更新）**：
+
+```js
+// 1. Connect MQTT (already done for command receiving)
+const mqttClient = mqtt.connect(MQTT_URL, {
+  username: screenId,
+  password: deviceToken,
+});
+
+// 2. Publish heartbeat every 60s
+setInterval(() => {
+  if (mqttClient.connected) {
+    mqttClient.publish(
+      `signage/player/${screenId}/heartbeat`,
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        disk_status: getDiskStatus(),  // optional
+      }),
+      { qos: 0, retain: true },         // ← retain=true 是關鍵
+    );
+  }
+}, 60_000);
+
+// 3. HTTP player-sync 改成 safety net 而非每 5 分鐘
+//    僅在以下情境呼叫：
+//    - 初次連線（first sync）
+//    - Realtime 推 "command" 事件
+//    - 30 分鐘沒 full sync（FULL_SYNC_INTERVAL）
+//    - 收到 command 但未訂閱 Realtime（推 fallback）
+```
+
+#### 部署順序
+
+1. **DB migration**：`20260521000008` 上線。
+2. **heartbeat-collector**：部署到 broker VM、`systemctl enable --now`。觀察 24h；確認 `mark_stale_screens_offline` 沒誤殺活螢幕。
+3. **Player codebase 升級**：依各 codebase 進度，逐批更新。期間 HTTP `player-heartbeat`（Scale-2 加的）跟 MQTT heartbeat 可以共存——backend 兩條路徑都更新 `last_ping_at`。
+4. **完成後**：HTTP heartbeat polling 可拉長到 30 分（safety），主要 heartbeat 走 MQTT。
+
+#### 回滾
+
+```
+# 1. 停 collector
+sudo systemctl disable --now heartbeat-collector
+
+# 2. Player MQTT publish 可不動，broker 接收後沒 collector 處理也不會壞
+# 3. pg_cron mark-stale-screens-offline 可保留（HTTP heartbeat 仍會更新 last_ping_at）
+
+# 4. 想完全還原：
+DROP FUNCTION public.update_screen_heartbeats(jsonb);
+DROP FUNCTION public.mark_stale_screens_offline(int);
+SELECT cron.unschedule('mark-stale-screens-offline');
+```
 
 ### 建議的播放器端動作
 
