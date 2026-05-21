@@ -112,11 +112,12 @@ function showSetupStatus(msg, type) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function openSettings() {
   const c = await window.player.getConfig();
-  $("s-url").value      = c.supabaseUrl  || "";
-  $("s-anon").value     = c.anonKey      || "";
-  $("s-token").value    = c.deviceToken  || "";
-  $("s-interval").value = c.syncInterval || 30;
-  $("s-kiosk").checked  = !!c.kiosk;
+  $("s-url").value       = c.supabaseUrl  || "";
+  $("s-anon").value      = c.anonKey      || "";
+  $("s-token").value     = c.deviceToken  || "";
+  $("s-mqtt-pass").value = c.mqttPassword || "";
+  $("s-interval").value  = c.syncInterval || 30;
+  $("s-kiosk").checked   = !!c.kiosk;
   $("settings-panel").classList.add("visible");
 }
 
@@ -124,10 +125,15 @@ function closeSettings() { $("settings-panel").classList.remove("visible"); }
 
 $("btn-close-settings").addEventListener("click", closeSettings);
 $("btn-save-settings").addEventListener("click", async () => {
-  const newCfg = {
+  // Spread current config first so fields not shown in the form
+  // (mqttBrokerUrl / mqttUser / devMode etc.) are preserved on save.
+  const current = await window.player.getConfig();
+  const newCfg  = {
+    ...current,
     supabaseUrl:  $("s-url").value.trim(),
     anonKey:      $("s-anon").value.trim(),
     deviceToken:  $("s-token").value.trim(),
+    mqttPassword: $("s-mqtt-pass").value.trim(),
     syncInterval: parseInt($("s-interval").value) || 30,
     kiosk:        $("s-kiosk").checked,
   };

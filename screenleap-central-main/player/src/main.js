@@ -9,6 +9,7 @@ const https      = require("https");
 const http       = require("http");
 const fs         = require("fs");
 const WebSocket  = require("ws");
+const mqtt       = require("mqtt");
 const mediaCache = require("./media-cache");
 
 // ── Chromium HTTP disk cache (persists across restarts) ───────────────────────
@@ -25,9 +26,16 @@ const DEFAULT_CFG = {
   supabaseUrl:   "https://narhbpojjtnalyfiwxue.supabase.co",
   anonKey:       "",
   deviceToken:   "",
-  syncInterval:  30,   // seconds
+  syncInterval:  30,   // seconds (legacy; new sync loop is a fixed 60s tick)
   kiosk:         false,
   devMode:       false,
+
+  // MQTT — low-cost 60s heartbeat publish (Phase A: shared user).
+  // If mqttPassword is empty the publisher silently stays disconnected
+  // and the sync loop falls back to HTTP-only mode every tick.
+  mqttBrokerUrl: "mqtts://mqtt.signcms.net:18884",
+  mqttUser:      "signcms-player",
+  mqttPassword:  "",
 };
 
 function loadConfig() {
@@ -67,6 +75,13 @@ let realtimeChannel   = null;   // e.g. "screen:{screenId}"
 let realtimeApiKey    = null;   // Supabase anon key for WS auth
 let realtimeRef       = 0;      // incrementing Phoenix message ref counter
 let realtimeReconnect = null;   // reconnect timer
+
+// ─── MQTT state (heartbeat publisher) ─────────────────────────────────────
+let mqttClient   = null;
+let mqttHbTimer  = null;        // setInterval for 60s heartbeat publishes
+let mqttScreenId = null;        // screenId — populates the heartbeat topic
+let lastFullSync = 0;           // ms timestamp of last successful full sync
+const FULL_SYNC_INTERVAL_MS = 30 * 60 * 1000;  // safety re-sync after 30 min idle
 
 // ─── HTTP helper (no external deps) ────────────────────────────────────────
 function httpPost(url, headers, body) {
@@ -179,8 +194,8 @@ function connectRealtime(realtimeCfg) {
     // Phoenix heartbeat every 30 s (keeps the socket alive)
     startRealtimeHeartbeat();
 
-    // Switch polling to slow fallback (5 min) while Realtime is alive
-    restartSyncLoop(300);
+    // Sync loop is now a fixed 60s tick (decides per-tick whether to
+    // do a full HTTP sync or skip); no need to switch intervals here.
 
     win?.webContents.send("mqtt-status", { connected: true, serial });
   });
@@ -210,7 +225,8 @@ function connectRealtime(realtimeCfg) {
     console.log("[Realtime] disconnected, code:", code);
     realtimeConnected = false;
     stopRealtimeHeartbeat();
-    restartSyncLoop(config.syncInterval ?? 30);
+    // Sync loop self-adjusts: with realtimeUp = false the next tick will
+    // run a full player-sync. No need to change interval.
     win?.webContents.send("mqtt-status", { connected: false });
 
     // Auto-reconnect after 5 s (mirrors old MQTT reconnectPeriod)
@@ -343,6 +359,77 @@ function handleRealtimeCommand(msg) {
   }
 }
 
+// ─── MQTT (heartbeat publisher) ───────────────────────────────────────────
+//
+// Lightweight publisher: connect once, publish retained heartbeat every 60s.
+// Replaces the HTTP heartbeat path for steady-state pings — at 10K device
+// scale this saves ~3000× the Supabase edge function invocations vs.
+// hitting player-sync / player-heartbeat over HTTP every minute.
+//
+// Auth (Phase A — shared user):
+//   username = config.mqttUser     (default: "signcms-player")
+//   password = config.mqttPassword (set per-player via settings UI)
+// Phase B (mosquitto-go-auth, per-device token) is gated on task #62.
+
+function connectMqtt(screenId) {
+  if (!screenId) return;
+  const cfg = loadConfig();
+  if (!cfg.mqttBrokerUrl || !cfg.mqttUser || !cfg.mqttPassword) return;
+
+  // Already connected to same screenId → skip
+  if (mqttClient && mqttClient.connected && mqttScreenId === screenId) return;
+
+  // New connection (or reconnecting for a different screen) — close existing first
+  disconnectMqtt();
+  mqttScreenId = screenId;
+
+  console.log("[MQTT] connecting to", cfg.mqttBrokerUrl, "as", cfg.mqttUser);
+  mqttClient = mqtt.connect(cfg.mqttBrokerUrl, {
+    username:           cfg.mqttUser,
+    password:           cfg.mqttPassword,
+    keepalive:          60,
+    reconnectPeriod:    5_000,
+    connectTimeout:     30_000,
+    clean:              true,
+    clientId:           `signcms-player-${screenId}-${Math.random().toString(36).slice(2, 8)}`,
+    rejectUnauthorized: false,  // broker uses an internal self-signed-ish cert
+  });
+
+  mqttClient.on("connect",   () => {
+    console.log(`[MQTT] connected — publishing to signage/player/${screenId}/heartbeat`);
+    publishHeartbeat();         // immediate first publish
+    startMqttHeartbeat();
+  });
+  mqttClient.on("reconnect", () => console.warn("[MQTT] reconnecting…"));
+  mqttClient.on("close",     () => { stopMqttHeartbeat(); console.warn("[MQTT] connection closed"); });
+  mqttClient.on("error",     (err) => console.error("[MQTT] error:", err.message));
+}
+
+function disconnectMqtt() {
+  stopMqttHeartbeat();
+  if (mqttClient) {
+    try { mqttClient.end(true); } catch (_) {}
+    mqttClient   = null;
+    mqttScreenId = null;
+  }
+}
+
+function publishHeartbeat() {
+  if (!mqttClient || !mqttClient.connected || !mqttScreenId) return;
+  const topic   = `signage/player/${mqttScreenId}/heartbeat`;
+  const payload = JSON.stringify({ ts: new Date().toISOString() });
+  mqttClient.publish(topic, payload, { qos: 0, retain: true });
+}
+
+function startMqttHeartbeat() {
+  stopMqttHeartbeat();
+  mqttHbTimer = setInterval(publishHeartbeat, 60_000);
+}
+
+function stopMqttHeartbeat() {
+  if (mqttHbTimer) { clearInterval(mqttHbTimer); mqttHbTimer = null; }
+}
+
 // ─── Window ───────────────────────────────────────────────────────────────
 function createWindow() {
   win = new BrowserWindow({
@@ -412,27 +499,38 @@ function updateTrayMenu() {
 }
 
 // ─── Sync loop ────────────────────────────────────────────────────────────
+//
+// Tick every 60s. Each tick decides whether to do a full HTTP player-sync
+// or skip:
+//   • MQTT up + Realtime up + no pending logs + not stale → skip
+//     (MQTT heartbeat covers screens.last_ping_at; Realtime covers commands)
+//   • Otherwise → full player-sync to catch up
+//
+// A safety re-sync runs at most every FULL_SYNC_INTERVAL_MS (30 min) even
+// when everything looks healthy, defending against missed Realtime
+// broadcasts and silent state drift.
 
-/**
- * Start or restart the polling loop with a given interval (seconds).
- * When Realtime is connected we use a long fallback (300s); when not, the
- * user-configured value (default 30s).
- */
-function startSyncLoop(intervalSeconds) {
+function startSyncLoop() {
   stopSyncLoop();
-  doSync();  // immediate first sync
-  const secs = intervalSeconds ?? Math.max(10, (loadConfig().syncInterval ?? 30));
-  syncTimer  = setInterval(doSync, secs * 1000);
-}
-
-function restartSyncLoop(intervalSeconds) {
-  stopSyncLoop();
-  const secs = intervalSeconds ?? Math.max(10, (loadConfig().syncInterval ?? 30));
-  syncTimer  = setInterval(doSync, secs * 1000);
+  doSync();                              // immediate first sync (bootstrap)
+  syncTimer = setInterval(syncTick, 60_000);
 }
 
 function stopSyncLoop() {
   if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+}
+
+function syncTick() {
+  const realtimeUp = realtimeConnected;
+  const mqttUp     = !!(mqttClient && mqttClient.connected);
+  const pending    = pendingLogs.length > 0;
+  const stale      = Date.now() - lastFullSync > FULL_SYNC_INTERVAL_MS;
+
+  // Steady state: skip the HTTP round-trip entirely.
+  if (mqttUp && realtimeUp && !pending && !stale) return;
+
+  // Catch-up: full HTTP sync (also updates lastFullSync inside doSync).
+  doSync();
 }
 
 let pendingLogs = [];
@@ -441,7 +539,8 @@ async function doSync() {
   const logsToSend = pendingLogs.splice(0);  // drain buffer atomically
   const result     = await playerSync(logsToSend);
   if (result) {
-    lastSync = result;
+    lastSync     = result;
+    lastFullSync = Date.now();
     win?.webContents.send("sync-data", result);
     updateTrayMenu();
 
@@ -454,6 +553,12 @@ async function doSync() {
         saveConfig(config);
       }
       connectRealtime(result.realtime);
+
+      // Also bring up the MQTT heartbeat publisher. Lightweight: one TLS
+      // connect, then a retained ~60-byte publish every 60s. Updates
+      // screens.last_ping_at via the broker-side heartbeat-collector.
+      const serial = result.realtime.channel.replace(/^screen:/, "");
+      connectMqtt(serial);
     }
   } else {
     win?.webContents.send("sync-error", { time: new Date().toISOString() });
@@ -475,7 +580,10 @@ ipcMain.handle("save-config", (_e, cfg) => {
   return { ok: true };
 });
 
-ipcMain.handle("get-mqtt-status", () => ({ connected: realtimeConnected }));
+ipcMain.handle("get-mqtt-status", () => ({
+  connected:     realtimeConnected,
+  mqttConnected: !!(mqttClient && mqttClient.connected),
+}));
 
 // ── Media disk cache IPC ──────────────────────────────────────────────────
 // cache-get: synchronous check (in-memory index only, very fast)
@@ -592,6 +700,7 @@ app.on("window-all-closed", () => {
 app.on("will-quit", () => {
   stopSyncLoop();
   disconnectRealtime();
+  disconnectMqtt();
   try { globalShortcut.unregisterAll(); } catch (_) {}
 });
 
