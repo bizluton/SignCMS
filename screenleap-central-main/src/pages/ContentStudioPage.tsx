@@ -6125,15 +6125,38 @@ export default function ContentStudioPage() {
     const collabToSave = projectCollab === "team" && !teamIdToSave ? "creator" : projectCollab;
     const projectName_ = name || currentProject?.name || "Untitled";
     const updatedAt = new Date().toISOString();
+    // Phase 2: denormalise output info into design_projects columns so Phase 3
+    // (schedule / publishing) can JOIN against device_models.supported_output_modes
+    // without JSONB-parsing every row. Studio uses 5 granular modes; collapse to
+    // the 4 device-capability categories. Studio still keeps the granular value
+    // inside zones[0]._meta for its own restore path.
+    const outputModeCategory: "mirror" | "independent" | "extend" | "matrix" =
+      outputMode === "mirror" || outputMode === "independent" ? outputMode
+      : outputMode === "grid-2x2-h" ? "matrix"
+      : "extend";  // extend-h / extend-v → "extend"
+    const outputCountSafe = Math.max(1, Math.min(4, outputCount || 1));
     let ok = false;
     try {
       if (currentProject) {
-        await supabase.from("design_projects").update({ name: projectName_, aspect, zones: zonesData, team_id: teamIdToSave, collab_scope: collabToSave, updated_at: updatedAt }).eq("id", currentProject.id);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supabase.from("design_projects").update as any)({
+          name: projectName_, aspect, zones: zonesData,
+          team_id: teamIdToSave, collab_scope: collabToSave, updated_at: updatedAt,
+          output_mode:  outputModeCategory,
+          output_count: outputCountSafe,
+        }).eq("id", currentProject.id);
         setCurrentProject({ ...currentProject, name: projectName_, aspect, zones: zones, overlays, updated_at: updatedAt });
         toast.success(t("studioProjectSaved"));
         ok = true;
       } else {
-        const { data } = await supabase.from("design_projects").insert({ name: projectName_, aspect, zones: zonesData, created_by: user?.id ?? null, org_id: saveOrgId, team_id: teamIdToSave, collab_scope: collabToSave, updated_at: updatedAt }).select().single();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data } = await (supabase.from("design_projects").insert as any)({
+          name: projectName_, aspect, zones: zonesData,
+          created_by: user?.id ?? null, org_id: saveOrgId,
+          team_id: teamIdToSave, collab_scope: collabToSave, updated_at: updatedAt,
+          output_mode:  outputModeCategory,
+          output_count: outputCountSafe,
+        }).select().single();
         if (data) { setCurrentProject({ ...data, zones, overlays }); toast.success(t("studioProjectSaved")); ok = true; }
       }
       loadProjects();

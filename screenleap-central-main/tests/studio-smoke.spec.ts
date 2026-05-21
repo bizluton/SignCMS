@@ -249,5 +249,12 @@ test.describe("/studio — save flow (deep)", () => {
     expect(meta?.outputCount,  "outputCount in meta (deps fix)").toBeGreaterThanOrEqual(1);
     expect(meta?.resolution,   "resolution object present").toBeTruthy();
     expect(meta?.pages,        "pages array in meta").toBeTruthy();
+
+    // Phase 2: denormalised output_mode + output_count must also be in the
+    // top-level PATCH body. handleSave categorises 5 granular studio modes
+    // into 4 device-capability categories; the seed uses "mirror" so the
+    // category should still be "mirror".
+    expect(patched.output_mode,  "Phase 2: top-level output_mode column").toBe("mirror");
+    expect(patched.output_count, "Phase 2: top-level output_count column").toBe(1);
   });
 });
