@@ -4,23 +4,25 @@ const http  = require('http');
 
 class PlayerSyncManager {
   constructor() {
-    this._serverUrl   = null;
-    this._deviceToken = null;
-    this._intervalMs  = 30_000;
-    this._lastSync    = null;
-    this._logBatch    = [];
-    this._diskFn      = null;  // () => diskStatus object | null
-    this._onSync      = null;  // (response) => void
-    this._onError     = null;  // (msg) => void
-    this._timer       = null;
+    this._serverUrl       = null;
+    this._deviceToken     = null;
+    this._intervalMs      = 60_000;  // fixed 60 s tick; safety-net pattern decides per-tick
+    this._lastSync        = null;
+    this._logBatch        = [];
+    this._diskFn          = null;  // () => diskStatus object | null
+    this._onSync          = null;  // (response) => void
+    this._onError         = null;  // (msg) => void
+    this._timer           = null;
+    this._shouldSkipSync  = null;  // () => boolean — true ⇒ skip this tick's HTTP sync
   }
 
-  configure({ serverUrl, deviceToken, intervalMs = 30_000, onSync, onError }) {
-    this._serverUrl   = serverUrl.replace(/\/$/, '');
-    this._deviceToken = deviceToken;
-    this._intervalMs  = intervalMs;
-    this._onSync      = onSync;
-    this._onError     = onError;
+  configure({ serverUrl, deviceToken, intervalMs = 60_000, onSync, onError, shouldSkipSync = null }) {
+    this._serverUrl      = serverUrl.replace(/\/$/, '');
+    this._deviceToken    = deviceToken;
+    this._intervalMs     = intervalMs;
+    this._onSync         = onSync;
+    this._onError        = onError;
+    this._shouldSkipSync = shouldSkipSync;
   }
 
   setDiskStatusProvider(fn) { this._diskFn = fn; }
@@ -47,11 +49,19 @@ class PlayerSyncManager {
 
   getLastSync() { return this._lastSync; }
 
+  /** True if there are queued playback logs waiting to be flushed. */
+  hasPendingLogs() { return this._logBatch.length > 0; }
+
   // Public wrapper used by the test-connection IPC handler
   post(url, body) { return this._post(url, body); }
 
   async _doSync() {
     if (!this._serverUrl || !this._deviceToken) return;
+
+    // Safety-net skip: in steady state (MQTT heartbeat up + Realtime up
+    // + no pending logs + not stale), the HTTP sync round-trip is
+    // unnecessary. shouldSkipSync() encapsulates that decision in main.js.
+    if (this._shouldSkipSync && this._shouldSkipSync()) return;
 
     const body = {};
 

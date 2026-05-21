@@ -37,7 +37,8 @@
     }
   },
   "dependencies": {
-    "ws": "^8.18.0"
+    "mqtt": "^5.10.0",
+    "ws":   "^8.18.0"
   },
   "devDependencies": {
     "electron": "^31.7.7",

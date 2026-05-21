@@ -10,6 +10,7 @@ const ConfigManager    = require('./src/ConfigManager');
 const DownloadService  = require('./src/DownloadService');
 const PlayerSyncManager = require('./src/PlayerSyncManager');
 const RealtimeManager  = require('./src/RealtimeManager');
+const MqttManager      = require('./src/MqttManager');
 
 // ── Register custom protocols before app ready ────────────────────────────────
 // cas://   — locally cached media assets (keyed by SHA-256 of content)
@@ -25,6 +26,7 @@ let config;
 let downloadService;
 let syncManager;
 let realtimeManager;
+let mqttManager;
 
 // Widget HTML cache — populated during sync, served via widget:// scheme
 let widgetCacheDir = null;   // set after app ready (userData path not available before)
@@ -36,6 +38,11 @@ let currentManifest = [];
 // Track last realtime config — only (re)connect when channel or URL actually changes
 let lastRealtimeKey = '';
 
+// Track last successful HTTP full sync — used by the 60s tick to decide
+// whether to skip the round-trip (steady-state) or run a full sync (catch-up).
+let lastFullSyncMs = 0;
+const FULL_SYNC_INTERVAL_MS = 30 * 60 * 1000;
+
 // Track current aspect ratio lock ('16:9' | '9:16' | 'free')
 let aspectRatioLock = 'free';
 
@@ -45,6 +52,7 @@ app.whenReady().then(() => {
   downloadService = new DownloadService(app.getPath('userData'));
   syncManager     = new PlayerSyncManager();
   realtimeManager = new RealtimeManager();
+  mqttManager     = new MqttManager();
 
   // ── Widget HTML cache directory ──────────────────────────────────────────────
   widgetCacheDir = path.join(app.getPath('userData'), 'widgets');
@@ -117,6 +125,12 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
+app.on('will-quit', () => {
+  try { syncManager?.stop(); } catch {}
+  try { realtimeManager?.disconnect(); } catch {}
+  try { mqttManager?.disconnect(); } catch {}
+});
+
 // 'activate' can fire before app is ready on macOS (e.g. after app.relaunch).
 // Guard with app.isReady() to avoid "Cannot create BrowserWindow before app is ready".
 app.on('activate', () => {
@@ -175,16 +189,36 @@ function startPlayer() {
   syncManager.configure({
     serverUrl:   config.get('serverUrl'),
     deviceToken: config.get('deviceToken'),
-    intervalMs:  config.get('syncIntervalMs', 30_000),
+    // 60 s tick (fixed) — the safety-net pattern decides each tick whether
+    // to skip the HTTP round-trip. Legacy syncIntervalMs is preserved in
+    // settings.html for back-compat but not honoured here.
+    intervalMs:  60_000,
     onSync:      handleSyncResponse,
     onError:     (err) => {
       mainWindow?.webContents.send('sync-error', err);
+    },
+    // Skip the HTTP sync round-trip when nothing needs catching up:
+    //   • MQTT heartbeat publisher is up (covers screens.last_ping_at)
+    //   • Realtime is up (covers command delivery)
+    //   • no pending playback logs to flush
+    //   • last full sync was within FULL_SYNC_INTERVAL_MS
+    shouldSkipSync: () => {
+      const realtimeUp = realtimeManager?.connected;
+      const mqttUp     = mqttManager?.connected;
+      const pending    = syncManager.hasPendingLogs();
+      const stale      = Date.now() - lastFullSyncMs > FULL_SYNC_INTERVAL_MS;
+      return realtimeUp && mqttUp && !pending && !stale;
     },
   });
   syncManager.start();
 }
 
 async function handleSyncResponse(data) {
+  // Track the moment of last successful full HTTP sync so the safety-net
+  // shouldSkipSync() can decide whether the next tick is "stale enough" to
+  // force another full sync regardless of MQTT/Realtime status.
+  lastFullSyncMs = Date.now();
+
   // Forward to renderer (non-blocking display update)
   mainWindow?.webContents.send('sync-data', data);
 
@@ -211,6 +245,22 @@ async function handleSyncResponse(data) {
         },
       });
     }
+
+    // Bring up MQTT heartbeat publisher. Idempotent — only reconnects if
+    // (screenId, broker URL, credentials) actually changed since last call.
+    const screenId       = data.realtime.channel.replace(/^screen:/, '');
+    const mqttBrokerUrl  = config.get('mqttBrokerUrl', 'mqtts://mqtt.signcms.net:18884');
+    const mqttUser       = config.get('mqttUser',     'signcms-player');
+    const mqttPassword   = config.get('mqttPassword', '');
+    mqttManager.configure({
+      brokerUrl: mqttBrokerUrl,
+      username:  mqttUser,
+      password:  mqttPassword,
+      screenId,
+      onStatus:  (connected) => {
+        mainWindow?.webContents.send('mqtt-status', { connected });
+      },
+    });
   }
 
   // CAS sync — download missing assets in background

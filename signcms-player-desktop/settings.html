@@ -105,11 +105,22 @@ button {
   <hr class="divider">
 
   <div class="section">
+    <div class="section-title">MQTT heartbeat <span style="color:#9ca3af;font-weight:400">(optional, recommended at scale)</span></div>
+    <div class="field">
+      <label>MQTT Password</label>
+      <input type="password" id="mqttPassword" placeholder="Provided by admin" autocomplete="off">
+      <div class="hint">Leave empty to disable MQTT and fall back to HTTP-only sync.</div>
+    </div>
+  </div>
+
+  <hr class="divider">
+
+  <div class="section">
     <div class="section-title">Sync</div>
     <div class="field">
       <label>Sync interval (seconds)</label>
-      <input type="number" id="syncInterval" min="5" max="300" value="30" style="width:100px">
-      <div class="hint">Default: 30 seconds. Minimum: 5 s.</div>
+      <input type="number" id="syncInterval" min="5" max="300" value="60" style="width:100px">
+      <div class="hint">Default: 60 seconds. Legacy field — the new sync loop ticks every 60 s and decides per-tick whether to skip the HTTP round-trip.</div>
     </div>
   </div>
 
@@ -138,13 +149,15 @@ button {
   if (!cfg) return;
   if (cfg.serverUrl)     document.getElementById('serverUrl').value     = cfg.serverUrl;
   if (cfg.deviceToken)   document.getElementById('deviceToken').value   = cfg.deviceToken;
+  if (cfg.mqttPassword)  document.getElementById('mqttPassword').value  = cfg.mqttPassword;
   if (cfg.syncIntervalMs) document.getElementById('syncInterval').value = cfg.syncIntervalMs / 1000;
 })();
 
 async function save() {
-  const serverUrl   = document.getElementById('serverUrl').value.trim().replace(/\/$/, '');
-  const deviceToken = document.getElementById('deviceToken').value.trim();
-  const intervalSec = parseInt(document.getElementById('syncInterval').value) || 30;
+  const serverUrl    = document.getElementById('serverUrl').value.trim().replace(/\/$/, '');
+  const deviceToken  = document.getElementById('deviceToken').value.trim();
+  const mqttPassword = document.getElementById('mqttPassword').value.trim();
+  const intervalSec  = parseInt(document.getElementById('syncInterval').value) || 60;
 
   if (!serverUrl)   { showStatus('Server URL is required.', 'error'); return; }
   if (!deviceToken) { showStatus('Device Token is required.', 'error'); return; }
@@ -152,6 +165,7 @@ async function save() {
   const result = await window.player.saveConfig({
     serverUrl,
     deviceToken,
+    mqttPassword,
     syncIntervalMs: Math.max(5, intervalSec) * 1000,
   });
 
