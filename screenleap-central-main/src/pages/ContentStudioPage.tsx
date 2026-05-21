@@ -4931,7 +4931,10 @@ export default function ContentStudioPage() {
   outputActivePageIdRef.current = outputActivePageId;
 
   // Derived: current output's pages and active page ID
-  const pages = outputPages[activeOutput] ?? [];
+  // useMemo so identity is stable when outputPages[activeOutput] doesn't change —
+  // otherwise the `?? []` literal would produce a fresh array every render and
+  // cascade into effect/callback re-runs that depend on `pages`.
+  const pages = useMemo(() => outputPages[activeOutput] ?? [], [outputPages, activeOutput]);
   const activePageId = outputActivePageId[activeOutput] ?? (pages[0]?.id ?? "");
 
   // Stable setters — always operate on the currently-active output (via ref)
@@ -5307,7 +5310,7 @@ export default function ContentStudioPage() {
       // Prepend catalog widgets (system + app + user-of-org) — read-only catalog
       setDbWidgets([...widgetsToStudioRows(catalogWidgets), ...(widgetRes.data || [])]);
     }
-  }, [activeOrgId, t, catalogWidgets]);
+  }, [activeOrgId, catalogWidgets]);
 
   useEffect(() => { loadMedia(); }, [loadMedia]);
 
@@ -5333,7 +5336,7 @@ export default function ContentStudioPage() {
     // Mark which projects have a pending delete request queued
     const ids = list.map((p) => p.id).filter(Boolean) as string[];
     fetchPendingDeleteRequests(ids).then(setPendingDeleteIds).catch(() => undefined);
-  }, [activeOrgId, ensureProfiles, STUDIO_DATA_VERSION]);
+  }, [activeOrgId, ensureProfiles]);
 
   useEffect(() => { loadProjects(); }, [loadProjects]);
 
@@ -6139,7 +6142,10 @@ export default function ContentStudioPage() {
     setShowSaveDialog(false);
     setTimeout(() => markClean(), 0);
     return ok;
-  }, [currentProject, aspect, zones, overlays, user, t, loadProjects, activeOrgId, defaultOrgId, resolution, bgmItems, bgmVolume, bgmAudioSource, markClean, outputPages, outputActivePageId, activeOutput, activePageId, projectTransition, projectTeamId, projectCollab]);
+    // outputCount + outputMode are read inside the closure (metaEntry above).
+    // Without them in deps, changing the output mode then pressing Save would
+    // persist the OLD value — a real bug. Added explicitly.
+  }, [currentProject, aspect, zones, overlays, user, t, loadProjects, activeOrgId, defaultOrgId, resolution, bgmItems, bgmVolume, bgmAudioSource, markClean, outputPages, outputActivePageId, activeOutput, activePageId, projectTransition, projectTeamId, projectCollab, outputCount, outputMode]);
 
   // Load project
   const handleLoad = useCallback((project: DesignProject) => {
