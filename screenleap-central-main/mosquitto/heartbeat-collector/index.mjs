@@ -34,6 +34,10 @@
 import mqtt           from "mqtt";
 import { createClient } from "@supabase/supabase-js";
 import { readFileSync } from "node:fs";
+import WebSocketImpl   from "ws";   // Node.js < 22 has no native WebSocket; supabase-js
+                                    // realtime client requires one even though we never
+                                    // open a Realtime channel. Pass it explicitly so
+                                    // createClient() can initialise without throwing.
 
 const env = (k, fallback) => {
   const v = process.env[k];
@@ -59,8 +63,11 @@ const MAX_BUFFER              = parseInt(env("MAX_BUFFER",        "50000"));
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ── Supabase client ─────────────────────────────────────────────────────────
+// realtime.transport is required on Node < 22; we never open a Realtime
+// channel in this service but supabase-js initialises one eagerly.
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false },
+  auth:     { persistSession: false, autoRefreshToken: false },
+  realtime: { transport: WebSocketImpl },
 });
 
 // ── In-memory buffer ────────────────────────────────────────────────────────
