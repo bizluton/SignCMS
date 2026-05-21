@@ -58,7 +58,7 @@ type ScheduleMode = "loop" | "calendar";
 type SourceTab = "layout" | "preset" | "mine";
 
 interface TemplateOption { id: string; name: string; aspect: string; zones?: StudioZonePreset[]; }
-interface ScreenOption { id: string; name: string; branch: string; online: boolean; }
+interface ScreenOption { id: string; name: string; branch: string; online: boolean; device_model?: string | null; }
 interface ZoneMediaAssignment { id: string; name: string; type: "image" | "video"; url: string; thumbnail?: string; duration_seconds?: number | null; }
 interface ZoneUploadState { name: string; type: "image" | "video"; previewUrl: string; progress: number; index: number; total: number; }
 interface ZoneDragState { canUpload: boolean; reason: string; fileCount: number; }
@@ -549,6 +549,17 @@ export default function QuickPublishPage() {
   const [publishing, setPublishing] = useState(false);
   const [completed, setCompleted] = useState(false);
 
+  // ── Phase 3: device-capability matching ──────────────────────────────────
+  // device_models snapshot keyed by name (screens.device_model is a text FK
+  // by name to device_models.name). Used to compute per-screen compatibility
+  // against the currently selected project's output_mode + output_count.
+  type DeviceModelLite = {
+    name: string;
+    output_ports: Array<{ id: string; label: string; type: string }>;
+    supported_output_modes: Array<"mirror" | "independent" | "extend" | "matrix">;
+  };
+  const [deviceModels, setDeviceModels] = useState<DeviceModelLite[]>([]);
+
   const studioSources = useMemo(() => {
     invalidateStudioSourceCache();
     return { layouts: getStudioLayouts(), templates: getStudioTemplates() };
@@ -558,15 +569,24 @@ export default function QuickPublishPage() {
     if (!activeOrgId) return;
     setTemplates([]);
     setScreens([]);
+    setDeviceModels([]);
     (async () => {
-      const [tplRes, scrRes] = await Promise.all([
-        supabase.from("design_projects").select("id, name, aspect, zones")
+      // Phase 3: also fetch projects' output_mode/output_count (Phase 2
+      // denormalised columns) so we can compute compatibility against each
+      // screen's device_model capabilities (Phase 1).
+      const [tplRes, scrRes, mdlRes] = await Promise.all([
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase.from("design_projects").select as any)("id, name, aspect, zones, output_mode, output_count")
           .eq("org_id", activeOrgId).order("updated_at", { ascending: false }).limit(48),
-        supabase.from("screens").select("id, name, branch, online")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase.from("screens").select as any)("id, name, branch, online, device_model")
           .eq("org_id", activeOrgId).order("name"),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (supabase as any).from("device_models").select("name, output_ports, supported_output_modes"),
       ]);
       setTemplates(tplRes.data || []);
       setScreens(scrRes.data || []);
+      setDeviceModels((mdlRes.data as DeviceModelLite[]) || []);
     })();
   }, [activeOrgId, STUDIO_DATA_VERSION]);
 
@@ -751,14 +771,90 @@ export default function QuickPublishPage() {
     });
   };
 
+  // ── Phase 3: compute compatibility per screen vs. selected project ──────
+  // Lookup project by id (selectedTpl may also be a built-in layout/template
+  // which has no DB row → falls back to "no constraint"). Then for each
+  // screen, check the device_model's supported modes + port count against
+  // the project's required output_mode + output_count.
+  type CompatResult = { ok: boolean; reason: string };
+  const MODE_LABEL: Record<string, string> = {
+    mirror: "鏡像", independent: "獨立", extend: "延伸", matrix: "矩陣",
+  };
+  const modelByName = useMemo(() => {
+    const m = new Map<string, DeviceModelLite>();
+    for (const x of deviceModels) m.set(x.name, x);
+    return m;
+  }, [deviceModels]);
+
+  const compatibilityByScreen = useMemo<Map<string, CompatResult>>(() => {
+    const map = new Map<string, CompatResult>();
+    // No project chosen, or chosen item is a built-in layout/template (no
+    // DB row) → no constraint, all screens OK.
+    const proj = templateId ? templates.find((p) => p.id === templateId) as
+      (typeof templates[number] & { output_mode?: string; output_count?: number }) | undefined
+      : undefined;
+    if (!proj?.output_mode) return map;
+
+    const requiredMode  = proj.output_mode;
+    const requiredCount = Math.max(1, proj.output_count ?? 1);
+
+    for (const sc of screens) {
+      const dm = sc.device_model;
+      if (!dm) {
+        map.set(sc.id, { ok: false, reason: "此螢幕未指定型號" });
+        continue;
+      }
+      const model = modelByName.get(dm);
+      if (!model) {
+        map.set(sc.id, { ok: false, reason: `找不到型號「${dm}」設定` });
+        continue;
+      }
+      if (!(model.supported_output_modes ?? []).includes(requiredMode as never)) {
+        map.set(sc.id, { ok: false, reason: `型號「${dm}」不支援「${MODE_LABEL[requiredMode] ?? requiredMode}」模式` });
+        continue;
+      }
+      const portCount = (model.output_ports ?? []).length;
+      if (portCount < requiredCount) {
+        map.set(sc.id, { ok: false, reason: `型號「${dm}」只有 ${portCount} 個輸出埠，專案需要 ${requiredCount}` });
+        continue;
+      }
+      map.set(sc.id, { ok: true, reason: "" });
+    }
+    return map;
+  }, [templateId, templates, screens, modelByName]);
+
+  // When project changes, drop any previously-selected screens that have
+  // become incompatible. Don't bother adding compatible ones — user can
+  // (re-)select them. Keep the cleanup quiet.
+  useEffect(() => {
+    setSelectedScreens((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const sid of prev) {
+        const c = compatibilityByScreen.get(sid);
+        if (c && !c.ok) { next.delete(sid); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [compatibilityByScreen]);
+
   const toggleScreen = (id: string) => {
+    const compat = compatibilityByScreen.get(id);
+    if (compat && !compat.ok) return;  // can't pick an incompatible screen
     const next = new Set(selectedScreens);
     if (next.has(id)) next.delete(id); else next.add(id);
     setSelectedScreens(next);
   };
   const toggleAll = () => {
-    if (selectedScreens.size === screens.length) setSelectedScreens(new Set());
-    else setSelectedScreens(new Set(screens.map((s) => s.id)));
+    // Only "select-all" the compatible ones. Screens with no compatibility
+    // entry (i.e. project lacks constraint, or screen not in map yet) are
+    // considered eligible.
+    const eligible = screens.filter((s) => {
+      const c = compatibilityByScreen.get(s.id);
+      return !c || c.ok;
+    });
+    if (selectedScreens.size === eligible.length) setSelectedScreens(new Set());
+    else setSelectedScreens(new Set(eligible.map((s) => s.id)));
   };
   const toggleWeekday = (code: string) => {
     const next = new Set(weekdays);
@@ -1416,14 +1512,20 @@ export default function QuickPublishPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {screens.map((sc) => {
                     const selected = selectedScreens.has(sc.id);
+                    // Phase 3: compatibility status against current project
+                    const compat = compatibilityByScreen.get(sc.id);
+                    const incompatible = !!(compat && !compat.ok);
                     return (
                       <button
                         key={sc.id}
                         onClick={() => toggleScreen(sc.id)}
+                        disabled={incompatible}
+                        title={incompatible ? compat!.reason : undefined}
                         className={cn(
                           "flex min-h-[96px] items-center gap-4 p-4 text-left",
                           QP_SURFACE.choice,
                           selected ? QP_SURFACE.choiceSelected : "border-border hover:border-primary/40",
+                          incompatible && "opacity-50 cursor-not-allowed hover:border-border",
                         )}
                       >
                         <div className={cn(
@@ -1438,6 +1540,11 @@ export default function QuickPublishPage() {
                             {sc.online ? (<><Wifi className="h-3 w-3 text-success" /> {t("online")}</>) : (<><WifiOff className="h-3 w-3" /> {t("offline")}</>)}
                             {sc.branch && <span className="truncate">· {sc.branch}</span>}
                           </div>
+                          {incompatible && (
+                            <div className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 line-clamp-2">
+                              ⚠ {compat!.reason}
+                            </div>
+                          )}
                         </div>
                         <Checkbox checked={selected} className="pointer-events-none" />
                       </button>
