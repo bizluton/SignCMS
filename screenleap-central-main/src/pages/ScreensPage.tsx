@@ -102,6 +102,7 @@ export default function ScreensPage() {
 
   // ── Web Player self-setup ──────────────────────────────────────────────
   const [wpDialogOpen, setWpDialogOpen] = useState(false);
+  const [wpMode, setWpMode]             = useState<"single" | "bulk">("single");
   const [wpName, setWpName]             = useState("");
   const [wpOrgId, setWpOrgId]           = useState("");
   const [wpSaving, setWpSaving]         = useState(false);
@@ -109,6 +110,16 @@ export default function ScreensPage() {
   const [wpCodeId, setWpCodeId]         = useState<string | null>(null);
   const [wpActivated, setWpActivated]   = useState(false);
   const [wpCopied, setWpCopied]         = useState(false);
+  // Bulk mode
+  const [wpPrefix, setWpPrefix]               = useState("");
+  const [wpCount, setWpCount]                 = useState(10);
+  const [wpBulkResults, setWpBulkResults]     = useState<Array<{ id: string; name: string; code: string }>>([]);
+
+  // ── Pending activation codes list (per active org) ─────────────────────
+  type PendingCode = { id: string; name: string; code: string; created_at: string; org_id: string };
+  const [pendingCodes, setPendingCodes]       = useState<PendingCode[]>([]);
+  const [pendingExpanded, setPendingExpanded] = useState(false);
+  const [revealedCodes, setRevealedCodes]     = useState<Set<string>>(new Set());
 
   // ── Guard: warn before reload when add/edit dialog has unsaved changes ────
   const dialogOpenRef = useRef(false);
@@ -401,6 +412,66 @@ export default function ScreensPage() {
     return () => { void supabase.removeChannel(ch); };
   }, [wpCodeId]); // eslint-disable-line
 
+  // ── Pending activation codes (per active org) ──────────────────────────
+  // Fetches all status='pending' rows for the active org so admins can
+  // re-look-up codes generated earlier without having to dig through
+  // creation dialogs. Realtime-subscribed so the list shrinks live when
+  // a device activates (status flips to 'used').
+  useEffect(() => {
+    if (!isAdmin || !activeOrgId) { setPendingCodes([]); return; }
+    let cancelled = false;
+
+    const fetchPending = async () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data } = await (supabase as any)
+        .from("screen_activation_codes")
+        .select("id, name, code, created_at, org_id")
+        .eq("org_id", activeOrgId)
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+      if (!cancelled) setPendingCodes((data ?? []) as PendingCode[]);
+    };
+    void fetchPending();
+
+    const ch = supabase
+      .channel(`pending-codes-${activeOrgId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "screen_activation_codes", filter: `org_id=eq.${activeOrgId}` },
+        () => { void fetchPending(); },
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(ch);
+    };
+  }, [isAdmin, activeOrgId]); // eslint-disable-line
+
+  const deletePendingCode = async (id: string) => {
+    if (!window.confirm("確定要刪除這組授權碼？刪除後該碼將無法再被啟用。")) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any)
+      .from("screen_activation_codes")
+      .delete()
+      .eq("id", id);
+    if (error) {
+      toast.error(`刪除失敗：${error.message}`);
+      return;
+    }
+    // Realtime subscription will refresh the list; manually optimistic-update too
+    setPendingCodes((prev) => prev.filter((c) => c.id !== id));
+    toast.success("已刪除");
+  };
+
+  const toggleReveal = (id: string) => {
+    setRevealedCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   // Connected player (default channel + active project) per screen
   interface PlayerInfo { channel: string; project: string | null; }
   const [playerByScreen, setPlayerByScreen] = useState<Record<string, PlayerInfo>>({});
@@ -656,12 +727,16 @@ export default function ScreensPage() {
 
   // ── Web Player setup handlers ─────────────────────────────────────────
   const openWebPlayerSetup = () => {
+    setWpMode("single");
     setWpName("");
+    setWpPrefix("");
+    setWpCount(10);
     setWpOrgId(activeOrgId || defaultOrgId || orgs[0]?.id || "");
     setWpCode(null);
     setWpCodeId(null);
     setWpActivated(false);
     setWpCopied(false);
+    setWpBulkResults([]);
     setWpDialogOpen(true);
   };
 
@@ -691,6 +766,51 @@ export default function ScreensPage() {
     } finally {
       setWpSaving(false);
     }
+  };
+
+  const handleWebPlayerBulkCreate = async () => {
+    const prefix = wpPrefix.trim();
+    const count  = Math.min(Math.max(1, Math.floor(wpCount || 0)), 1000);
+    if (!prefix || !wpOrgId || count < 1) return;
+    setWpSaving(true);
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase.rpc as any)(
+        "bulk_create_screen_activation_codes",
+        { p_org_id: wpOrgId, p_prefix: prefix, p_count: count },
+      );
+      if (error) {
+        toast.error(`批次產生失敗：${error.message}`);
+        return;
+      }
+      setWpBulkResults((data ?? []) as Array<{ id: string; name: string; code: string }>);
+      toast.success(`已產生 ${(data ?? []).length} 組授權碼`);
+    } catch (e: unknown) {
+      toast.error(`批次產生例外：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setWpSaving(false);
+    }
+  };
+
+  const downloadBulkCsv = () => {
+    if (wpBulkResults.length === 0) return;
+    const rows = [
+      ["name", "code"],
+      ...wpBulkResults.map((r) => [r.name, r.code]),
+    ];
+    // BOM for Excel CJK; quote everything for safety
+    const csv = "﻿" + rows
+      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `web-player-codes-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const openRename = (group: string) => {
@@ -737,6 +857,89 @@ export default function ScreensPage() {
         planLabel={tier ? PLAN_LABELS[tier][language] : undefined}
         usedSuffix={{ zh: "已使用", en: "used", ja: "使用済み" }[language]}
       />
+
+      {/* ── Pending activation codes (待啟用代碼) ──────────────────────── */}
+      {isAdmin && pendingCodes.length > 0 && (
+        <Card className="overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setPendingExpanded((v) => !v)}
+            className="w-full flex items-center justify-between gap-3 p-3 text-left hover:bg-muted/40 transition-colors"
+          >
+            <div className="flex items-center gap-2">
+              <div className="rounded-md bg-amber-500/10 p-1.5">
+                <Monitor className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">待啟用代碼 ({pendingCodes.length})</p>
+                <p className="text-xs text-muted-foreground">已產生但尚未被裝置啟用的 Web Player 授權碼</p>
+              </div>
+            </div>
+            <span className="text-xs text-muted-foreground">{pendingExpanded ? "收起 ▲" : "展開 ▼"}</span>
+          </button>
+          {pendingExpanded && (
+            <div className="border-t max-h-96 overflow-y-auto">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-muted/80 backdrop-blur text-xs">
+                  <tr className="text-left">
+                    <th className="px-3 py-2 font-medium">名稱</th>
+                    <th className="px-3 py-2 font-medium font-mono">代碼</th>
+                    <th className="px-3 py-2 font-medium">建立時間</th>
+                    <th className="px-3 py-2 w-24 text-right">動作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingCodes.map((c) => {
+                    const revealed = revealedCodes.has(c.id);
+                    const masked   = "•".repeat(6);
+                    return (
+                      <tr key={c.id} className="border-t hover:bg-muted/40">
+                        <td className="px-3 py-1.5">{c.name}</td>
+                        <td className="px-3 py-1.5 font-mono tracking-wider">
+                          <button
+                            type="button"
+                            onClick={() => toggleReveal(c.id)}
+                            className="hover:text-primary"
+                            title={revealed ? "點擊隱藏" : "點擊顯示"}
+                          >
+                            {revealed ? c.code : masked}
+                          </button>
+                        </td>
+                        <td className="px-3 py-1.5 text-xs text-muted-foreground">
+                          {new Date(c.created_at).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(c.code);
+                                toast.success(`已複製 ${c.code}`);
+                              }}
+                              className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded"
+                              title="複製代碼"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deletePendingCode(c.id)}
+                              className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded"
+                              title="刪除此代碼"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1 max-w-sm">
@@ -1899,23 +2102,50 @@ export default function ScreensPage() {
       <Dialog
         open={wpDialogOpen}
         onOpenChange={(v) => {
-          if (!v) { setWpCode(null); setWpCodeId(null); setWpActivated(false); }
+          if (!v) {
+            setWpCode(null);
+            setWpCodeId(null);
+            setWpActivated(false);
+            setWpBulkResults([]);
+          }
           setWpDialogOpen(v);
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className={wpBulkResults.length > 0 ? "sm:max-w-2xl" : "sm:max-w-md"}>
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Monitor className="w-5 h-5 text-primary" />
               新增 Web Player 螢幕
             </DialogTitle>
             <DialogDescription>
-              輸入螢幕名稱後產生 6 位數代碼，在設備瀏覽器中開啟播放器並輸入代碼即可完成設定。
+              {wpMode === "single"
+                ? "輸入螢幕名稱後產生 6 位數代碼，在設備瀏覽器中開啟播放器並輸入代碼即可完成設定。"
+                : "一次產生多組授權碼。名稱會自動編號（prefix-001、prefix-002…），可匯出 CSV 分發。"}
             </DialogDescription>
           </DialogHeader>
 
-          {!wpCode ? (
-            /* Step 1: enter name + org */
+          {/* Mode toggle — only visible before any result is generated */}
+          {!wpCode && wpBulkResults.length === 0 && (
+            <div className="flex rounded-md border border-input p-0.5">
+              <button
+                type="button"
+                onClick={() => setWpMode("single")}
+                className={`flex-1 px-3 py-1.5 text-xs rounded ${wpMode === "single" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+              >
+                單筆
+              </button>
+              <button
+                type="button"
+                onClick={() => setWpMode("bulk")}
+                className={`flex-1 px-3 py-1.5 text-xs rounded ${wpMode === "bulk" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
+              >
+                批次
+              </button>
+            </div>
+          )}
+
+          {!wpCode && wpBulkResults.length === 0 && wpMode === "single" ? (
+            /* Single mode — Step 1: enter name + org */
             <div className="space-y-4 py-2">
               <div className="space-y-2">
                 <Label>螢幕名稱 <span className="text-destructive">*</span></Label>
@@ -1940,6 +2170,85 @@ export default function ScreensPage() {
                   </Select>
                 </div>
               )}
+            </div>
+          ) : !wpCode && wpBulkResults.length === 0 && wpMode === "bulk" ? (
+            /* Bulk mode — Step 1: prefix + count + org */
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <Label>名稱前綴 <span className="text-destructive">*</span></Label>
+                <input
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={wpPrefix}
+                  onChange={(e) => setWpPrefix(e.target.value)}
+                  placeholder="例如：分店- 或 lobby-"
+                  maxLength={80}
+                  autoFocus
+                />
+                <p className="text-[11px] text-muted-foreground">名稱會變成 {wpPrefix || "<prefix>"}001、{wpPrefix || "<prefix>"}002 …</p>
+              </div>
+              <div className="space-y-2">
+                <Label>數量 <span className="text-destructive">*</span></Label>
+                <input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  value={wpCount}
+                  onChange={(e) => setWpCount(parseInt(e.target.value) || 1)}
+                />
+                <p className="text-[11px] text-muted-foreground">最多 1000 組</p>
+              </div>
+              {orgs.length > 1 && (
+                <div className="space-y-2">
+                  <Label>所屬組織 <span className="text-destructive">*</span></Label>
+                  <Select value={wpOrgId} onValueChange={setWpOrgId}>
+                    <SelectTrigger><SelectValue placeholder="請選擇組織" /></SelectTrigger>
+                    <SelectContent>
+                      {orgs.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+            </div>
+          ) : wpBulkResults.length > 0 ? (
+            /* Bulk mode — Step 2: show results table */
+            <div className="space-y-3 py-2">
+              <p className="text-sm text-muted-foreground">
+                已產生 <span className="font-semibold text-foreground">{wpBulkResults.length}</span> 組授權碼。
+                按「下載 CSV」分發給各裝置。每組代碼啟用一次即失效。
+              </p>
+              <div className="max-h-80 overflow-y-auto rounded border">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                    <tr className="text-left text-xs">
+                      <th className="px-3 py-2 font-medium">名稱</th>
+                      <th className="px-3 py-2 font-medium font-mono">代碼</th>
+                      <th className="px-3 py-2 w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {wpBulkResults.map((r) => (
+                      <tr key={r.id} className="border-t hover:bg-muted/40">
+                        <td className="px-3 py-1.5">{r.name}</td>
+                        <td className="px-3 py-1.5 font-mono tracking-wider">{r.code}</td>
+                        <td className="px-3 py-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(r.code);
+                              toast.success(`已複製 ${r.code}`);
+                            }}
+                            className="text-muted-foreground hover:text-foreground"
+                            title="複製代碼"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : (
             /* Step 2: show code, wait for device */
@@ -2008,7 +2317,7 @@ export default function ScreensPage() {
           )}
 
           <DialogFooter>
-            {!wpCode ? (
+            {!wpCode && wpBulkResults.length === 0 && wpMode === "single" ? (
               <>
                 <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
                 <Button
@@ -2018,6 +2327,25 @@ export default function ScreensPage() {
                   {wpSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                   產生授權碼
                 </Button>
+              </>
+            ) : !wpCode && wpBulkResults.length === 0 && wpMode === "bulk" ? (
+              <>
+                <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+                <Button
+                  onClick={handleWebPlayerBulkCreate}
+                  disabled={wpSaving || !wpPrefix.trim() || !wpOrgId || !wpCount || wpCount < 1}
+                >
+                  {wpSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                  批次產生 {wpCount} 組
+                </Button>
+              </>
+            ) : wpBulkResults.length > 0 ? (
+              <>
+                <Button variant="outline" onClick={downloadBulkCsv}>
+                  <Copy className="w-4 h-4 mr-1.5" />
+                  下載 CSV
+                </Button>
+                <DialogClose asChild><Button>完成</Button></DialogClose>
               </>
             ) : (
               <DialogClose asChild>
