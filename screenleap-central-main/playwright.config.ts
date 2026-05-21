@@ -28,7 +28,9 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
   webServer: {
-    command: "bun run dev",
+    // Prefer bun if available; fall back to npm. PLAYWRIGHT_DEV_CMD env var
+    // overrides for sandbox / CI environments that ship neither.
+    command: process.env.PLAYWRIGHT_DEV_CMD ?? "bun run dev || npm run dev",
     url: "http://localhost:8080",
     reuseExistingServer: true,
     timeout: 60_000,
