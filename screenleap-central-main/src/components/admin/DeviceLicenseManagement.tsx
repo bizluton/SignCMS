@@ -45,7 +45,37 @@ interface DeviceLicense {
 }
 
 interface OrgRow { id: string; name: string }
-interface DeviceModel { id: string; name: string; sort_order: number }
+
+// ── Device capability metadata (Phase 1 of project↔device matching) ──
+//   port.type ∈ PORT_TYPES; "Other" carries a free-form customLabel.
+//   supported_output_modes is a subset of OUTPUT_MODE_KEYS.
+type PortType = "HDMI" | "DP" | "Type-C" | "Other";
+const PORT_TYPES: PortType[] = ["HDMI", "DP", "Type-C", "Other"];
+
+interface OutputPort {
+  id:           string;
+  label:        string;
+  type:         PortType;
+  customLabel?: string;   // only when type === "Other"
+}
+
+type OutputMode = "mirror" | "independent" | "extend" | "matrix";
+const OUTPUT_MODE_OPTIONS: { key: OutputMode; label: string }[] = [
+  { key: "mirror",      label: "鏡像 Mirror" },
+  { key: "independent", label: "獨立 Independent" },
+  { key: "extend",      label: "延伸 Extend" },
+  { key: "matrix",      label: "矩陣 Matrix" },
+];
+
+interface DeviceBrand { id: string; name: string; sort_order: number }
+interface DeviceModel {
+  id:                     string;
+  name:                   string;
+  sort_order:             number;
+  brand_id:               string | null;
+  output_ports:           OutputPort[];
+  supported_output_modes: OutputMode[];
+}
 
 const ERROR_MAP: Record<string, string> = {
   permission_denied: "權限不足",
@@ -68,6 +98,7 @@ export default function DeviceLicenseManagement() {
   const [rows, setRows]     = useState<DeviceLicense[]>([]);
   const [orgs, setOrgs]     = useState<OrgRow[]>([]);
   const [models, setModels] = useState<DeviceModel[]>([]);
+  const [brands, setBrands] = useState<DeviceBrand[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen]       = useState(false);
   const [modelsOpen, setModelsOpen] = useState(false);
@@ -143,14 +174,18 @@ export default function DeviceLicenseManagement() {
       { data: list },
       { data: orgsData },
       { data: modelsData },
+      { data: brandsData },
     ] = await Promise.all([
       supabase.from("device_licenses").select("*").order("created_at", { ascending: false }),
       supabase.from("organizations").select("id, name").order("name"),
       supabase.from("device_models").select("*").order("sort_order").order("name"),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any).from("device_brands").select("id, name, sort_order").order("sort_order").order("name"),
     ]);
     setRows((list as DeviceLicense[]) || []);
     setOrgs((orgsData as OrgRow[]) || []);
     setModels((modelsData as DeviceModel[]) || []);
+    setBrands((brandsData as DeviceBrand[]) || []);
     setLoading(false);
   };
 
@@ -358,6 +393,7 @@ export default function DeviceLicenseManagement() {
           open={modelsOpen}
           onOpenChange={setModelsOpen}
           models={models}
+          brands={brands}
           onChanged={fetchData}
         />
 
@@ -467,19 +503,169 @@ export default function DeviceLicenseManagement() {
   );
 }
 
+// ── Helpers for default capability values ─────────────────────────────────
+function defaultPorts(): OutputPort[] {
+  return [{ id: `out_${Math.random().toString(36).slice(2, 8)}`, label: "Output 1", type: "HDMI" }];
+}
+function defaultModes(): OutputMode[] { return ["mirror"]; }
+function newPortId(): string { return `out_${Math.random().toString(36).slice(2, 8)}`; }
+
+// ── Sub-component: brand picker with inline "+ new brand" ────────────────
+function BrandSelector({
+  value, onChange, brands, onAddNew,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  brands: DeviceBrand[];
+  onAddNew: () => void;
+}) {
+  return (
+    <div className="space-y-1">
+      <Select value={value || "_none"} onValueChange={(v) => onChange(v === "_none" ? "" : v)}>
+        <SelectTrigger><SelectValue placeholder="產牌" /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="_none">— 未指定 —</SelectItem>
+          {brands.map((b) => (
+            <SelectItem key={b.id} value={b.id}>{b.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <button
+        type="button"
+        onClick={onAddNew}
+        className="text-[11px] text-primary hover:underline ml-1"
+      >+ 新增品牌</button>
+    </div>
+  );
+}
+
+// ── Sub-component: output ports editor (dynamic list) ──────────────────────
+function PortsEditor({
+  ports, onChange,
+}: {
+  ports: OutputPort[];
+  onChange: (next: OutputPort[]) => void;
+}) {
+  const updateAt = (idx: number, patch: Partial<OutputPort>) => {
+    const next = ports.slice();
+    next[idx] = { ...next[idx], ...patch };
+    onChange(next);
+  };
+  const removeAt = (idx: number) => onChange(ports.filter((_, i) => i !== idx));
+  const addOne   = () =>
+    onChange([...ports, { id: newPortId(), label: `Output ${ports.length + 1}`, type: "HDMI" }]);
+
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground">輸出埠</Label>
+      <div className="space-y-1.5">
+        {ports.map((p, i) => (
+          <div key={p.id} className="flex gap-1.5 items-center">
+            <Input
+              value={p.label}
+              onChange={(e) => updateAt(i, { label: e.target.value })}
+              placeholder={`Output ${i + 1}`}
+              className="flex-1 h-8 text-xs"
+              maxLength={40}
+            />
+            <Select value={p.type} onValueChange={(v) => updateAt(i, { type: v as PortType })}>
+              <SelectTrigger className="w-28 h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {PORT_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            {p.type === "Other" && (
+              <Input
+                value={p.customLabel ?? ""}
+                onChange={(e) => updateAt(i, { customLabel: e.target.value })}
+                placeholder="自訂類型"
+                className="w-32 h-8 text-xs"
+                maxLength={20}
+              />
+            )}
+            <Button
+              variant="ghost" size="icon"
+              className="h-8 w-8 text-destructive hover:text-destructive"
+              onClick={() => removeAt(i)}
+              disabled={ports.length <= 1}
+              title={ports.length <= 1 ? "至少需保留 1 個輸出埠" : "刪除"}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        ))}
+      </div>
+      <Button variant="outline" size="sm" onClick={addOne} className="h-7 text-xs">
+        <Plus className="w-3 h-3 mr-1" /> 新增輸出埠
+      </Button>
+    </div>
+  );
+}
+
+// ── Sub-component: supported modes checkbox group ──────────────────────────
+function ModesEditor({
+  modes, onChange,
+}: {
+  modes: OutputMode[];
+  onChange: (next: OutputMode[]) => void;
+}) {
+  const toggle = (k: OutputMode) =>
+    onChange(modes.includes(k) ? modes.filter((m) => m !== k) : [...modes, k]);
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground">支援的輸出模式（複選）</Label>
+      <div className="flex flex-wrap gap-2">
+        {OUTPUT_MODE_OPTIONS.map((o) => {
+          const checked = modes.includes(o.key);
+          return (
+            <button
+              key={o.key}
+              type="button"
+              onClick={() => toggle(o.key)}
+              className={`px-2.5 py-1 rounded border text-xs transition-colors ${
+                checked
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-background text-muted-foreground border-input hover:bg-muted"
+              }`}
+            >
+              {checked ? <Check className="inline w-3 h-3 mr-1" /> : null}
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function DeviceModelsDialog({
-  open, onOpenChange, models, onChanged,
+  open, onOpenChange, models, brands, onChanged,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   models: DeviceModel[];
+  brands: DeviceBrand[];
   onChanged: () => void;
 }) {
-  const [newName, setNewName] = useState("");
-  const [newSort, setNewSort] = useState("0");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editSort, setEditSort] = useState("0");
+  // ── "新增型號" form state (Phase 1: brand + ports + modes) ──
+  const [newBrandId, setNewBrandId] = useState<string>("");
+  const [newName,    setNewName]    = useState("");
+  const [newSort,    setNewSort]    = useState("0");
+  const [newPorts,   setNewPorts]   = useState<OutputPort[]>(defaultPorts());
+  const [newModes,   setNewModes]   = useState<OutputMode[]>(defaultModes());
+
+  // ── Edit-in-place state ──
+  const [editingId,   setEditingId]   = useState<string | null>(null);
+  const [editBrandId, setEditBrandId] = useState<string>("");
+  const [editName,    setEditName]    = useState("");
+  const [editSort,    setEditSort]    = useState("0");
+  const [editPorts,   setEditPorts]   = useState<OutputPort[]>([]);
+  const [editModes,   setEditModes]   = useState<OutputMode[]>([]);
+
+  // ── Inline brand creator state ──
+  const [addBrandOpen, setAddBrandOpen] = useState(false);
+  const [addBrandName, setAddBrandName] = useState("");
+
   const [busy, setBusy] = useState(false);
   const [orderedModels, setOrderedModels] = useState<DeviceModel[]>(models);
 
@@ -527,16 +713,40 @@ function DeviceModelsDialog({
     }
   };
 
-  const startEdit  = (m: DeviceModel) => { setEditingId(m.id); setEditName(m.name); setEditSort(String(m.sort_order)); };
-  const cancelEdit = () => { setEditingId(null); setEditName(""); setEditSort("0"); };
+  const startEdit  = (m: DeviceModel) => {
+    setEditingId(m.id);
+    setEditBrandId(m.brand_id ?? "");
+    setEditName(m.name);
+    setEditSort(String(m.sort_order));
+    setEditPorts(Array.isArray(m.output_ports) && m.output_ports.length > 0 ? m.output_ports : defaultPorts());
+    setEditModes(Array.isArray(m.supported_output_modes) && m.supported_output_modes.length > 0 ? m.supported_output_modes : defaultModes());
+  };
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditBrandId(""); setEditName(""); setEditSort("0");
+    setEditPorts([]);   setEditModes([]);
+  };
+
+  const validateCapability = (ports: OutputPort[], modes: OutputMode[]): string | null => {
+    if (ports.length === 0) return "至少需要 1 個輸出埠";
+    if (modes.length === 0) return "至少需要 1 個支援的輸出模式";
+    return null;
+  };
 
   const add = async () => {
     const name = newName.trim();
-    const err = validateName(name);
-    if (err) { toast.error(err); return; }
+    const nErr = validateName(name);
+    if (nErr) { toast.error(nErr); return; }
+    const cErr = validateCapability(newPorts, newModes);
+    if (cErr) { toast.error(cErr); return; }
     setBusy(true);
-    const { error } = await supabase.from("device_models").insert({
-      name, sort_order: parseInt(newSort) || 0,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any).from("device_models").insert({
+      name,
+      sort_order:             parseInt(newSort) || 0,
+      brand_id:               newBrandId || null,
+      output_ports:           newPorts,
+      supported_output_modes: newModes,
     });
     setBusy(false);
     if (error) {
@@ -544,18 +754,26 @@ function DeviceModelsDialog({
       else toast.error(formatUserError(error, t));
     } else {
       toast.success("已新增型號");
-      setNewName(""); setNewSort("0");
+      setNewBrandId(""); setNewName(""); setNewSort("0");
+      setNewPorts(defaultPorts()); setNewModes(defaultModes());
       onChanged();
     }
   };
 
   const save = async (id: string) => {
     const name = editName.trim();
-    const err = validateName(name, id);
-    if (err) { toast.error(err); return; }
+    const nErr = validateName(name, id);
+    if (nErr) { toast.error(nErr); return; }
+    const cErr = validateCapability(editPorts, editModes);
+    if (cErr) { toast.error(cErr); return; }
     setBusy(true);
-    const { error } = await supabase.from("device_models").update({
-      name, sort_order: parseInt(editSort) || 0,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any).from("device_models").update({
+      name,
+      sort_order:             parseInt(editSort) || 0,
+      brand_id:               editBrandId || null,
+      output_ports:           editPorts,
+      supported_output_modes: editModes,
     }).eq("id", id);
     setBusy(false);
     if (error) {
@@ -566,6 +784,36 @@ function DeviceModelsDialog({
       cancelEdit();
       onChanged();
     }
+  };
+
+  // Inline brand creator
+  const submitNewBrand = async () => {
+    const n = addBrandName.trim();
+    if (!n) { toast.error("品牌名稱不可為空"); return; }
+    if (n.length > 100) { toast.error("品牌名稱最多 100 字"); return; }
+    if (brands.some((b) => b.name.toLowerCase() === n.toLowerCase())) {
+      toast.error("此品牌已存在");
+      return;
+    }
+    setBusy(true);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (supabase as any)
+      .from("device_brands")
+      .insert({ name: n, sort_order: (brands[brands.length - 1]?.sort_order ?? 0) + 10 })
+      .select("id, name, sort_order")
+      .single();
+    setBusy(false);
+    if (error) {
+      toast.error(formatUserError(error, t));
+      return;
+    }
+    toast.success("已新增品牌");
+    const created = data as DeviceBrand;
+    if (editingId) setEditBrandId(created.id);
+    else           setNewBrandId(created.id);
+    setAddBrandOpen(false);
+    setAddBrandName("");
+    onChanged();
   };
 
   const remove = async (m: DeviceModel) => {
@@ -592,17 +840,29 @@ function DeviceModelsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>管理設備型號</DialogTitle>
-          <DialogDescription>新增、修改或刪除可在「新增設備授權」中選擇的型號。</DialogDescription>
+          <DialogDescription>
+            設定設備的產牌、輸出埠與支援的輸出模式。Phase 3 之後排程／發佈中心會依此過濾相容螢幕。
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="rounded border p-3 space-y-3 bg-muted/30">
+          {/* ── 新增型號 form ──────────────────────────────────────────── */}
+          <div className="rounded-lg border p-4 space-y-3 bg-muted/30">
             <Label className="text-sm font-medium">新增型號</Label>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <div className="flex-1 space-y-1">
+
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+              <div className="md:col-span-3">
+                <BrandSelector
+                  value={newBrandId}
+                  onChange={setNewBrandId}
+                  brands={brands}
+                  onAddNew={() => setAddBrandOpen(true)}
+                />
+              </div>
+              <div className="md:col-span-6 space-y-1">
                 <Input
                   placeholder="型號名稱（例：Qbic BXP-300）"
                   value={newName}
@@ -620,77 +880,121 @@ function DeviceModelsDialog({
                 placeholder="排序"
                 value={newSort}
                 onChange={e => setNewSort(e.target.value)}
-                className="sm:w-24"
+                className="md:col-span-2"
               />
-              <Button onClick={add} disabled={busy || !newName.trim() || !!newNameError}>
+              <Button
+                onClick={add}
+                disabled={busy || !newName.trim() || !!newNameError}
+                className="md:col-span-1"
+              >
                 <Plus className="w-4 h-4 mr-1" />新增
               </Button>
             </div>
+
+            <PortsEditor ports={newPorts} onChange={setNewPorts} />
+            <ModesEditor modes={newModes} onChange={setNewModes} />
           </div>
 
-          <div className="rounded border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-8"></TableHead>
-                  <TableHead>型號名稱</TableHead>
-                  <TableHead className="w-24">排序</TableHead>
-                  <TableHead className="w-32 text-right">動作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-                <SortableContext items={orderedModels.map(m => m.id)} strategy={verticalListSortingStrategy}>
-                  <TableBody>
-                    {orderedModels.length === 0 ? (
-                      <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-8">尚無型號</TableCell></TableRow>
-                    ) : orderedModels.map(m => (
-                      <SortableModelRow
-                        key={m.id}
-                        model={m}
-                        isEditing={editingId === m.id}
-                        editName={editName}
-                        editSort={editSort}
-                        editNameError={editingId === m.id ? editNameError : null}
-                        setEditName={setEditName}
-                        setEditSort={setEditSort}
-                        onStartEdit={() => startEdit(m)}
-                        onCancelEdit={cancelEdit}
-                        onSave={() => save(m.id)}
-                        onRemove={() => remove(m)}
-                        busy={busy}
-                      />
-                    ))}
-                  </TableBody>
-                </SortableContext>
-              </DndContext>
-            </Table>
+          {/* ── 型號清單 — cards layout（每張卡片可展開編輯）── */}
+          <div className="space-y-2">
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+              <SortableContext items={orderedModels.map(m => m.id)} strategy={verticalListSortingStrategy}>
+                {orderedModels.length === 0 ? (
+                  <p className="text-center text-muted-foreground py-8 rounded border bg-muted/20">尚無型號</p>
+                ) : orderedModels.map(m => (
+                  <SortableModelRow
+                    key={m.id}
+                    model={m}
+                    brand={brands.find((b) => b.id === m.brand_id) ?? null}
+                    brands={brands}
+                    isEditing={editingId === m.id}
+                    editBrandId={editBrandId}
+                    editName={editName}
+                    editSort={editSort}
+                    editPorts={editPorts}
+                    editModes={editModes}
+                    editNameError={editingId === m.id ? editNameError : null}
+                    setEditBrandId={setEditBrandId}
+                    setEditName={setEditName}
+                    setEditSort={setEditSort}
+                    setEditPorts={setEditPorts}
+                    setEditModes={setEditModes}
+                    onStartEdit={() => startEdit(m)}
+                    onCancelEdit={cancelEdit}
+                    onSave={() => save(m.id)}
+                    onRemove={() => remove(m)}
+                    onAddBrand={() => setAddBrandOpen(true)}
+                    busy={busy}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>關閉</Button>
         </DialogFooter>
+
+        {/* ── Inline brand creator dialog ─────────────────────────────── */}
+        <Dialog open={addBrandOpen} onOpenChange={setAddBrandOpen}>
+          <DialogContent className="sm:max-w-sm">
+            <DialogHeader>
+              <DialogTitle>新增品牌</DialogTitle>
+              <DialogDescription>輸入新品牌的名稱，將立即可在「產牌」下拉中選擇。</DialogDescription>
+            </DialogHeader>
+            <Input
+              placeholder="品牌名稱（例：Bizlution）"
+              value={addBrandName}
+              onChange={(e) => setAddBrandName(e.target.value)}
+              maxLength={100}
+              autoFocus
+              onKeyDown={(e) => { if (e.key === "Enter") void submitNewBrand(); }}
+            />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setAddBrandOpen(false); setAddBrandName(""); }}>取消</Button>
+              <Button onClick={submitNewBrand} disabled={busy || !addBrandName.trim()}>
+                <Plus className="w-4 h-4 mr-1" />新增
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
     </Dialog>
   );
 }
 
+// Each model is now a card. Collapsed: brand badge + name + sort + capability
+// summary badges (port count + supported modes). Expanded (editing): all
+// fields inline including BrandSelector / PortsEditor / ModesEditor.
 function SortableModelRow({
-  model: m, isEditing, editName, editSort, editNameError, setEditName, setEditSort,
-  onStartEdit, onCancelEdit, onSave, onRemove, busy,
+  model: m, brand, brands,
+  isEditing,
+  editBrandId, editName, editSort, editPorts, editModes, editNameError,
+  setEditBrandId, setEditName, setEditSort, setEditPorts, setEditModes,
+  onStartEdit, onCancelEdit, onSave, onRemove, onAddBrand, busy,
 }: {
-  model: DeviceModel;
-  isEditing: boolean;
-  editName: string;
-  editSort: string;
+  model:       DeviceModel;
+  brand:       DeviceBrand | null;
+  brands:      DeviceBrand[];
+  isEditing:   boolean;
+  editBrandId: string;
+  editName:    string;
+  editSort:    string;
+  editPorts:   OutputPort[];
+  editModes:   OutputMode[];
   editNameError: string | null;
-  setEditName: (v: string) => void;
-  setEditSort: (v: string) => void;
-  onStartEdit: () => void;
-  onCancelEdit: () => void;
-  onSave: () => void;
-  onRemove: () => void;
-  busy: boolean;
+  setEditBrandId: (v: string) => void;
+  setEditName:    (v: string) => void;
+  setEditSort:    (v: string) => void;
+  setEditPorts:   (v: OutputPort[]) => void;
+  setEditModes:   (v: OutputMode[]) => void;
+  onStartEdit:    () => void;
+  onCancelEdit:   () => void;
+  onSave:         () => void;
+  onRemove:       () => void;
+  onAddBrand:     () => void;
+  busy:           boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: m.id });
   const style = {
@@ -698,61 +1002,96 @@ function SortableModelRow({
     transition,
     opacity: isDragging ? 0.6 : 1,
   };
+  const ports = Array.isArray(m.output_ports) ? m.output_ports : [];
+  const modes = Array.isArray(m.supported_output_modes) ? m.supported_output_modes : [];
+
   return (
-    <TableRow ref={setNodeRef} style={style}>
-      <TableCell className="w-8">
+    <div ref={setNodeRef} style={style} className="rounded-lg border bg-card">
+      {/* Collapsed header — always visible */}
+      <div className="flex items-center gap-2 p-3">
         <button
           type="button"
-          className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none"
+          className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none shrink-0"
           {...attributes}
           {...listeners}
           aria-label="拖曳排序"
         >
           <GripVertical className="w-4 h-4" />
         </button>
-      </TableCell>
-      <TableCell>
-        {isEditing ? (
-          <div className="space-y-1">
+        <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+          {brand && (
+            <Badge variant="outline" className="text-[10px] shrink-0">{brand.name}</Badge>
+          )}
+          <span className="font-medium text-sm truncate">{m.name}</span>
+          <span className="text-[11px] text-muted-foreground shrink-0">#{m.sort_order}</span>
+          {!isEditing && (
+            <>
+              <span className="text-[11px] text-muted-foreground ml-1 shrink-0">
+                {ports.length} 埠
+              </span>
+              <div className="flex gap-1 flex-wrap">
+                {modes.map((mk) => (
+                  <Badge key={mk} variant="secondary" className="text-[10px]">
+                    {OUTPUT_MODE_OPTIONS.find((o) => o.key === mk)?.label.split(" ")[0] ?? mk}
+                  </Badge>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          {isEditing ? (
+            <>
+              <Button size="sm" onClick={onSave} disabled={busy || !editName.trim() || !!editNameError}>儲存</Button>
+              <Button size="sm" variant="ghost" onClick={onCancelEdit}>取消</Button>
+            </>
+          ) : (
+            <>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onStartEdit} title="編輯">
+                <Pencil className="w-3.5 h-3.5" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={onRemove} title="刪除">
+                <Trash2 className="w-3.5 h-3.5 text-destructive" />
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Expanded edit form */}
+      {isEditing && (
+        <div className="border-t p-3 space-y-3 bg-muted/20">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+            <div className="md:col-span-3">
+              <BrandSelector
+                value={editBrandId}
+                onChange={setEditBrandId}
+                brands={brands}
+                onAddNew={onAddBrand}
+              />
+            </div>
+            <div className="md:col-span-7 space-y-1">
+              <Input
+                value={editName}
+                onChange={e => setEditName(e.target.value)}
+                maxLength={100}
+                aria-invalid={!!editNameError}
+                className={editNameError ? "border-destructive focus-visible:ring-destructive" : ""}
+              />
+              {editNameError && <p className="text-xs text-destructive">{editNameError}</p>}
+            </div>
             <Input
-              value={editName}
-              onChange={e => setEditName(e.target.value)}
-              maxLength={100}
-              aria-invalid={!!editNameError}
-              className={editNameError ? "border-destructive focus-visible:ring-destructive" : ""}
+              type="number"
+              value={editSort}
+              onChange={e => setEditSort(e.target.value)}
+              className="md:col-span-2"
             />
-            {editNameError && (
-              <p className="text-xs text-destructive">{editNameError}</p>
-            )}
           </div>
-        ) : (
-          <span className="font-medium">{m.name}</span>
-        )}
-      </TableCell>
-      <TableCell>
-        {isEditing ? (
-          <Input type="number" value={editSort} onChange={e => setEditSort(e.target.value)} />
-        ) : (
-          <span className="text-muted-foreground">{m.sort_order}</span>
-        )}
-      </TableCell>
-      <TableCell className="text-right">
-        {isEditing ? (
-          <div className="flex items-center justify-end gap-1">
-            <Button size="sm" onClick={onSave} disabled={busy || !editName.trim() || !!editNameError}>儲存</Button>
-            <Button size="sm" variant="ghost" onClick={onCancelEdit}>取消</Button>
-          </div>
-        ) : (
-          <div className="flex items-center justify-end gap-1">
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onStartEdit} title="編輯">
-              <Pencil className="w-3.5 h-3.5" />
-            </Button>
-            <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={onRemove} title="刪除">
-              <Trash2 className="w-3.5 h-3.5 text-destructive" />
-            </Button>
-          </div>
-        )}
-      </TableCell>
-    </TableRow>
+
+          <PortsEditor ports={editPorts} onChange={setEditPorts} />
+          <ModesEditor modes={editModes} onChange={setEditModes} />
+        </div>
+      )}
+    </div>
   );
 }
