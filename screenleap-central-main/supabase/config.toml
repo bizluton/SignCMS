@@ -1,25 +1,92 @@
-project_id = "pgbpmgqxtkaheqcmgwwj"
+project_id = "narhbpojjtnalyfiwxue"
 
-[functions.auth-email-hook]
+# ── Edge Functions — verify_jwt 設定 ───────────────────────────────────────────
+# 沒有 [functions.X] 區塊的函式預設 verify_jwt = true（authenticated 端點）。
+# 下面 28 個明確列為 false，因為它們是 webhook / anon / 用 device_token / 用 HOOK_SECRET。
+
+[functions.mqtt-auth]
 verify_jwt = false
 
-[functions.process-email-queue]
-verify_jwt = true
+[functions.register-device]
+verify_jwt = false
 
-[functions.send-transactional-email]
-verify_jwt = true
+[functions.activate-device]
+verify_jwt = false
 
-[functions.handle-email-unsubscribe]
+[functions.player-sync]
+verify_jwt = false
+
+[functions.player-heartbeat]
+verify_jwt = false
+
+[functions.player-dashboard]
+verify_jwt = false
+
+[functions.verify-device-license]
+verify_jwt = false
+
+[functions.shadow-report]
+verify_jwt = false
+
+[functions.upload-media]
+verify_jwt = false
+
+[functions.transcode-callback]
+verify_jwt = false
+
+[functions.auth-email-hook]
 verify_jwt = false
 
 [functions.handle-email-suppression]
 verify_jwt = false
 
+[functions.handle-email-unsubscribe]
+verify_jwt = false
+
+[functions.deliver-webhook]
+verify_jwt = false
+
+[functions.deliver-push]
+verify_jwt = false
+
+[functions.telegram-poll]
+verify_jwt = false
+
+[functions.license-reminder]
+verify_jwt = false
+
 [functions.scheduled-screen-health-report]
 verify_jwt = true
+
+[functions.smart-trigger-webhook]
+verify_jwt = false
+
+[functions.signcms-mcp]
+verify_jwt = false
+
+[functions.weather]
+verify_jwt = false
 
 [functions.weather-tw]
 verify_jwt = false
 
-[functions.weather]
+[functions.sign-widget-params]
+verify_jwt = false
+
+[functions.notify-install]
+verify_jwt = false
+
+[functions.register-app]
+verify_jwt = false
+
+[functions.submit-app-version]
+verify_jwt = false
+
+[functions.rotate-api-secret]
+verify_jwt = false
+
+[functions.migrate-media-to-storage]
+verify_jwt = false
+
+[functions.reset-cs-test-user]
 verify_jwt = false
