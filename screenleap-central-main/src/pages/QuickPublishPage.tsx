@@ -845,16 +845,16 @@ export default function QuickPublishPage() {
     if (next.has(id)) next.delete(id); else next.add(id);
     setSelectedScreens(next);
   };
+  // Screens eligible to be selected (compatible with current project, or
+  // no compatibility map entry → no constraint applies).
+  const eligibleScreens = useMemo(() => screens.filter((s) => {
+    const c = compatibilityByScreen.get(s.id);
+    return !c || c.ok;
+  }), [screens, compatibilityByScreen]);
+
   const toggleAll = () => {
-    // Only "select-all" the compatible ones. Screens with no compatibility
-    // entry (i.e. project lacks constraint, or screen not in map yet) are
-    // considered eligible.
-    const eligible = screens.filter((s) => {
-      const c = compatibilityByScreen.get(s.id);
-      return !c || c.ok;
-    });
-    if (selectedScreens.size === eligible.length) setSelectedScreens(new Set());
-    else setSelectedScreens(new Set(eligible.map((s) => s.id)));
+    if (selectedScreens.size === eligibleScreens.length) setSelectedScreens(new Set());
+    else setSelectedScreens(new Set(eligibleScreens.map((s) => s.id)));
   };
   const toggleWeekday = (code: string) => {
     const next = new Set(weekdays);
@@ -1502,7 +1502,7 @@ export default function QuickPublishPage() {
                 <div className={QP_TYPE.sectionLabel}>{t("selectScreens")}</div>
                 {screens.length > 0 && (
                   <button onClick={toggleAll} className="text-xs font-medium text-primary hover:underline">
-                    {t("selectAll")} ({selectedScreens.size}/{screens.length})
+                    {t("selectAll")} ({selectedScreens.size}/{eligibleScreens.length})
                   </button>
                 )}
               </div>

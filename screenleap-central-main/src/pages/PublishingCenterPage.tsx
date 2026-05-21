@@ -67,6 +67,7 @@ interface ScreenOption {
   online: boolean;
   org_id: string | null;
   timezone: string | null;
+  device_model: string | null;
 }
 
 interface ChannelOption {
@@ -90,6 +91,16 @@ interface DesignProjectOption {
   creator_name: string;
   team_name: string;
   collab_scope: "creator" | "team" | "org";
+  output_mode: "mirror" | "independent" | "extend" | "matrix" | null;
+  output_count: number | null;
+}
+
+// Phase 3.2: device-capability matching (mirrors QuickPublishPage)
+// screens.device_model is a text FK by name to device_models.name
+interface DeviceModelLite {
+  name: string;
+  output_ports: Array<{ id: string; label: string; type: string }>;
+  supported_output_modes: Array<"mirror" | "independent" | "extend" | "matrix">;
 }
 
 interface ProjectScheduleOption {
@@ -140,6 +151,7 @@ export default function PublishingCenterPage() {
   const [designProjects, setDesignProjects] = useState<DesignProjectOption[]>([]);
   const [projectScheduleOptions, setProjectScheduleOptions] = useState<ProjectScheduleOption[]>([]);
   const [screens, setScreens] = useState<ScreenOption[]>([]);
+  const [deviceModels, setDeviceModels] = useState<DeviceModelLite[]>([]);
   const [records, setRecords] = useState<PublishRecord[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -252,15 +264,17 @@ export default function PublishingCenterPage() {
   // Fetch data
   const fetchData = useCallback(async () => {
     type RawSched = { id: string; name: string; org_id: string | null; screens: { name: string } | null };
-    type RawScreen = { id: string; name: string; branch: string; online: boolean; org_id: string | null; timezone?: string | null };
+    type RawScreen = { id: string; name: string; branch: string; online: boolean; org_id: string | null; timezone?: string | null; device_model?: string | null };
     type RawChannel = { id: string; name: string; org_id: string | null; color: string; enabled: boolean; sort_order: number; aspect: string; team_id: string | null; collab_scope: string };
-    type RawProject = { id: string; name: string; org_id: string | null; aspect: string; created_by: string | null; team_id: string | null; collab_scope: string };
+    type RawProject = { id: string; name: string; org_id: string | null; aspect: string; created_by: string | null; team_id: string | null; collab_scope: string; output_mode?: string | null; output_count?: number | null };
     type RawPS = { id: string; name: string; design_project_id: string; block_type: string; color: string; start_at: string | null; end_at: string | null; weekdays: unknown; start_time: string | null; end_time: string | null; org_id: string | null };
     setLoading(true);
     let schedQ = supabase.from("schedules").select("id, name, org_id, screen_id, screens:screen_id(name)").order("name");
-    let screenQ = supabase.from("screens").select("id, name, branch, online, org_id").order("branch").order("name");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let screenQ = (supabase.from("screens").select as any)("id, name, branch, online, org_id, device_model").order("branch").order("name");
     let channelQ = supabase.from("channels").select("id, name, org_id, color, enabled, sort_order, aspect, team_id, collab_scope").order("sort_order", { ascending: true }).order("created_at", { ascending: true });
-    let projectQ = supabase.from("design_projects").select("id, name, org_id, aspect, created_by, team_id, collab_scope").order("name");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let projectQ = (supabase.from("design_projects").select as any)("id, name, org_id, aspect, created_by, team_id, collab_scope, output_mode, output_count").order("name");
     let psQ = supabase.from("project_schedules").select("id, name, design_project_id, block_type, color, start_at, end_at, weekdays, start_time, end_time, org_id").eq("enabled", true).order("created_at", { ascending: true });
     if (activeOrgId) {
       schedQ = schedQ.eq("org_id", activeOrgId);
@@ -269,13 +283,15 @@ export default function PublishingCenterPage() {
       projectQ = projectQ.eq("org_id", activeOrgId);
       psQ = psQ.eq("org_id", activeOrgId);
     }
-    const [schedRes, screenRes, recordRes, channelRes, projectRes, psRes] = await Promise.all([
+    const [schedRes, screenRes, recordRes, channelRes, projectRes, psRes, mdlRes] = await Promise.all([
       schedQ,
       screenQ,
       supabase.from("publish_records").select("*").order("created_at", { ascending: false }).limit(50),
       channelQ,
       projectQ,
       psQ,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any).from("device_models").select("name, output_ports, supported_output_modes"),
     ]);
 
     const { data: itemCounts } = await supabase.from("schedule_items").select("schedule_id");
@@ -291,7 +307,12 @@ export default function PublishingCenterPage() {
       screen_name: s.screens?.name || "-",
       items_count: countMap.get(s.id) || 0,
     })));
-    setScreens(((screenRes.data || []) as RawScreen[]).map((s) => ({ ...s, org_id: s.org_id || null })) as ScreenOption[]);
+    setScreens(((screenRes.data || []) as RawScreen[]).map((s) => ({
+      ...s,
+      org_id: s.org_id || null,
+      device_model: s.device_model || null,
+    })) as ScreenOption[]);
+    setDeviceModels((mdlRes.data as DeviceModelLite[]) || []);
     setRecords((recordRes.data || []) as PublishRecord[]);
     const rawChannels = (channelRes.data || []) as RawChannel[];
     const rawProjects = (projectRes.data || []) as RawProject[];
@@ -365,6 +386,8 @@ export default function PublishingCenterPage() {
       creator_name: (p.created_by && creatorMap.get(p.created_by)) || p.created_by || "-",
       team_name: (p.team_id && projectTeamNames.get(p.team_id)) || teamMap.get(p.id) || "",
       collab_scope: (p.collab_scope === "creator" || p.collab_scope === "team" || p.collab_scope === "org") ? p.collab_scope : "creator",
+      output_mode: (p.output_mode === "mirror" || p.output_mode === "independent" || p.output_mode === "extend" || p.output_mode === "matrix") ? p.output_mode : null,
+      output_count: typeof p.output_count === "number" ? p.output_count : null,
     })) as DesignProjectOption[]);
     const projectNameById = new Map(rawProjects.map((p) => [p.id, p.name]));
     setProjectScheduleOptions(((psRes.data || []) as RawPS[]).map((s) => ({
@@ -457,13 +480,100 @@ export default function PublishingCenterPage() {
     return groups;
   }, [filteredScreens, searchScreen, t]);
 
-  const allScreenIds = useMemo(() => new Set(filteredScreens.map((s) => s.id)), [filteredScreens]);
-  const allSelected = selectedScreenIds.size === filteredScreens.length && filteredScreens.length > 0;
-
   // Check if there are active emergency records
   const hasActiveEmergency = useMemo(() => records.some((r) => r.status === "emergency"), [records]);
 
+  // ── Phase 3.2: device-capability matching ──────────────────────────────
+  // Same rules as QuickPublishPage. Only applies to the project tab — the
+  // channel tab can contain heterogeneous projects (would need an extra
+  // fetch of channel_allowed_projects to evaluate), so we leave channels
+  // unfiltered. selectedSchedule (legacy "schedules" tab) likewise skips.
+  type CompatResult = { ok: boolean; reason: string };
+  const MODE_LABEL: Record<string, string> = {
+    mirror: "鏡像", independent: "獨立", extend: "延伸", matrix: "矩陣",
+  };
+  const modelByName = useMemo(() => {
+    const m = new Map<string, DeviceModelLite>();
+    for (const x of deviceModels) m.set(x.name, x);
+    return m;
+  }, [deviceModels]);
+
+  // Compute the union of output-mode + max output-count required by the
+  // currently selected projects. If multiple projects with different modes
+  // are selected, the target screen must support ALL of them.
+  const requiredOutput = useMemo<{ modes: Set<string>; count: number } | null>(() => {
+    if (playlistTab !== "project") return null;
+    if (selectedProjectIds.length === 0) return null;
+    const modes = new Set<string>();
+    let count = 1;
+    for (const pid of selectedProjectIds) {
+      const proj = designProjects.find((p) => p.id === pid);
+      if (!proj?.output_mode) continue;
+      modes.add(proj.output_mode);
+      count = Math.max(count, proj.output_count ?? 1);
+    }
+    if (modes.size === 0) return null;
+    return { modes, count };
+  }, [playlistTab, selectedProjectIds, designProjects]);
+
+  const compatibilityByScreen = useMemo<Map<string, CompatResult>>(() => {
+    const map = new Map<string, CompatResult>();
+    if (!requiredOutput) return map;
+    for (const sc of filteredScreens) {
+      const dm = sc.device_model;
+      if (!dm) { map.set(sc.id, { ok: false, reason: "此螢幕未指定型號" }); continue; }
+      const model = modelByName.get(dm);
+      if (!model) { map.set(sc.id, { ok: false, reason: `找不到型號「${dm}」設定` }); continue; }
+      const supported = new Set(model.supported_output_modes ?? []);
+      const missing: string[] = [];
+      for (const m of requiredOutput.modes) {
+        if (!supported.has(m as never)) missing.push(MODE_LABEL[m] ?? m);
+      }
+      if (missing.length > 0) {
+        map.set(sc.id, { ok: false, reason: `型號「${dm}」不支援：${missing.join("、")}` });
+        continue;
+      }
+      const portCount = (model.output_ports ?? []).length;
+      if (portCount < requiredOutput.count) {
+        map.set(sc.id, { ok: false, reason: `型號「${dm}」只有 ${portCount} 個輸出埠，專案需要 ${requiredOutput.count}` });
+        continue;
+      }
+      map.set(sc.id, { ok: true, reason: "" });
+    }
+    return map;
+  }, [requiredOutput, filteredScreens, modelByName]);
+
+  // Drop selected screens that become incompatible when source changes.
+  useEffect(() => {
+    setSelectedScreenIds((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const sid of prev) {
+        const c = compatibilityByScreen.get(sid);
+        if (c && !c.ok) { next.delete(sid); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [compatibilityByScreen]);
+
+  // Eligible = no compat entry (no constraint) OR ok. Used by select-all and counters.
+  const eligibleScreens = useMemo(
+    () => filteredScreens.filter((s) => {
+      const c = compatibilityByScreen.get(s.id);
+      return !c || c.ok;
+    }),
+    [filteredScreens, compatibilityByScreen],
+  );
+  const allScreenIds = useMemo(() => new Set(eligibleScreens.map((s) => s.id)), [eligibleScreens]);
+  const allSelected = selectedScreenIds.size === eligibleScreens.length && eligibleScreens.length > 0;
+
+  const isScreenIncompatible = (id: string) => {
+    const c = compatibilityByScreen.get(id);
+    return !!(c && !c.ok);
+  };
+
   const toggleScreen = (id: string) => {
+    if (isScreenIncompatible(id)) return;
     setSelectedScreenIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
@@ -472,11 +582,12 @@ export default function PublishingCenterPage() {
   };
 
   const toggleGroup = (groupScreens: ScreenOption[]) => {
+    const eligibleInGroup = groupScreens.filter((s) => !isScreenIncompatible(s.id));
     setSelectedScreenIds((prev) => {
       const next = new Set(prev);
-      const allIn = groupScreens.every((s) => next.has(s.id));
-      if (allIn) groupScreens.forEach((s) => next.delete(s.id));
-      else groupScreens.forEach((s) => next.add(s.id));
+      const allIn = eligibleInGroup.length > 0 && eligibleInGroup.every((s) => next.has(s.id));
+      if (allIn) eligibleInGroup.forEach((s) => next.delete(s.id));
+      else eligibleInGroup.forEach((s) => next.add(s.id));
       return next;
     });
   };
@@ -1061,45 +1172,73 @@ export default function PublishingCenterPage() {
             <label htmlFor="select-all" className="text-sm font-medium text-foreground cursor-pointer">
               {t("publishSelectAll")}
             </label>
-            <span className="text-xs text-muted-foreground ml-auto">{filteredScreens.length} {t("publishScreensTotal")}</span>
+            <span className="text-xs text-muted-foreground ml-auto">
+              {requiredOutput
+                ? `${eligibleScreens.length} / ${filteredScreens.length} ${t("publishScreensTotal")}`
+                : `${filteredScreens.length} ${t("publishScreensTotal")}`}
+            </span>
           </div>
           <Separator />
           <div className="space-y-3 max-h-[340px] overflow-y-auto">
             {Array.from(groupedScreens.entries()).map(([group, groupScreens]) => {
-              const groupAllSelected = groupScreens.every((s) => selectedScreenIds.has(s.id));
-              const groupSomeSelected = groupScreens.some((s) => selectedScreenIds.has(s.id));
+              // Group checkbox reflects only the eligible screens in the group.
+              const eligibleInGroup = groupScreens.filter((s) => !isScreenIncompatible(s.id));
+              const groupAllSelected = eligibleInGroup.length > 0 && eligibleInGroup.every((s) => selectedScreenIds.has(s.id));
+              const groupSomeSelected = eligibleInGroup.some((s) => selectedScreenIds.has(s.id));
               return (
                 <div key={group}>
                   <div className="flex items-center gap-2 mb-1.5">
                     <Checkbox
                       checked={groupAllSelected}
+                      disabled={eligibleInGroup.length === 0}
                       onCheckedChange={() => toggleGroup(groupScreens)}
                       className={groupSomeSelected && !groupAllSelected ? "data-[state=unchecked]:bg-primary/20" : ""}
                     />
                     <Layers className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                     <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{group}</span>
-                    <Badge variant="outline" className="text-[10px] ml-auto">{groupScreens.length}</Badge>
+                    <Badge variant="outline" className="text-[10px] ml-auto">
+                      {requiredOutput ? `${eligibleInGroup.length}/${groupScreens.length}` : groupScreens.length}
+                    </Badge>
                   </div>
                   <div className="space-y-0.5 pl-6">
-                    {groupScreens.map((s) => (
+                    {groupScreens.map((s) => {
+                      const compat = compatibilityByScreen.get(s.id);
+                      const incompatible = !!(compat && !compat.ok);
+                      return (
                       <label
                         key={s.id}
+                        title={incompatible ? compat!.reason : undefined}
                         className={cn(
-                          "flex items-center gap-2.5 p-2 rounded-md cursor-pointer transition-colors",
-                          selectedScreenIds.has(s.id) ? "bg-primary/5" : "hover:bg-muted/50"
+                          "flex items-start gap-2.5 p-2 rounded-md transition-colors",
+                          incompatible
+                            ? "opacity-50 cursor-not-allowed"
+                            : "cursor-pointer",
+                          !incompatible && (selectedScreenIds.has(s.id) ? "bg-primary/5" : "hover:bg-muted/50"),
                         )}
                       >
                         <Checkbox
                           checked={selectedScreenIds.has(s.id)}
                           onCheckedChange={() => toggleScreen(s.id)}
+                          disabled={incompatible}
+                          className="mt-0.5"
                         />
-                        <span className="text-sm text-foreground truncate flex-1">{s.name}</span>
-                        <span className={cn(
-                          "w-2 h-2 rounded-full shrink-0",
-                          s.online ? "bg-emerald-500" : "bg-muted-foreground/30"
-                        )} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-foreground truncate flex-1">{s.name}</span>
+                            <span className={cn(
+                              "w-2 h-2 rounded-full shrink-0",
+                              s.online ? "bg-emerald-500" : "bg-muted-foreground/30"
+                            )} />
+                          </div>
+                          {incompatible && (
+                            <div className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5 line-clamp-2">
+                              ⚠ {compat!.reason}
+                            </div>
+                          )}
+                        </div>
                       </label>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               );
