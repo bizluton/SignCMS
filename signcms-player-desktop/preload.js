@@ -61,6 +61,7 @@ relay('sync-data',         '__signSyncData');
 relay('sync-error',        '__signSyncError');
 relay('realtime-cmd',      '__signRealtimeCmd');
 relay('realtime-status',   '__signRealtimeStatus');
+relay('mqtt-status',       '__signMqttStatus');
 relay('download-progress', '__signDownloadProgress');
 relay('cas-ready',         '__signCasReady');
 relay('verify-progress',   '__signVerifyProgress');

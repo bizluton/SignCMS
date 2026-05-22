@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, ipcMain, protocol, shell, Menu, session, net } = require('electron');
+const { app, BrowserWindow, ipcMain, protocol, shell, Menu, session, net, screen } = require('electron');
 const path           = require('path');
 const fs             = require('fs');
 const crypto         = require('crypto');
@@ -532,19 +532,67 @@ ipcMain.on('update-software', async () => {
   }
 });
 
-// Aspect ratio lock
-// Locks the main window to the given aspect ratio so it resizes proportionally.
+// Aspect ratio lock + immediate resize.
+//
+// BrowserWindow.setAspectRatio() ONLY constrains future user-drag resizes —
+// it does not actively reshape the window. So pressing a HUD aspect button
+// without also calling setBounds looks broken to the user (window doesn't
+// move until they drag a corner). We do both: lock the ratio for future
+// resizes AND resize the window now, keeping it centered on the same spot.
+//
 //   '16:9'  → landscape (16/9 ≈ 1.778)
 //   '9:16'  → portrait  (9/16 = 0.5625)
-//   'free'  → release lock (pass 0)
+//   'free'  → release lock (pass 0); leave current size alone
 ipcMain.on('set-aspect-ratio', (_e, ratio) => {
   aspectRatioLock = ratio;
   if (!mainWindow) return;
+
+  // 1. Lock (or release) the resize-time aspect constraint
   switch (ratio) {
     case '16:9': mainWindow.setAspectRatio(16 / 9); break;
     case '9:16': mainWindow.setAspectRatio(9  / 16); break;
-    default:     mainWindow.setAspectRatio(0);        break;
+    default:     mainWindow.setAspectRatio(0);       break;
   }
+
+  // 2. 'free' leaves the current window untouched
+  if (ratio !== '16:9' && ratio !== '9:16') return;
+
+  // 3. Resize the window now to match.
+  //    Constrain to the current display's work area (minus a small margin so
+  //    we don't slam against the menu bar / dock). Keep center where it was.
+  const cur     = mainWindow.getBounds();
+  const display = screen.getDisplayMatching(cur);
+  const wa      = display.workArea;
+  const margin  = 24;
+  const maxW    = Math.max(640, wa.width  - margin * 2);
+  const maxH    = Math.max(360, wa.height - margin * 2);
+
+  const r = ratio === '16:9' ? 16 / 9 : 9 / 16;
+
+  // Pick the larger of (current width, current height × r) so the window
+  // doesn't shrink unnecessarily; then clamp to work-area.
+  let w, h;
+  if (ratio === '16:9') {
+    // Use current width; if resulting height > work area, shrink width down.
+    w = Math.min(maxW, Math.max(cur.width, Math.round(cur.height * r)));
+    h = Math.round(w / r);
+    if (h > maxH) { h = maxH; w = Math.round(h * r); }
+  } else {
+    // 9:16 — base on current height; if width > maxW, shrink height down.
+    h = Math.min(maxH, Math.max(cur.height, Math.round(cur.width / r)));
+    w = Math.round(h * r);
+    if (w > maxW) { w = maxW; h = Math.round(w / r); }
+  }
+
+  // Re-center on the previous center; clamp into work area
+  const cx = cur.x + cur.width  / 2;
+  const cy = cur.y + cur.height / 2;
+  let   x  = Math.round(cx - w / 2);
+  let   y  = Math.round(cy - h / 2);
+  x = Math.max(wa.x, Math.min(x, wa.x + wa.width  - w));
+  y = Math.max(wa.y, Math.min(y, wa.y + wa.height - h));
+
+  mainWindow.setBounds({ x, y, width: w, height: h }, false);
 });
 
 ipcMain.handle('get-aspect-ratio', () => aspectRatioLock);

@@ -49,8 +49,8 @@ interface OrgRow { id: string; name: string }
 // ── Device capability metadata (Phase 1 of project↔device matching) ──
 //   port.type ∈ PORT_TYPES; "Other" carries a free-form customLabel.
 //   supported_output_modes is a subset of OUTPUT_MODE_KEYS.
-type PortType = "HDMI" | "DP" | "Type-C" | "Other";
-const PORT_TYPES: PortType[] = ["HDMI", "DP", "Type-C", "Other"];
+type PortType = "HDMI" | "DP" | "Type-C" | "Browser" | "Other";
+const PORT_TYPES: PortType[] = ["HDMI", "DP", "Type-C", "Browser", "Other"];
 
 interface OutputPort {
   id:           string;
@@ -75,6 +75,7 @@ interface DeviceModel {
   brand_id:               string | null;
   output_ports:           OutputPort[];
   supported_output_modes: OutputMode[];
+  is_system:              boolean;
 }
 
 const ERROR_MAP: Record<string, string> = {
@@ -1050,9 +1051,11 @@ function SortableModelRow({
               <Button variant="ghost" size="icon" className="h-7 w-7" onClick={onStartEdit} title="編輯">
                 <Pencil className="w-3.5 h-3.5" />
               </Button>
-              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={onRemove} title="刪除">
-                <Trash2 className="w-3.5 h-3.5 text-destructive" />
-              </Button>
+              {!m.is_system && (
+                <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={onRemove} title="刪除">
+                  <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                </Button>
+              )}
             </>
           )}
         </div>
