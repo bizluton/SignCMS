@@ -119,6 +119,21 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Check if the email already belongs to an accepted (existing) member
+    const { data: acceptedInv } = await supabase
+      .from('invitations')
+      .select('id')
+      .eq('email', email.toLowerCase().trim())
+      .eq('org_id', org_id)
+      .eq('status', 'accepted')
+      .maybeSingle()
+
+    if (acceptedInv) {
+      return new Response(JSON.stringify({ error: '此 Email 已是該組織成員' }), {
+        status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
     // If resending, delete the old invitation first
     if (resend_invitation_id) {
       await supabase.from('invitations').delete().eq('id', resend_invitation_id)
@@ -132,7 +147,7 @@ Deno.serve(async (req) => {
         .maybeSingle()
 
       if (existingInv) {
-        return new Response(JSON.stringify({ error: 'Invitation already sent to this email' }), {
+        return new Response(JSON.stringify({ error: '此 Email 已有待接受的邀請' }), {
           status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }

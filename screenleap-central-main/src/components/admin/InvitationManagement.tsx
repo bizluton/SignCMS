@@ -134,7 +134,7 @@ export default function InvitationManagement() {
         const { data, error } = await supabase.functions.invoke("send-invitation", {
           body,
         });
-        if (error) throw error;
+        if (error) throw new Error((error as any).context?.error ?? error.message);
         if (data?.error) throw new Error(data.error);
         successCount++;
         logActivity({ action: "send_invitation", category: "admin", targetName: addr, actionParams: { org: orgName } });
@@ -174,7 +174,7 @@ export default function InvitationManagement() {
       const { data, error } = await supabase.functions.invoke("send-invitation", {
         body: { email: inv.email, org_id: inv.org_id, resend_invitation_id: inv.id },
       });
-      if (error) throw error;
+      if (error) throw new Error((error as any).context?.error ?? error.message);
       if (data?.error) throw new Error(data.error);
       toast.success(t("invResent"));
       logActivity({ action: "resend_invitation", category: "admin", targetName: inv.email, actionParams: { org: inv.org_name } });
