@@ -190,7 +190,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               <Button type="button" variant="outline" onClick={() => setPwdOpen(false)}>
                 {t("cancel")}
               </Button>
-              <Button type="submit" disabled={loading}>
+              <Button
+                type="submit"
+                disabled={loading || (confirmPassword.length > 0 && newPassword !== confirmPassword)}
+              >
                 {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                 {t("save")}
               </Button>

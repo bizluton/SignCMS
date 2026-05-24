@@ -2,6 +2,7 @@ import { Component, ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { useLanguage } from "@/contexts/LanguageContext";
 
 interface Props {
   children: ReactNode;
@@ -114,28 +115,41 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render() {
     if (!this.state.hasError) return this.props.children;
-
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background p-4">
-        <div className="max-w-md w-full text-center space-y-4">
-          <div className="mx-auto w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
-            <AlertTriangle className="w-6 h-6 text-destructive" />
-          </div>
-          <h1 className="text-xl font-semibold text-foreground">Something went wrong</h1>
-          <p className="text-sm text-muted-foreground">
-            The page failed to load. This can happen after a dev-server hiccup or stale module cache.
-          </p>
-          {this.state.error?.message && (
-            <pre className="text-xs text-left bg-muted text-muted-foreground p-3 rounded-md overflow-auto max-h-40">
-              {this.state.error.message}
-            </pre>
-          )}
-          <Button onClick={this.handleReload} className="gap-2">
-            <RefreshCw className="w-4 h-4" />
-            Reload page
-          </Button>
-        </div>
-      </div>
+      <ErrorFallback
+        errorMessage={this.state.error?.message}
+        onReload={this.handleReload}
+      />
     );
   }
+}
+
+function ErrorFallback({
+  errorMessage,
+  onReload,
+}: {
+  errorMessage?: string;
+  onReload: () => void;
+}) {
+  const { t } = useLanguage();
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+      <div className="max-w-md w-full text-center space-y-4">
+        <div className="mx-auto w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+          <AlertTriangle className="w-6 h-6 text-destructive" />
+        </div>
+        <h1 className="text-xl font-semibold text-foreground">{t("errBoundaryTitle")}</h1>
+        <p className="text-sm text-muted-foreground">{t("errBoundaryDesc")}</p>
+        {errorMessage && (
+          <pre className="text-xs text-left bg-muted text-muted-foreground p-3 rounded-md overflow-auto max-h-40">
+            {errorMessage}
+          </pre>
+        )}
+        <Button onClick={onReload} className="gap-2">
+          <RefreshCw className="w-4 h-4" />
+          {t("errBoundaryReload")}
+        </Button>
+      </div>
+    </div>
+  );
 }

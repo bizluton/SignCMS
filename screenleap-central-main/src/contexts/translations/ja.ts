@@ -2076,4 +2076,23 @@ export const JA = {
   queueNotFound: "キューが見つかりません",
   queueEnableTts: "クリックで音声を有効化",
   queueNoQueuesDisplay: "キューが設定されていません",
+  // Notification bell
+  notifTitle: "通知",
+  notifMarkAllRead: "すべて既読",
+  notifClear: "クリア",
+  notifEmpty: "通知はありません",
+  notifJustNow: "たった今",
+  notifMinsAgo: "{n} 分前",
+  notifHrsAgo: "{n} 時間前",
+  notifDaysAgo: "{n} 日前",
+  notifEnablePush: "プッシュ通知を有効にする",
+  // Sidebar auto-hide
+  sidebarAutoHideOn: "サイドバーを固定",
+  sidebarAutoHideOff: "サイドバーを自動非表示",
+  sidebarHoverLabel: "ホバーで表示",
+  sidebarPinLabel: "固定表示",
+  // Error boundary
+  errBoundaryTitle: "エラーが発生しました",
+  errBoundaryDesc: "ページの読み込みに失敗しました。サーバーの更新またはキャッシュの問題が原因の可能性があります。",
+  errBoundaryReload: "ページを再読み込み",
 } as const;

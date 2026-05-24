@@ -2079,4 +2079,23 @@ export const ZH = {
   queueNotFound: "找不到此隊列",
   queueEnableTts: "點擊啟用語音",
   queueNoQueuesDisplay: "尚無排隊隊列",
+  // Notification bell
+  notifTitle: "通知",
+  notifMarkAllRead: "全部已讀",
+  notifClear: "清除",
+  notifEmpty: "暫無通知",
+  notifJustNow: "剛剛",
+  notifMinsAgo: "{n} 分鐘前",
+  notifHrsAgo: "{n} 小時前",
+  notifDaysAgo: "{n} 天前",
+  notifEnablePush: "開啟推播通知",
+  // Sidebar auto-hide
+  sidebarAutoHideOn: "固定顯示側欄",
+  sidebarAutoHideOff: "懸停時顯示側欄",
+  sidebarHoverLabel: "懸停顯示文字",
+  sidebarPinLabel: "固定顯示文字",
+  // Error boundary
+  errBoundaryTitle: "頁面發生錯誤",
+  errBoundaryDesc: "頁面載入失敗，可能是因為網路問題或版本更新導致快取失效。",
+  errBoundaryReload: "重新載入頁面",
 } as const;

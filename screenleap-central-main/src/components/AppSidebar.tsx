@@ -453,7 +453,7 @@ export function AppSidebar() {
           <button
             type="button"
             onClick={toggleAutoHide}
-            title={autoHide ? "關閉文字自動隱藏（固定顯示）" : "開啟文字自動隱藏（懸停顯示）"}
+            title={autoHide ? t("sidebarAutoHideOn") : t("sidebarAutoHideOff")}
             className="w-7 h-7 flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/70 transition-colors shrink-0"
           >
             {autoHide
@@ -463,7 +463,7 @@ export function AppSidebar() {
           </button>
           {!collapsed && (
             <span className="text-[11px] text-muted-foreground leading-tight select-none">
-              {autoHide ? "懸停顯示文字" : "固定顯示文字"}
+              {autoHide ? t("sidebarHoverLabel") : t("sidebarPinLabel")}
             </span>
           )}
         </div>

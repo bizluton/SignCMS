@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Bell, ShieldCheck, Loader2, Check, X } from "lucide-react";
+import { Bell, ShieldCheck, Loader2, Check, X, BellRing } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -32,14 +32,16 @@ interface PendingDelegationReq {
   created_at: string;
 }
 
-const formatRelative = (iso: string) => {
+type TFn = (key: import("@/contexts/translations").TranslationKey) => string;
+
+const formatRelative = (iso: string, t: TFn) => {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "剛剛";
-  if (mins < 60) return `${mins} 分鐘前`;
+  if (mins < 1) return t("notifJustNow");
+  if (mins < 60) return t("notifMinsAgo").replace("{n}", String(mins));
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs} 小時前`;
-  return `${Math.floor(hrs / 24)} 天前`;
+  if (hrs < 24) return t("notifHrsAgo").replace("{n}", String(hrs));
+  return t("notifDaysAgo").replace("{n}", String(Math.floor(hrs / 24)));
 };
 
 export function NotificationBell() {
@@ -50,13 +52,15 @@ export function NotificationBell() {
   const [pendingReqs, setPendingReqs] = useState<PendingDelegationReq[]>([]);
   const [open, setOpen] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>(
+    "Notification" in window ? Notification.permission : "denied",
+  );
 
-  // Request browser notification permission on mount
-  useEffect(() => {
-    if ("Notification" in window && Notification.permission === "default") {
-      Notification.requestPermission();
-    }
-  }, []);
+  const requestPushPermission = async () => {
+    if (!("Notification" in window)) return;
+    const result = await Notification.requestPermission();
+    setPushPermission(result);
+  };
 
   const showBrowserNotification = useCallback((title: string, body: string, link?: string) => {
     if ("Notification" in window && Notification.permission === "granted" && document.hidden) {
@@ -220,23 +224,29 @@ export function NotificationBell() {
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-0">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-          <span className="text-sm font-semibold">通知</span>
+          <span className="text-sm font-semibold">{t("notifTitle")}</span>
           <div className="flex items-center gap-1">
+            {pushPermission === "default" && (
+              <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={requestPushPermission}>
+                <BellRing className="h-3 w-3" />
+                {t("notifEnablePush")}
+              </Button>
+            )}
             {unreadCount > 0 && (
               <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={markAllRead}>
-                全部已讀
+                {t("notifMarkAllRead")}
               </Button>
             )}
             {notifications.length > 0 && (
               <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={clearAll}>
-                清除
+                {t("notifClear")}
               </Button>
             )}
           </div>
         </div>
         <ScrollArea className="max-h-80">
           {notifications.length === 0 ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">暫無通知</div>
+            <div className="py-8 text-center text-sm text-muted-foreground">{t("notifEmpty")}</div>
           ) : (
             notifications.map(n => {
               const pending = findPendingForNotification(n);
@@ -261,7 +271,7 @@ export function NotificationBell() {
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">{n.title}</p>
                         <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{n.body}</p>
-                        <p className="text-[10px] text-muted-foreground mt-1">{formatRelative(n.created_at)}</p>
+                        <p className="text-[10px] text-muted-foreground mt-1">{formatRelative(n.created_at, t)}</p>
                       </div>
                     </div>
                   </button>

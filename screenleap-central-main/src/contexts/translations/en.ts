@@ -2076,4 +2076,23 @@ export const EN = {
   queueNotFound: "Queue not found",
   queueEnableTts: "Click to enable TTS",
   queueNoQueuesDisplay: "No queues configured",
+  // Notification bell
+  notifTitle: "Notifications",
+  notifMarkAllRead: "Mark all read",
+  notifClear: "Clear all",
+  notifEmpty: "No notifications",
+  notifJustNow: "Just now",
+  notifMinsAgo: "{n} min ago",
+  notifHrsAgo: "{n} hr ago",
+  notifDaysAgo: "{n} day ago",
+  notifEnablePush: "Enable push notifications",
+  // Sidebar auto-hide
+  sidebarAutoHideOn: "Pin sidebar labels",
+  sidebarAutoHideOff: "Auto-hide sidebar",
+  sidebarHoverLabel: "Hover to show",
+  sidebarPinLabel: "Labels pinned",
+  // Error boundary
+  errBoundaryTitle: "Something went wrong",
+  errBoundaryDesc: "The page failed to load. This can happen after a server update or stale module cache.",
+  errBoundaryReload: "Reload page",
 } as const;
