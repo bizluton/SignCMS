@@ -22,7 +22,7 @@ import InvitationManagement from "@/components/admin/InvitationManagement";
 import DelegationLogPanel from "@/components/admin/DelegationLogPanel";
 import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
 
-type UserRoleDisplay = "system_admin" | "org_admin" | "user";
+type UserRoleDisplay = "system_admin" | "org_admin" | "user" | "si_agent";
 interface UserWithRole {
   user_id: string; display_name: string | null; avatar_url: string | null; role: UserRoleDisplay; org_names: string[];
 }
@@ -89,9 +89,11 @@ export default function AdminPage() {
     ]);
 
     const userRolesMap = new Map<string, Set<string>>();
+    const agentIds = new Set<string>();
     (roles || []).forEach((r) => {
       if (!userRolesMap.has(r.user_id)) userRolesMap.set(r.user_id, new Set());
       userRolesMap.get(r.user_id)!.add(r.role);
+      if (r.role === "si_agent") agentIds.add(r.user_id);
     });
     // Distinguish 系統管理員 (system_admin) from 組織管理員 (org_admin).
     // A user is treated as system_admin when they have a row in system_admins
@@ -101,7 +103,8 @@ export default function AdminPage() {
     userRolesMap.forEach((set, uid) => {
       const isSys = set.has("admin");
       const isOrg = set.has("org_admin");
-      roleMap.set(uid, isSys ? "system_admin" : isOrg ? "org_admin" : "user");
+      const isAgentRole = set.has("si_agent");
+      roleMap.set(uid, isSys ? "system_admin" : isOrg ? "org_admin" : isAgentRole ? "si_agent" : "user");
     });
     const orgMap = new Map((orgs || []).map((o) => [o.id, o.name]));
     const teamOrgMap = new Map((teams || []).map((t) => [t.id, t.org_id]));
@@ -168,6 +171,8 @@ export default function AdminPage() {
     if (filterOrgIds.size > 0) {
       filteredProfiles = filteredProfiles.filter((p) => {
         if (p.user_id === user?.id) return true;
+        // System admins can always see SI agents regardless of team membership
+        if (isCurrentSystemAdmin && agentIds.has(p.user_id)) return true;
         const targetOrgIds = userOrgIdMap.get(p.user_id);
         if (!targetOrgIds) return false;
         return [...targetOrgIds].some((id) => filterOrgIds.has(id));
@@ -379,12 +384,14 @@ export default function AdminPage() {
                   {users.map((u) => {
                     const isSelf = u.user_id === user?.id;
                     const isProtected = systemAdminIds.has(u.user_id);
-                    // System admin: delete anyone (except self & protected). org_admin: delete users in own org including admins.
-                    const canDelete = !isSelf && !isProtected && (isSystemAdmin || isAdmin || isOrgAdmin);
-                    // Admin / org_admin can reset passwords of users in scope
-                    const canResetPassword = !isSelf && !isProtected && (isSystemAdmin || isAdmin || isOrgAdmin);
-                    // Only system admin can change roles
-                    const canChangeRole = isSystemAdmin;
+                    // SI agents are managed via the system-agents page — no inline edit/delete here.
+                    const isSIAgent = u.role === "si_agent";
+                    // System admin: delete anyone (except self, protected, and SI agents). org_admin: delete users in own org.
+                    const canDelete = !isSelf && !isProtected && !isSIAgent && (isSystemAdmin || isAdmin || isOrgAdmin);
+                    // Admin / org_admin can reset passwords of users in scope (not SI agents)
+                    const canResetPassword = !isSelf && !isProtected && !isSIAgent && (isSystemAdmin || isAdmin || isOrgAdmin);
+                    // Only system admin can change roles, and not for SI agents
+                    const canChangeRole = isSystemAdmin && !isSIAgent;
 
                     return (
                       <div key={u.user_id} className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 transition-colors">
@@ -409,9 +416,12 @@ export default function AdminPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Badge variant={u.role === "system_admin" ? "default" : u.role === "org_admin" ? "secondary" : "outline"} className="gap-1">
-                            {u.role === "system_admin" ? <ShieldCheck className="w-3 h-3" /> : u.role === "org_admin" ? <Shield className="w-3 h-3" /> : <Shield className="w-3 h-3" />}
-                            {u.role === "system_admin" ? t("adminSystemRole") : u.role === "org_admin" ? t("adminOrgRole") : t("adminRegularUser")}
+                          <Badge
+                            variant={u.role === "system_admin" ? "default" : u.role === "org_admin" ? "secondary" : "outline"}
+                            className={`gap-1${u.role === "si_agent" ? " border-blue-500/40 text-blue-600 dark:text-blue-400" : ""}`}
+                          >
+                            {u.role === "system_admin" ? <ShieldCheck className="w-3 h-3" /> : <Shield className="w-3 h-3" />}
+                            {u.role === "system_admin" ? t("adminSystemRole") : u.role === "org_admin" ? t("adminOrgRole") : u.role === "si_agent" ? t("adminSIAgentRole") : t("adminRegularUser")}
                           </Badge>
                           {canChangeRole && u.role !== "system_admin" ? (
                             <Select value={u.role} onValueChange={(value: UserRoleDisplay) => { if (value !== u.role) setChangeDialog({ user: u, newRole: value }); }}>

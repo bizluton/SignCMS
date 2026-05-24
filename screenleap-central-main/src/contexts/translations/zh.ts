@@ -682,6 +682,7 @@ export const ZH = {
   adminSystemRole: "系統管理員",
   adminOrgRole: "組織管理員",
   adminRegularUser: "一般使用者",
+  adminSIAgentRole: "SI 代理商",
   adminUnnamed: "未命名使用者",
   adminConfirmChange: "確認更改角色",
   adminConfirmChangeDesc: "確定要將",

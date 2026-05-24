@@ -679,6 +679,7 @@ export const JA = {
   adminSystemRole: "システム管理者",
   adminOrgRole: "組織管理者",
   adminRegularUser: "一般ユーザー",
+  adminSIAgentRole: "SI エージェント",
   adminUnnamed: "未設定ユーザー",
   adminConfirmChange: "役割変更の確認",
   adminConfirmChangeDesc: "次のユーザーの役割を変更しますか：",

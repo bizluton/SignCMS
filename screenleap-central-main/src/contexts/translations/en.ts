@@ -679,6 +679,7 @@ export const EN = {
   adminSystemRole: "System Admin",
   adminOrgRole: "Org Admin",
   adminRegularUser: "Regular User",
+  adminSIAgentRole: "SI Agent",
   adminUnnamed: "Unnamed User",
   adminConfirmChange: "Confirm Role Change",
   adminConfirmChangeDesc: "Are you sure you want to change",
