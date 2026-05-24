@@ -26,6 +26,7 @@ const Screens = lazy(() => import("./pages/Screens.tsx"));
 const Media = lazy(() => import("./pages/Media.tsx"));
 const Schedules = lazy(() => import("./pages/Schedules.tsx"));
 const Publishing = lazy(() => import("./pages/Publishing.tsx"));
+const QuickPublishPage = lazy(() => import("./pages/QuickPublishPage.tsx"));
 const DeviceLogs = lazy(() => import("./pages/DeviceLogs.tsx"));
 const ContentStudio = lazy(() => import("./pages/ContentStudio.tsx"));
 const AppStore = lazy(() => import("./pages/AppStore.tsx"));
@@ -85,6 +86,7 @@ const AppRoutes = () => {
           <Route path="/schedules" element={<ProtectedRoute><Schedules /></ProtectedRoute>} />
           <Route path="/studio" element={<ProtectedRoute><ContentStudio /></ProtectedRoute>} />
           <Route path="/publishing" element={<ProtectedRoute><Publishing /></ProtectedRoute>} />
+          <Route path="/quick-publish" element={<ProtectedRoute><QuickPublishPage /></ProtectedRoute>} />
           <Route path="/device-logs" element={<ProtectedRoute><DeviceLogs /></ProtectedRoute>} />
           <Route path="/app-store" element={<ProtectedRoute><AppStore /></ProtectedRoute>} />
           <Route path="/announcement" element={<ProtectedRoute><Announcement /></ProtectedRoute>} />
