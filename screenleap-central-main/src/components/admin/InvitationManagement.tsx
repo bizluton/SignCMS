@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Mail, Plus, Trash2, Loader2, Clock, CheckCircle, Building2, RefreshCw, Filter } from "lucide-react";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
@@ -44,6 +45,7 @@ export default function InvitationManagement() {
   const [orgId, setOrgId] = useState("");
   const [sending, setSending] = useState(false);
   const [statusFilter, setStatusFilter] = useState<"all" | "pending" | "expired" | "accepted">("all");
+  const [deletingInv, setDeletingInv] = useState<Invitation | null>(null);
 
   const { isSystemAdmin } = useIsSystemAdmin();
 
@@ -51,40 +53,43 @@ export default function InvitationManagement() {
 
   const fetchData = async () => {
     setLoading(true);
+    try {
+      const [{ data: orgData }, { data: invData }] = await Promise.all([
+        supabase.from("organizations").select("id, name"),
+        supabase.from("invitations").select("*").order("created_at", { ascending: false }),
+      ]);
 
-    const [{ data: orgData }, { data: invData }] = await Promise.all([
-      supabase.from("organizations").select("id, name"),
-      supabase.from("invitations").select("*").order("created_at", { ascending: false }),
-    ]);
+      let filteredOrgs = orgData || [];
 
-    let filteredOrgs = orgData || [];
-
-    // Filter by activeOrgId if set
-    if (activeOrgId) {
-      filteredOrgs = filteredOrgs.filter(o => o.id === activeOrgId);
-    } else if (!isSystemAdmin && user) {
-      // Non-system admins: filter to own orgs
-      const { data: myMembers } = await supabase.from("team_members").select("team_id").eq("user_id", user.id);
-      if (myMembers) {
-        const teamIds = myMembers.map(m => m.team_id);
-        const { data: teams } = await supabase.from("teams").select("id, org_id").in("id", teamIds);
-        const myOrgIds = new Set((teams || []).map(t => t.org_id));
-        filteredOrgs = filteredOrgs.filter(o => myOrgIds.has(o.id));
+      // Filter by activeOrgId if set
+      if (activeOrgId) {
+        filteredOrgs = filteredOrgs.filter(o => o.id === activeOrgId);
+      } else if (!isSystemAdmin && user) {
+        // Non-system admins: filter to own orgs
+        const { data: myMembers } = await supabase.from("team_members").select("team_id").eq("user_id", user.id);
+        if (myMembers) {
+          const teamIds = myMembers.map(m => m.team_id);
+          const { data: teams } = await supabase.from("teams").select("id, org_id").in("id", teamIds);
+          const myOrgIds = new Set((teams || []).map(t => t.org_id));
+          filteredOrgs = filteredOrgs.filter(o => myOrgIds.has(o.id));
+        }
       }
+
+      setOrgs(filteredOrgs);
+      if (filteredOrgs.length > 0 && !orgId) setOrgId(filteredOrgs[0].id);
+
+      const orgMap = new Map(filteredOrgs.map(o => [o.id, o.name]));
+      const filteredInv = (invData || []).filter(inv => orgMap.has(inv.org_id));
+
+      setInvitations(filteredInv.map(inv => ({
+        ...inv,
+        org_name: orgMap.get(inv.org_id) || "",
+      })));
+    } catch {
+      // silently ignore — list stays stale
+    } finally {
+      setLoading(false);
     }
-
-    setOrgs(filteredOrgs);
-    if (filteredOrgs.length > 0 && !orgId) setOrgId(filteredOrgs[0].id);
-
-    const orgMap = new Map(filteredOrgs.map(o => [o.id, o.name]));
-    const filteredInv = (invData || []).filter(inv => orgMap.has(inv.org_id));
-
-    setInvitations(filteredInv.map(inv => ({
-      ...inv,
-      org_name: orgMap.get(inv.org_id) || "",
-    })));
-
-    setLoading(false);
   };
 
   const handleSend = async () => {
@@ -151,14 +156,16 @@ export default function InvitationManagement() {
     setSending(false);
   };
 
-  const handleDelete = async (inv: Invitation) => {
-    const { error } = await supabase.from("invitations").delete().eq("id", inv.id);
+  const confirmDeleteInv = async () => {
+    if (!deletingInv) return;
+    const { error } = await supabase.from("invitations").delete().eq("id", deletingInv.id);
     if (error) toast.error(formatUserError(error, t));
     else {
       toast.success(t("invDeleted"));
-      logActivity({ action: "delete_invitation", category: "admin", targetName: inv.email });
+      logActivity({ action: "delete_invitation", category: "admin", targetName: deletingInv.email });
       fetchData();
     }
+    setDeletingInv(null);
   };
 
   const handleResend = async (inv: Invitation) => {
@@ -263,7 +270,7 @@ export default function InvitationManagement() {
                       </Button>
                     )}
                     {inv.status === "pending" && (
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => handleDelete(inv)}>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeletingInv(inv)} aria-label={t("delete")}>
                         <Trash2 className="w-3.5 h-3.5 text-destructive" />
                       </Button>
                     )}
@@ -274,6 +281,25 @@ export default function InvitationManagement() {
           ))}
         </div>
       )}
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={deletingInv !== null} onOpenChange={(o) => !o && setDeletingInv(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("invDeleteConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("invDeleteConfirmDesc")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void confirmDeleteInv()}
+            >
+              {t("delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Send Invitation Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

@@ -56,6 +56,7 @@ export default function TeamManagement() {
 
   const fetchData = async () => {
     setLoading(true);
+    try {
     const [{ data: orgData }, { data: teamData }, { data: memberData }, { data: profileData }] = await Promise.all([
       supabase.from("organizations").select("id, name"),
       supabase.from("teams").select("*"),
@@ -108,7 +109,9 @@ export default function TeamManagement() {
         members,
       };
     }));
-    setLoading(false);
+    } catch { /* silent — loading spinner will stop */ } finally {
+      setLoading(false);
+    }
   };
 
   const openAdd = () => { setEditTeam(null); setName(""); setOrgId(orgs[0]?.id || ""); setPerms([...PERMISSION_KEYS]); setDialogOpen(true); };

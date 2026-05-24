@@ -86,6 +86,7 @@ export default function OrgManagement() {
 
   const fetchOrgs = async () => {
     setLoading(true);
+    try {
     const { data: orgData } = await supabase.from("organizations").select("*");
     const { data: teams } = await supabase.from("teams").select("id, org_id");
     const { data: members } = await supabase.from("team_members").select("id, team_id, user_id");
@@ -133,7 +134,9 @@ export default function OrgManagement() {
         return { ...o, description: o.description || "", plan_tier: (o.plan_tier || "evaluation") as PlanTier, teamCount: orgTeamIds.length, memberCount, orgAdmins };
       }));
     }
-    setLoading(false);
+    } catch { /* silent — loading spinner will stop */ } finally {
+      setLoading(false);
+    }
   };
 
   const openAdd = () => { setEditOrg(null); setName(""); setDescription(""); setPlanTier("evaluation"); setDialogOpen(true); };

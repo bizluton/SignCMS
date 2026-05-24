@@ -75,12 +75,14 @@ export function ChannelDialog({ open, onOpenChange, orgId, channel, onSaved }: P
       );
       // Load teams for current org
       (async () => {
-        const { data } = await supabase
-          .from("teams")
-          .select("id, name")
-          .eq("org_id", orgId)
-          .order("name");
-        setTeams(data ?? []);
+        try {
+          const { data } = await supabase
+            .from("teams")
+            .select("id, name")
+            .eq("org_id", orgId)
+            .order("name");
+          setTeams(data ?? []);
+        } catch { /* non-critical — team picker will be empty */ }
       })();
     }
   }, [open, channel, orgId]);

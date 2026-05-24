@@ -37,6 +37,7 @@ import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
 import { logScreenEvents } from "@/lib/screenLogger";
 import { PageSkeleton } from "@/components/PageSkeleton";
+import { FetchError } from "@/components/FetchError";
 import { exportScheduleToZip, exportDesignProjectsToZip } from "@/lib/exportSchedule";
 import { exportScheduleToFolder, isFolderExportSupported } from "@/lib/exportSchedule";
 import {
@@ -154,6 +155,7 @@ export default function PublishingCenterPage() {
   const [deviceModels, setDeviceModels] = useState<DeviceModelLite[]>([]);
   const [records, setRecords] = useState<PublishRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
 
   // Selection state
   const [playlistTab, setPlaylistTab] = useState<PlaylistTab>("project");
@@ -269,6 +271,8 @@ export default function PublishingCenterPage() {
     type RawProject = { id: string; name: string; org_id: string | null; aspect: string; created_by: string | null; team_id: string | null; collab_scope: string; output_mode?: string | null; output_count?: number | null };
     type RawPS = { id: string; name: string; design_project_id: string; block_type: string; color: string; start_at: string | null; end_at: string | null; weekdays: unknown; start_time: string | null; end_time: string | null; org_id: string | null };
     setLoading(true);
+    setFetchError(false);
+    try {
     let schedQ = supabase.from("schedules").select("id, name, org_id, screen_id, screens:screen_id(name)").order("name");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let screenQ = (supabase.from("screens").select as any)("id, name, branch, online, org_id, device_model").order("branch").order("name");
@@ -404,7 +408,11 @@ export default function PublishingCenterPage() {
       end_time: s.end_time,
       org_id: s.org_id,
     })));
-    setLoading(false);
+    } catch {
+      setFetchError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [activeOrgId]);
 
   useEffect(() => { fetchData(); }, [fetchData, activeOrgId]);
@@ -490,7 +498,7 @@ export default function PublishingCenterPage() {
   // unfiltered. selectedSchedule (legacy "schedules" tab) likewise skips.
   type CompatResult = { ok: boolean; reason: string };
   const MODE_LABEL: Record<string, string> = {
-    mirror: "鏡像", independent: "獨立", extend: "延伸", matrix: "矩陣",
+    mirror: t("publishMirror"), independent: t("publishIndependent"), extend: t("publishExtend"), matrix: t("publishMatrix"),
   };
   const modelByName = useMemo(() => {
     const m = new Map<string, DeviceModelLite>();
@@ -616,7 +624,7 @@ export default function PublishingCenterPage() {
         .in("channel_id", selectedChannelIds);
       projectIds = (data || []).map((r) => r.design_project_id).filter(Boolean) as string[];
       if (projectIds.length === 0) {
-        toast.error("所選頻道尚未關聯任何設計專案");
+        toast.error(t("publishChannelNoProject"));
         return;
       }
       bundleName = selectedChannelsOrdered.map((c) => c.name).join("+") || "channels";
@@ -833,6 +841,10 @@ export default function PublishingCenterPage() {
 
   if (loading) {
     return <PageSkeleton />;
+  }
+
+  if (fetchError) {
+    return <FetchError onRetry={fetchData} />;
   }
 
   return (
@@ -1091,7 +1103,7 @@ export default function PublishingCenterPage() {
                           <span className="truncate">{s.design_project_name}</span>
                         )}
                         <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
-                          {projectAspect === "9:16" ? "直式 9:16" : "橫式 16:9"}
+                          {projectAspect === "9:16" ? `${t("aspectPortrait")} 9:16` : `${t("aspectLandscape")} 16:9`}
                         </Badge>
                         {timeInfo && (
                           <Badge variant="outline" className="text-[10px] px-1.5 py-0">{timeInfo}</Badge>
@@ -1135,10 +1147,10 @@ export default function PublishingCenterPage() {
               }
             </div>
             <p className={cn("font-bold text-base", hasSelectedSource && !downloadingId ? "text-sky-600" : "text-foreground")}>
-              {"下載 (USB 同步)"}
+              {t("publishDownloadUsb")}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              {"打包媒體 ZIP，存入隨身碟供本地播放器使用"}
+              {t("publishDownloadUsbDesc")}
             </p>
           </button>
         </Card>
@@ -1410,7 +1422,7 @@ export default function PublishingCenterPage() {
           {isAdmin && (
             <Button
               onClick={handlePublish}
-              disabled={publishing || !selectedScheduleId || selectedScreenIds.size === 0}
+              disabled={publishing || !hasSelectedSource || selectedScreenIds.size === 0}
               className={cn(
                 "w-full h-14 text-lg font-bold gap-3 transition-all duration-300",
                 publishMode === "now"

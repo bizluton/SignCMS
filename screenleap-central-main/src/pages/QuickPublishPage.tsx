@@ -51,6 +51,7 @@ import {
   type StudioZonePreset,
 } from "@/lib/studioData";
 import { formatUserError } from "@/lib/formatUserError";
+import { FetchError } from "@/components/FetchError";
 
 type Step = 1 | 2 | 3;
 type Orientation = "landscape" | "portrait";
@@ -318,6 +319,8 @@ function SortableZoneMediaItem({
   onPreview: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: dragId });
+  const [editDur, setEditDur] = useState(false);
+  const [durVal, setDurVal] = useState("");
   const handleDurationResizeStart = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
@@ -333,6 +336,15 @@ function SortableZoneMediaItem({
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+  };
+  const openDurEdit = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    setDurVal(String(getZoneItemDuration(item)));
+    setEditDur(true);
+  };
+  const commitDurEdit = () => {
+    if (durVal) onDurationChange(durVal);
+    setEditDur(false);
   };
   return (
     <span
@@ -354,8 +366,22 @@ function SortableZoneMediaItem({
           <span className="shrink-0 rounded-md p-1 text-muted-foreground">
             <GripVertical className="h-4 w-4" />
           </span>
-          <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{index + 1}. {item.name}</span>
-          <button type="button" className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted" onClick={(event) => { event.stopPropagation(); const next = window.prompt(playbackSecondsLabel, String(getZoneItemDuration(item))); if (next) onDurationChange(next); }}>
+          {editDur ? (
+            <input
+              autoFocus
+              type="number"
+              min={1}
+              value={durVal}
+              onChange={(e) => setDurVal(e.target.value)}
+              onBlur={commitDurEdit}
+              onKeyDown={(e) => { if (e.key === "Enter") commitDurEdit(); if (e.key === "Escape") setEditDur(false); }}
+              onClick={(e) => e.stopPropagation()}
+              className="min-w-0 flex-1 rounded border px-1 text-xs"
+            />
+          ) : (
+            <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{index + 1}. {item.name}</span>
+          )}
+          <button type="button" className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted" onClick={openDurEdit}>
             <SlidersHorizontal className="h-4 w-4" />
           </button>
           <button type="button" className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted" onClick={(event) => event.stopPropagation()}>
@@ -548,6 +574,8 @@ export default function QuickPublishPage() {
   const [selectedScreens, setSelectedScreens] = useState<Set<string>>(new Set());
   const [publishing, setPublishing] = useState(false);
   const [completed, setCompleted] = useState(false);
+  const [fetchError, setFetchError] = useState(false);
+  const [fetchRetryKey, setFetchRetryKey] = useState(0);
 
   // ── Phase 3: device-capability matching ──────────────────────────────────
   // device_models snapshot keyed by name (screens.device_model is a text FK
@@ -571,24 +599,29 @@ export default function QuickPublishPage() {
     setScreens([]);
     setDeviceModels([]);
     (async () => {
-      // Phase 3: also fetch projects' output_mode/output_count (Phase 2
-      // denormalised columns) so we can compute compatibility against each
-      // screen's device_model capabilities (Phase 1).
-      const [tplRes, scrRes, mdlRes] = await Promise.all([
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (supabase.from("design_projects").select as any)("id, name, aspect, zones, output_mode, output_count")
-          .eq("org_id", activeOrgId).order("updated_at", { ascending: false }).limit(48),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (supabase.from("screens").select as any)("id, name, branch, online, device_model")
-          .eq("org_id", activeOrgId).order("name"),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (supabase as any).from("device_models").select("name, output_ports, supported_output_modes"),
-      ]);
-      setTemplates(tplRes.data || []);
-      setScreens(scrRes.data || []);
-      setDeviceModels((mdlRes.data as DeviceModelLite[]) || []);
+      setFetchError(false);
+      try {
+        // Phase 3: also fetch projects' output_mode/output_count (Phase 2
+        // denormalised columns) so we can compute compatibility against each
+        // screen's device_model capabilities (Phase 1).
+        const [tplRes, scrRes, mdlRes] = await Promise.all([
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (supabase.from("design_projects").select as any)("id, name, aspect, zones, output_mode, output_count")
+            .eq("org_id", activeOrgId).order("updated_at", { ascending: false }).limit(48),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (supabase.from("screens").select as any)("id, name, branch, online, device_model")
+            .eq("org_id", activeOrgId).order("name"),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (supabase as any).from("device_models").select("name, output_ports, supported_output_modes"),
+        ]);
+        setTemplates(tplRes.data || []);
+        setScreens(scrRes.data || []);
+        setDeviceModels((mdlRes.data as DeviceModelLite[]) || []);
+      } catch {
+        setFetchError(true);
+      }
     })();
-  }, [activeOrgId, STUDIO_DATA_VERSION]);
+  }, [activeOrgId, STUDIO_DATA_VERSION, fetchRetryKey]);
 
   const filteredTemplates = templates;
 
@@ -958,6 +991,7 @@ export default function QuickPublishPage() {
   };
 
   if (!activeOrgId) return <div className="p-8 text-muted-foreground">{t("noOrg")}</div>;
+  if (fetchError) return <FetchError onRetry={() => { setFetchError(false); setFetchRetryKey((k) => k + 1); }} />;
 
   if (completed) {
     return (
@@ -1301,13 +1335,13 @@ export default function QuickPublishPage() {
                     <div className="flex items-center gap-2 border-b px-3 py-2">
                       <Layers className="h-4 w-4 text-primary" />
                       <span className="text-sm font-semibold">{t("timeline")}</span>
-                      <Button variant="ghost" size="sm" className="ml-auto h-7 text-xs">全部顯示</Button>
-                      <Button variant="ghost" size="sm" className="h-7 text-xs">全部隱藏</Button>
+                      <Button variant="ghost" size="sm" className="ml-auto h-7 text-xs">{globalT("qpShowAll")}</Button>
+                      <Button variant="ghost" size="sm" className="h-7 text-xs">{globalT("qpHideAll")}</Button>
                     </div>
                     <div className="divide-y">
                       <div className="grid min-h-[64px] grid-cols-[150px_1fr] bg-accent/5">
                         <div className="border-r p-3 text-xs font-semibold"><Music className="mr-1 inline h-3 w-3" />{t("bgm")}</div>
-                        <div className="flex items-center justify-center text-xs text-muted-foreground">尚未加入音樂，從右側媒體櫃拖曳音訊素材到此處</div>
+                        <div className="flex items-center justify-center text-xs text-muted-foreground">{globalT("qpBgmEmpty")}</div>
                       </div>
                       {selectedZones.map((zone) => {
                         const active = activeZoneId === zone.id;
@@ -1315,7 +1349,7 @@ export default function QuickPublishPage() {
                         const totalDuration = assignedItems.reduce((sum, item) => sum + getZoneItemDuration(item), 0);
                         return (
                           <button key={zone.id} type="button" onClick={() => setActiveZoneId(zone.id)} className={cn("grid min-h-[96px] w-full grid-cols-[150px_1fr] text-left transition-colors", active ? "bg-primary/5" : "hover:bg-muted/40")}>
-                            <div className={cn("border-r p-3 text-xs font-semibold", active ? "text-primary" : "text-foreground")}>區塊 {zone.label}<div className="mt-1 font-normal text-muted-foreground">{assignedItems.length} · {t("totalPlayback")} {totalDuration}s</div></div>
+                            <div className={cn("border-r p-3 text-xs font-semibold", active ? "text-primary" : "text-foreground")}>{globalT("qpZoneLabel").replace("{label}", zone.label)}<div className="mt-1 font-normal text-muted-foreground">{assignedItems.length} · {t("totalPlayback")} {totalDuration}s</div></div>
                             <div className="flex min-w-0 items-center px-3 py-2 text-xs text-muted-foreground">
                               {assignedItems.length > 0 ? (
                                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(event) => handleZoneMediaDragEnd(zone.id, event)}>
@@ -1341,7 +1375,7 @@ export default function QuickPublishPage() {
                                     </div>
                                   </SortableContext>
                                 </DndContext>
-                              ) : "此區塊尚未加入任何素材，從右側媒體櫃點擊縮圖以加入。"}
+                              ) : globalT("qpZoneEmpty")}
                             </div>
                           </button>
                         );
@@ -1354,7 +1388,7 @@ export default function QuickPublishPage() {
                   <div className="flex items-center gap-2 border-b px-3 py-2">
                     <ImageIcon className="h-4 w-4 text-primary" />
                     <div className="min-w-0 flex-1"><div className="truncate text-sm font-semibold">{t("mediaLibrary")}</div><div className="truncate text-[10px] text-muted-foreground">{t("clickToAdd")}</div></div>
-                    <Button variant="outline" size="sm" className="h-8 gap-1" disabled={uploading} onClick={() => fileRef.current?.click()}><Upload className="h-3.5 w-3.5" />{uploading ? t("uploading") : "點選選檔"}</Button>
+                    <Button variant="outline" size="sm" className="h-8 gap-1" disabled={uploading} onClick={() => fileRef.current?.click()}><Upload className="h-3.5 w-3.5" />{uploading ? t("uploading") : globalT("qpSelectFiles")}</Button>
                   </div>
                   <input
                     ref={fileRef}
@@ -1560,7 +1594,7 @@ export default function QuickPublishPage() {
       <Dialog open={Boolean(previewItem)} onOpenChange={(open) => !open && setPreviewItem(null)}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle className="truncate">{previewItem?.name || "檔案詳細資訊"}</DialogTitle>
+            <DialogTitle className="truncate">{previewItem?.name || globalT("qpFileDetails")}</DialogTitle>
           </DialogHeader>
           {previewItem && (
             <div className="grid gap-4 md:grid-cols-[1.4fr_1fr]">
@@ -1572,10 +1606,10 @@ export default function QuickPublishPage() {
                 )}
               </div>
               <div className="space-y-3 rounded-xl border bg-card p-4 text-sm">
-                <div><div className="text-xs text-muted-foreground">檔名</div><div className="break-all font-medium">{previewItem.name}</div></div>
-                <div><div className="text-xs text-muted-foreground">類型</div><div className="font-medium">{previewItem.type === "video" ? "影片" : "圖片"}</div></div>
-                <div><div className="text-xs text-muted-foreground">播放秒數</div><div className="font-medium">{getZoneItemDuration(previewItem)}s</div></div>
-                <div><div className="text-xs text-muted-foreground">檔案 ID</div><div className="break-all font-mono text-xs">{previewItem.id}</div></div>
+                <div><div className="text-xs text-muted-foreground">{globalT("qpFileName")}</div><div className="break-all font-medium">{previewItem.name}</div></div>
+                <div><div className="text-xs text-muted-foreground">{globalT("qpFileType")}</div><div className="font-medium">{previewItem.type === "video" ? globalT("video") : globalT("image")}</div></div>
+                <div><div className="text-xs text-muted-foreground">{globalT("qpFileDuration")}</div><div className="font-medium">{getZoneItemDuration(previewItem)}s</div></div>
+                <div><div className="text-xs text-muted-foreground">{globalT("qpFileId")}</div><div className="break-all font-mono text-xs">{previewItem.id}</div></div>
               </div>
             </div>
           )}

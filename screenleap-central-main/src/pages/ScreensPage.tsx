@@ -120,6 +120,44 @@ export default function ScreensPage() {
   const [pendingCodes, setPendingCodes]       = useState<PendingCode[]>([]);
   const [pendingExpanded, setPendingExpanded] = useState(false);
   const [revealedCodes, setRevealedCodes]     = useState<Set<string>>(new Set());
+  const [deletingCodeId, setDeletingCodeId]   = useState<string | null>(null);
+
+  // ── Web Player dialog i18n (computed per render) ───────────────────────
+  const wp = {
+    title: { zh: "新增 Web Player 螢幕", en: "Add Web Player Screen", ja: "Web Player 画面を追加" }[language],
+    singleDesc: { zh: "輸入螢幕名稱後產生 6 位數代碼，在設備瀏覽器中開啟播放器並輸入代碼即可完成設定。", en: "Enter a screen name to generate a 6-digit code. Open the player in the device's browser and enter the code to complete setup.", ja: "スクリーン名を入力して6桁のコードを生成します。デバイスのブラウザでプレーヤーを開いてコードを入力してください。" }[language],
+    bulkDesc: { zh: "一次產生多組授權碼。名稱會自動編號（prefix-001、prefix-002…），可匯出 CSV 分發。", en: "Generate multiple activation codes at once. Names are auto-numbered (prefix-001, prefix-002…). Export CSV to distribute.", ja: "複数のアクティベーションコードを一括生成します。名前は自動採番されます。CSVをエクスポートして配布できます。" }[language],
+    modeSingle: { zh: "單筆", en: "Single", ja: "単体" }[language],
+    modeBulk: { zh: "批次", en: "Bulk", ja: "一括" }[language],
+    nameLabel: { zh: "螢幕名稱", en: "Screen Name", ja: "スクリーン名" }[language],
+    prefixLabel: { zh: "名稱前綴", en: "Name Prefix", ja: "名前プレフィックス" }[language],
+    countLabel: { zh: "數量", en: "Count", ja: "数量" }[language],
+    orgLabel: { zh: "所屬組織", en: "Organization", ja: "組織" }[language],
+    orgPlaceholder: { zh: "請選擇組織", en: "Select organization", ja: "組織を選択" }[language],
+    namePlaceholder: { zh: "例如：大廳螢幕 A", en: "e.g. Lobby Screen A", ja: "例：ロビースクリーン A" }[language],
+    prefixPlaceholder: { zh: "例如：分店- 或 lobby-", en: "e.g. branch- or lobby-", ja: "例：branch- または lobby-" }[language],
+    prefixHint: { zh: `名稱會變成 ${wpPrefix || "<prefix>"}001、${wpPrefix || "<prefix>"}002 …`, en: `Names will be ${wpPrefix || "<prefix>"}001, ${wpPrefix || "<prefix>"}002…`, ja: `名前は ${wpPrefix || "<prefix>"}001、${wpPrefix || "<prefix>"}002… になります` }[language],
+    countMax: { zh: "最多 1000 組", en: "Max 1,000", ja: "最大 1,000 件" }[language],
+    bulkGenerated: { zh: `已產生 ${wpBulkResults.length} 組授權碼。按「下載 CSV」分發給各裝置。每組代碼啟用一次即失效。`, en: `Generated ${wpBulkResults.length} activation code(s). Download CSV to distribute. Each code can only be used once.`, ja: `${wpBulkResults.length} 件のアクティベーションコードを生成しました。CSVをダウンロードして配布してください。各コードは1回のみ使用可能です。` }[language],
+    resultColName: { zh: "名稱", en: "Name", ja: "名前" }[language],
+    resultColCode: { zh: "代碼", en: "Code", ja: "コード" }[language],
+    enterCode: { zh: "在設備瀏覽器中開啟播放器後，輸入以下代碼：", en: "Open the player in the device's browser, then enter this code:", ja: "デバイスのブラウザでプレーヤーを開いて、以下のコードを入力してください：" }[language],
+    waiting: { zh: "等待裝置連線中…", en: "Waiting for device to connect…", ja: "デバイスの接続を待っています…" }[language],
+    steps: { zh: "操作步驟", en: "Setup Steps", ja: "設定手順" }[language],
+    step1: { zh: "在設備上開啟瀏覽器", en: "Open a browser on the device", ja: "デバイスのブラウザを開く" }[language],
+    step3: { zh: "輸入上方 6 位數代碼", en: "Enter the 6-digit code above", ja: "上記の6桁コードを入力" }[language],
+    copyCode: { zh: "複製代碼", en: "Copy Code", ja: "コードをコピー" }[language],
+    copyUrl: { zh: "複製網址", en: "Copy URL", ja: "URLをコピー" }[language],
+    copiedUrl: { zh: "已複製播放器網址", en: "Player URL copied", ja: "プレーヤーURLをコピーしました" }[language],
+    generate: { zh: "產生授權碼", en: "Generate Code", ja: "コードを生成" }[language],
+    bulkGenerate: { zh: `批次產生 ${wpCount} 組`, en: `Generate ${wpCount} Code(s)`, ja: `${wpCount} 件を一括生成` }[language],
+    downloadCsv: { zh: "下載 CSV", en: "Download CSV", ja: "CSVをダウンロード" }[language],
+    done: { zh: "完成", en: "Done", ja: "完了" }[language],
+    close: { zh: "關閉", en: "Close", ja: "閉じる" }[language],
+    cancel: { zh: "取消", en: "Cancel", ja: "キャンセル" }[language],
+    activated: { zh: "裝置已成功連線！", en: "Device connected successfully!", ja: "デバイスが接続されました！" }[language],
+    activatedDesc: { zh: `螢幕「${wpName}」已出現在螢幕列表中。`, en: `Screen "${wpName}" has appeared in the screen list.`, ja: `スクリーン「${wpName}」が一覧に表示されました。` }[language],
+  };
 
   // ── Guard: warn before reload when add/edit dialog has unsaved changes ────
   const dialogOpenRef = useRef(false);
@@ -455,19 +493,19 @@ export default function ScreensPage() {
   }, [isAdmin, activeOrgId]); // eslint-disable-line
 
   const deletePendingCode = async (id: string) => {
-    if (!window.confirm("確定要刪除這組授權碼？刪除後該碼將無法再被啟用。")) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (supabase as any)
       .from("screen_activation_codes")
       .delete()
       .eq("id", id);
     if (error) {
-      toast.error(`刪除失敗：${error.message}`);
+      toast.error(t("pendingCodeDeleteFailed").replace("{msg}", error.message));
       return;
     }
     // Realtime subscription will refresh the list; manually optimistic-update too
     setPendingCodes((prev) => prev.filter((c) => c.id !== id));
-    toast.success("已刪除");
+    toast.success(t("pendingCodeDeleted"));
+    setDeletingCodeId(null);
   };
 
   const toggleReveal = (id: string) => {
@@ -834,7 +872,7 @@ export default function ScreensPage() {
         </div>
         {isAdmin && (
           <div className="flex gap-2 self-start">
-            <Button variant="outline" onClick={() => setTestConsoleOpen(true)} className="gap-2" title="觸發測試控制台">
+            <Button variant="outline" onClick={() => setTestConsoleOpen(true)} className="gap-2" aria-label={{ zh: "觸發測試控制台", en: "Trigger Test Console", ja: "トリガーテストコンソール" }[language]}>
               <TerminalSquare className="w-4 h-4" />
               {{ zh: "觸發測試", en: "Trigger Test", ja: "トリガーテスト" }[language]}
             </Button>
@@ -877,21 +915,21 @@ export default function ScreensPage() {
                 <Monitor className="w-4 h-4 text-amber-600 dark:text-amber-400" />
               </div>
               <div>
-                <p className="text-sm font-medium">待啟用代碼 ({pendingCodes.length})</p>
-                <p className="text-xs text-muted-foreground">已產生但尚未被裝置啟用的 Web Player 授權碼</p>
+                <p className="text-sm font-medium">{t("pendingCodesTitle")} ({pendingCodes.length})</p>
+                <p className="text-xs text-muted-foreground">{t("pendingCodesDesc")}</p>
               </div>
             </div>
-            <span className="text-xs text-muted-foreground">{pendingExpanded ? "收起 ▲" : "展開 ▼"}</span>
+            <span className="text-xs text-muted-foreground">{pendingExpanded ? `${t("pendingCodesCollapse")} ▲` : `${t("pendingCodesExpand")} ▼`}</span>
           </button>
           {pendingExpanded && (
             <div className="border-t max-h-96 overflow-y-auto">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-muted/80 backdrop-blur text-xs">
                   <tr className="text-left">
-                    <th className="px-3 py-2 font-medium">名稱</th>
-                    <th className="px-3 py-2 font-medium font-mono">代碼</th>
-                    <th className="px-3 py-2 font-medium">建立時間</th>
-                    <th className="px-3 py-2 w-24 text-right">動作</th>
+                    <th className="px-3 py-2 font-medium">{t("pendingCodesColName")}</th>
+                    <th className="px-3 py-2 font-medium font-mono">{t("pendingCodesColCode")}</th>
+                    <th className="px-3 py-2 font-medium">{t("pendingCodesColCreatedAt")}</th>
+                    <th className="px-3 py-2 w-24 text-right">{t("pendingCodesColActions")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -920,7 +958,7 @@ export default function ScreensPage() {
                               type="button"
                               onClick={() => {
                                 navigator.clipboard.writeText(c.code);
-                                toast.success(`已複製 ${c.code}`);
+                                toast.success(t("pendingCodeCopySuccess").replace("{code}", c.code));
                               }}
                               className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded"
                               title="複製代碼"
@@ -929,9 +967,9 @@ export default function ScreensPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => void deletePendingCode(c.id)}
+                              onClick={() => setDeletingCodeId(c.id)}
                               className="p-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded"
-                              title="刪除此代碼"
+                              aria-label={t("delete")}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -1340,14 +1378,14 @@ export default function ScreensPage() {
                 const lockedTitle = { zh: "此螢幕未授權，已禁用此操作", en: "Screen unlicensed — action disabled", ja: "このスクリーンは未承認のため無効" }[language];
                 return (
                   <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" disabled={locked} onClick={() => navigate(`/player/${screen.id}`)} title={locked ? lockedTitle : t("screensOpenPlayer")}><Play className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => toast.info(t("screenLiveViewPlaceholder"))} title={locked ? lockedTitle : t("screenLiveView")}><Eye className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => setIotScreen(screen)} title={locked ? lockedTitle : t("tipIotDevices")}><Radio className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => setChannelDialogScreen(screen)} title={locked ? lockedTitle : { zh: "頻道訂閱與觸發", en: "Channels & Triggers", ja: "チャンネル & トリガー" }[language]}><Tv className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => setSmartTriggerScreen(screen)} title={locked ? lockedTitle : { zh: "智能觸發", en: "Smart Triggers", ja: "スマートトリガー" }[language]}><Zap className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => setSettingsScreen(screen)} title={locked ? lockedTitle : t("screenSettings")}><Settings className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => openEdit(screen)} title={locked ? lockedTitle : t("tipEditScreen")}><Pencil className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(screen.id)} title={t("tipDeleteScreen")}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" disabled={locked} onClick={() => navigate(`/player/${screen.id}`)} aria-label={locked ? lockedTitle : t("screensOpenPlayer")}><Play className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => toast.info(t("screenLiveViewPlaceholder"))} aria-label={locked ? lockedTitle : t("screenLiveView")}><Eye className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => setIotScreen(screen)} aria-label={locked ? lockedTitle : t("tipIotDevices")}><Radio className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => setChannelDialogScreen(screen)} aria-label={locked ? lockedTitle : { zh: "頻道訂閱與觸發", en: "Channels & Triggers", ja: "チャンネル & トリガー" }[language]}><Tv className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => setSmartTriggerScreen(screen)} aria-label={locked ? lockedTitle : { zh: "智能觸發", en: "Smart Triggers", ja: "スマートトリガー" }[language]}><Zap className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => setSettingsScreen(screen)} aria-label={locked ? lockedTitle : t("screenSettings")}><Settings className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" disabled={locked} onClick={() => openEdit(screen)} aria-label={locked ? lockedTitle : t("tipEditScreen")}><Pencil className="w-4 h-4" /></Button>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive hover:text-destructive" onClick={() => setDeleteId(screen.id)} aria-label={t("tipDeleteScreen")}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                   </div>
                 );
               })()}
@@ -2121,12 +2159,10 @@ export default function ScreensPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Monitor className="w-5 h-5 text-primary" />
-              新增 Web Player 螢幕
+              {wp.title}
             </DialogTitle>
             <DialogDescription>
-              {wpMode === "single"
-                ? "輸入螢幕名稱後產生 6 位數代碼，在設備瀏覽器中開啟播放器並輸入代碼即可完成設定。"
-                : "一次產生多組授權碼。名稱會自動編號（prefix-001、prefix-002…），可匯出 CSV 分發。"}
+              {wpMode === "single" ? wp.singleDesc : wp.bulkDesc}
             </DialogDescription>
           </DialogHeader>
 
@@ -2138,14 +2174,14 @@ export default function ScreensPage() {
                 onClick={() => setWpMode("single")}
                 className={`flex-1 px-3 py-1.5 text-xs rounded ${wpMode === "single" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
               >
-                單筆
+                {wp.modeSingle}
               </button>
               <button
                 type="button"
                 onClick={() => setWpMode("bulk")}
                 className={`flex-1 px-3 py-1.5 text-xs rounded ${wpMode === "bulk" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"}`}
               >
-                批次
+                {wp.modeBulk}
               </button>
             </div>
           )}
@@ -2154,12 +2190,12 @@ export default function ScreensPage() {
             /* Single mode — Step 1: enter name + org */
             <div className="space-y-4 py-2">
               <div className="space-y-2">
-                <Label>螢幕名稱 <span className="text-destructive">*</span></Label>
+                <Label>{wp.nameLabel} <span className="text-destructive">*</span></Label>
                 <input
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={wpName}
                   onChange={(e) => setWpName(e.target.value)}
-                  placeholder="例如：大廳螢幕 A"
+                  placeholder={wp.namePlaceholder}
                   maxLength={100}
                   autoFocus
                   onKeyDown={(e) => { if (e.key === "Enter") handleWebPlayerCreate(); }}
@@ -2167,9 +2203,9 @@ export default function ScreensPage() {
               </div>
               {orgs.length > 1 && (
                 <div className="space-y-2">
-                  <Label>所屬組織 <span className="text-destructive">*</span></Label>
+                  <Label>{wp.orgLabel} <span className="text-destructive">*</span></Label>
                   <Select value={wpOrgId} onValueChange={setWpOrgId}>
-                    <SelectTrigger><SelectValue placeholder="請選擇組織" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder={wp.orgPlaceholder} /></SelectTrigger>
                     <SelectContent>
                       {orgs.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
                     </SelectContent>
@@ -2181,19 +2217,19 @@ export default function ScreensPage() {
             /* Bulk mode — Step 1: prefix + count + org */
             <div className="space-y-4 py-2">
               <div className="space-y-2">
-                <Label>名稱前綴 <span className="text-destructive">*</span></Label>
+                <Label>{wp.prefixLabel} <span className="text-destructive">*</span></Label>
                 <input
                   className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   value={wpPrefix}
                   onChange={(e) => setWpPrefix(e.target.value)}
-                  placeholder="例如：分店- 或 lobby-"
+                  placeholder={wp.prefixPlaceholder}
                   maxLength={80}
                   autoFocus
                 />
-                <p className="text-[11px] text-muted-foreground">名稱會變成 {wpPrefix || "<prefix>"}001、{wpPrefix || "<prefix>"}002 …</p>
+                <p className="text-[11px] text-muted-foreground">{wp.prefixHint}</p>
               </div>
               <div className="space-y-2">
-                <Label>數量 <span className="text-destructive">*</span></Label>
+                <Label>{wp.countLabel} <span className="text-destructive">*</span></Label>
                 <input
                   type="number"
                   min={1}
@@ -2202,13 +2238,13 @@ export default function ScreensPage() {
                   value={wpCount}
                   onChange={(e) => setWpCount(parseInt(e.target.value) || 1)}
                 />
-                <p className="text-[11px] text-muted-foreground">最多 1000 組</p>
+                <p className="text-[11px] text-muted-foreground">{wp.countMax}</p>
               </div>
               {orgs.length > 1 && (
                 <div className="space-y-2">
-                  <Label>所屬組織 <span className="text-destructive">*</span></Label>
+                  <Label>{wp.orgLabel} <span className="text-destructive">*</span></Label>
                   <Select value={wpOrgId} onValueChange={setWpOrgId}>
-                    <SelectTrigger><SelectValue placeholder="請選擇組織" /></SelectTrigger>
+                    <SelectTrigger><SelectValue placeholder={wp.orgPlaceholder} /></SelectTrigger>
                     <SelectContent>
                       {orgs.map((o) => <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>)}
                     </SelectContent>
@@ -2219,16 +2255,13 @@ export default function ScreensPage() {
           ) : wpBulkResults.length > 0 ? (
             /* Bulk mode — Step 2: show results table */
             <div className="space-y-3 py-2">
-              <p className="text-sm text-muted-foreground">
-                已產生 <span className="font-semibold text-foreground">{wpBulkResults.length}</span> 組授權碼。
-                按「下載 CSV」分發給各裝置。每組代碼啟用一次即失效。
-              </p>
+              <p className="text-sm text-muted-foreground">{wp.bulkGenerated}</p>
               <div className="max-h-80 overflow-y-auto rounded border">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-muted/80 backdrop-blur">
                     <tr className="text-left text-xs">
-                      <th className="px-3 py-2 font-medium">名稱</th>
-                      <th className="px-3 py-2 font-medium font-mono">代碼</th>
+                      <th className="px-3 py-2 font-medium">{wp.resultColName}</th>
+                      <th className="px-3 py-2 font-medium font-mono">{wp.resultColCode}</th>
                       <th className="px-3 py-2 w-10"></th>
                     </tr>
                   </thead>
@@ -2242,10 +2275,10 @@ export default function ScreensPage() {
                             type="button"
                             onClick={() => {
                               navigator.clipboard.writeText(r.code);
-                              toast.success(`已複製 ${r.code}`);
+                              toast.success({ zh: `已複製 ${r.code}`, en: `Copied ${r.code}`, ja: `${r.code}をコピーしました` }[language]);
                             }}
                             className="text-muted-foreground hover:text-foreground"
-                            title="複製代碼"
+                            aria-label={wp.copyCode}
                           >
                             <Copy className="w-3.5 h-3.5" />
                           </button>
@@ -2262,32 +2295,32 @@ export default function ScreensPage() {
               {wpActivated ? (
                 <div className="rounded-lg border border-success/30 bg-success/10 p-5 text-center space-y-2">
                   <div className="text-4xl">✅</div>
-                  <p className="font-semibold text-success text-sm">裝置已成功連線！</p>
-                  <p className="text-xs text-muted-foreground">螢幕「{wpName}」已出現在螢幕列表中。</p>
+                  <p className="font-semibold text-success text-sm">{wp.activated}</p>
+                  <p className="text-xs text-muted-foreground">{wp.activatedDesc}</p>
                 </div>
               ) : (
                 <>
                   <div className="text-center space-y-3">
-                    <p className="text-sm text-muted-foreground">在設備瀏覽器中開啟播放器後，輸入以下代碼：</p>
+                    <p className="text-sm text-muted-foreground">{wp.enterCode}</p>
                     <div className="text-5xl font-mono font-bold tracking-widest text-primary py-4 px-6 rounded-xl bg-muted border select-all">
                       {wpCode}
                     </div>
                     <p className="text-xs text-muted-foreground flex items-center justify-center gap-1.5">
                       <Loader2 className="w-3 h-3 animate-spin" />
-                      等待裝置連線中…
+                      {wp.waiting}
                     </p>
                   </div>
                   <div className="rounded border bg-muted/40 p-3 space-y-2">
-                    <p className="text-xs font-medium">操作步驟</p>
+                    <p className="text-xs font-medium">{wp.steps}</p>
                     <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
-                      <li>在設備上開啟瀏覽器</li>
+                      <li>{wp.step1}</li>
                       <li>
                         前往{" "}
                         <code className="bg-muted px-1 rounded text-[11px]">
                           {window.location.origin}/web-player.html
                         </code>
                       </li>
-                      <li>輸入上方 6 位數代碼</li>
+                      <li>{wp.step3}</li>
                     </ol>
                   </div>
                   <div className="flex gap-2">
@@ -2303,18 +2336,18 @@ export default function ScreensPage() {
                       {wpCopied
                         ? <Check className="w-4 h-4 mr-1.5 text-success" />
                         : <Copy className="w-4 h-4 mr-1.5" />}
-                      複製代碼
+                      {wp.copyCode}
                     </Button>
                     <Button
                       variant="outline"
                       className="flex-1"
                       onClick={() => {
                         navigator.clipboard.writeText(`${window.location.origin}/web-player.html`);
-                        toast.success("已複製播放器網址");
+                        toast.success(wp.copiedUrl);
                       }}
                     >
                       <Copy className="w-4 h-4 mr-1.5" />
-                      複製網址
+                      {wp.copyUrl}
                     </Button>
                   </div>
                 </>
@@ -2325,38 +2358,38 @@ export default function ScreensPage() {
           <DialogFooter>
             {!wpCode && wpBulkResults.length === 0 && wpMode === "single" ? (
               <>
-                <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+                <DialogClose asChild><Button variant="outline">{wp.cancel}</Button></DialogClose>
                 <Button
                   onClick={handleWebPlayerCreate}
                   disabled={wpSaving || !wpName.trim() || !wpOrgId}
                 >
                   {wpSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  產生授權碼
+                  {wp.generate}
                 </Button>
               </>
             ) : !wpCode && wpBulkResults.length === 0 && wpMode === "bulk" ? (
               <>
-                <DialogClose asChild><Button variant="outline">取消</Button></DialogClose>
+                <DialogClose asChild><Button variant="outline">{wp.cancel}</Button></DialogClose>
                 <Button
                   onClick={handleWebPlayerBulkCreate}
                   disabled={wpSaving || !wpPrefix.trim() || !wpOrgId || !wpCount || wpCount < 1}
                 >
                   {wpSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                  批次產生 {wpCount} 組
+                  {wp.bulkGenerate}
                 </Button>
               </>
             ) : wpBulkResults.length > 0 ? (
               <>
                 <Button variant="outline" onClick={downloadBulkCsv}>
                   <Copy className="w-4 h-4 mr-1.5" />
-                  下載 CSV
+                  {wp.downloadCsv}
                 </Button>
-                <DialogClose asChild><Button>完成</Button></DialogClose>
+                <DialogClose asChild><Button>{wp.done}</Button></DialogClose>
               </>
             ) : (
               <DialogClose asChild>
                 <Button className="w-full" variant={wpActivated ? "default" : "outline"}>
-                  {wpActivated ? "完成" : "關閉"}
+                  {wpActivated ? wp.done : wp.close}
                 </Button>
               </DialogClose>
             )}
@@ -2394,6 +2427,25 @@ export default function ScreensPage() {
         onEdit={(s) => openEdit(s as Screen)}
         onChanged={fetchScreens}
       />
+
+      {/* Delete pending code confirmation */}
+      <AlertDialog open={deletingCodeId !== null} onOpenChange={(o) => !o && setDeletingCodeId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("pendingCodeDeleteConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("pendingCodeDeleteConfirmDesc")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (deletingCodeId) void deletePendingCode(deletingCodeId); }}
+            >
+              {t("delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

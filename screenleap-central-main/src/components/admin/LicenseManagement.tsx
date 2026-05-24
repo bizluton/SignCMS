@@ -12,6 +12,10 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Loader2, Plus, Key, Copy, CalendarClock, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { PlanTier, PLAN_LABELS } from "@/hooks/useOrgPlan";
@@ -43,7 +47,7 @@ const PLAN_TIERS: PlanTier[] = ["evaluation", "starter", "business", "profession
 
 export default function LicenseManagement() {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { isCsAgent } = useUserRole();
   const { isSystemAdmin } = useIsSystemAdmin();
   const canManage = isSystemAdmin || isCsAgent;
@@ -52,6 +56,7 @@ export default function LicenseManagement() {
   const [orgs, setOrgs] = useState<OrgLicense[]>([]);
   const [loading, setLoading] = useState(true);
   const [generateOpen, setGenerateOpen] = useState(false);
+  const [deletingCode, setDeletingCode] = useState<{ id: string; code: string } | null>(null);
   const [expiryDialog, setExpiryDialog] = useState<OrgLicense | null>(null);
   const [newExpiry, setNewExpiry] = useState("");
   const [saving, setSaving] = useState(false);
@@ -89,13 +94,18 @@ export default function LicenseManagement() {
 
   const fetchData = async () => {
     setLoading(true);
-    const [{ data: codesData }, { data: orgsData }] = await Promise.all([
-      supabase.from("license_codes").select("*").order("created_at", { ascending: false }),
-      supabase.from("organizations").select("id, name, license_plan, license_expires_at, plan_tier").order("name"),
-    ]);
-    setCodes((codesData as LicenseCode[]) || []);
-    setOrgs((orgsData as OrgLicense[]) || []);
-    setLoading(false);
+    try {
+      const [{ data: codesData }, { data: orgsData }] = await Promise.all([
+        supabase.from("license_codes").select("*").order("created_at", { ascending: false }),
+        supabase.from("organizations").select("id, name, license_plan, license_expires_at, plan_tier").order("name"),
+      ]);
+      setCodes((codesData as LicenseCode[]) || []);
+      setOrgs((orgsData as OrgLicense[]) || []);
+    } catch {
+      // silent fail — loading spinner stops
+    } finally {
+      setLoading(false);
+    }
   };
 
   const ERROR_MAP: Record<string, string> = {
@@ -114,7 +124,7 @@ export default function LicenseManagement() {
   };
 
   const generateCodes = async () => {
-    if (!genOrgId) { toast.error("請選擇授權組織"); return; }
+    if (!genOrgId) { toast.error(t("licOrgRequired")); return; }
     setSaving(true);
     const count = Math.min(parseInt(genCount) || 1, 50);
     const { data, error } = await rpc<{ success: boolean; error?: string }>("generate_license_codes", {
@@ -130,7 +140,7 @@ export default function LicenseManagement() {
       const code = data.error ?? "unknown";
       toast.error(ERROR_MAP[code] || code);
     } else {
-      toast.success(`已產生 ${count} 組授權碼`);
+      toast.success(t("licGenerated").replace("{n}", String(count)));
       fetchData();
       setGenerateOpen(false);
     }
@@ -159,18 +169,18 @@ export default function LicenseManagement() {
 
   const copyCode = (code: string) => {
     navigator.clipboard.writeText(code);
-    toast.success("已複製授權碼");
+    toast.success(t("licCopySuccess"));
   };
 
-  const deleteCode = async (id: string, code: string) => {
-    if (!confirm(`確定要刪除授權碼 ${code} 嗎？`)) return;
+  const deleteCode = async (id: string) => {
     const { data, error } = await rpc<{ success: boolean; error?: string }>("delete_license_code", { _id: id });
     if (error) toast.error(formatUserError(error, t));
     else if (data && data.success === false) {
-      const code = data.error ?? "unknown";
-      toast.error(ERROR_MAP[code] || code);
+      const errCode = data.error ?? "unknown";
+      toast.error(ERROR_MAP[errCode] || errCode);
     }
-    else { toast.success("已刪除授權碼"); fetchData(); }
+    else { toast.success(t("licDeleted")); fetchData(); }
+    setDeletingCode(null);
   };
 
   const getOrgName = (orgId: string | null) => {
@@ -195,7 +205,7 @@ export default function LicenseManagement() {
             <CalendarClock className="w-5 h-5" />
             {t("licenseStatus")}
           </CardTitle>
-          <CardDescription>所有組織的授權狀態一覽</CardDescription>
+          <CardDescription>{t("licOrgOverviewDesc")}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -224,7 +234,7 @@ export default function LicenseManagement() {
                           <SelectTrigger className="h-8 w-32"><SelectValue /></SelectTrigger>
                           <SelectContent>
                             {PLAN_TIERS.map(pt => (
-                              <SelectItem key={pt} value={pt}>{PLAN_LABELS[pt].zh}</SelectItem>
+                              <SelectItem key={pt} value={pt}>{PLAN_LABELS[pt][language]}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
@@ -232,7 +242,7 @@ export default function LicenseManagement() {
                       <TableCell>{org.license_plan}</TableCell>
                       <TableCell className="text-sm">{new Date(org.license_expires_at).toLocaleDateString()}</TableCell>
                       <TableCell className={expired ? "text-destructive font-bold" : expiring ? "text-orange-500 font-semibold" : ""}>
-                        {days} 天
+                        {days} {t("licDaysUnit")}
                       </TableCell>
                       <TableCell>
                         {expired ? (
@@ -280,24 +290,24 @@ export default function LicenseManagement() {
                   <TableHead>{t("licensePlanName")}</TableHead>
                   <TableHead>{t("planTier")}</TableHead>
                   <TableHead>{t("licenseExtendDays")}</TableHead>
-                  <TableHead>授權組織</TableHead>
+                  <TableHead>{t("licOrgCol")}</TableHead>
                   <TableHead>{t("licenseCodeStatus")}</TableHead>
                   <TableHead>{t("licenseRedeemedBy")}</TableHead>
-                  <TableHead>使用日期</TableHead>
+                  <TableHead>{t("licUsedDateCol")}</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {codes.length === 0 ? (
-                  <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">尚無授權碼</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">{t("licNoCodesYet")}</TableCell></TableRow>
                 ) : codes.map(c => (
                   <TableRow key={c.id}>
                     <TableCell className="font-mono text-xs">{c.code}</TableCell>
                     <TableCell>{c.plan_name}</TableCell>
                     <TableCell className="text-sm">
-                      {c.plan_tier ? <Badge variant="outline">{PLAN_LABELS[c.plan_tier].zh}</Badge> : <span className="text-muted-foreground">—</span>}
+                      {c.plan_tier ? <Badge variant="outline">{PLAN_LABELS[c.plan_tier][language]}</Badge> : <span className="text-muted-foreground">—</span>}
                     </TableCell>
-                    <TableCell>{c.extend_days} 天</TableCell>
+                    <TableCell>{c.extend_days} {t("licDaysUnit")}</TableCell>
                     <TableCell className="text-sm">{getOrgName(c.assigned_org_id)}</TableCell>
                     <TableCell>
                       {c.status === "pending" ? (
@@ -313,10 +323,10 @@ export default function LicenseManagement() {
                     <TableCell>
                       {c.status === "pending" && (
                         <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copyCode(c.code)} title="複製">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => copyCode(c.code)} aria-label={t("licCopySuccess")}>
                             <Copy className="w-3.5 h-3.5" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => deleteCode(c.id, c.code)} title="刪除">
+                          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive" onClick={() => setDeletingCode({ id: c.id, code: c.code })} aria-label={t("delete")}>
                             <Trash2 className="w-3.5 h-3.5 text-destructive" />
                           </Button>
                         </div>
@@ -338,19 +348,19 @@ export default function LicenseManagement() {
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>授權組織 <span className="text-destructive">*</span></Label>
+              <Label>{t("licOrgLabel")} <span className="text-destructive">*</span></Label>
               <Select value={genOrgId} onValueChange={setGenOrgId}>
-                <SelectTrigger><SelectValue placeholder="請選擇組織" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={t("licOrgSelectPlaceholder")} /></SelectTrigger>
                 <SelectContent>
                   {orgs.map(o => (
                     <SelectItem key={o.id} value={o.id}>{o.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">此授權碼僅該組織可兌換</p>
+              <p className="text-xs text-muted-foreground">{t("licOrgOnlyNote")}</p>
             </div>
             <div className="space-y-2">
-              <Label>方案快選</Label>
+              <Label>{t("licPlanPreset")}</Label>
               <Select value={genPreset} onValueChange={applyPreset}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -365,24 +375,24 @@ export default function LicenseManagement() {
               <Input value={genPlanName} onChange={e => setGenPlanName(e.target.value)} />
             </div>
             <div className="space-y-2">
-              <Label>升級方案版本（選填）</Label>
+              <Label>{t("licUpgradeTier")}</Label>
               <Select value={genPlanTier} onValueChange={(v) => setGenPlanTier(v as PlanTier | "none")}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="none">不變更（僅延長到期日）</SelectItem>
+                  <SelectItem value="none">{t("licUpgradeTierNone")}</SelectItem>
                   {PLAN_TIERS.map(pt => (
-                    <SelectItem key={pt} value={pt}>{PLAN_LABELS[pt].zh}</SelectItem>
+                    <SelectItem key={pt} value={pt}>{PLAN_LABELS[pt][language]}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">兌換時會同步把組織方案升級到此版本</p>
+              <p className="text-xs text-muted-foreground">{t("licUpgradeTierNote")}</p>
             </div>
             <div className="space-y-2">
               <Label>{t("licenseExtendDays")}</Label>
               <Input type="number" value={genExtendDays} onChange={e => setGenExtendDays(e.target.value)} min={1} />
             </div>
             <div className="space-y-2">
-              <Label>數量</Label>
+              <Label>{t("licCountLabel")}</Label>
               <Input type="number" value={genCount} onChange={e => setGenCount(e.target.value)} min={1} max={50} />
             </div>
           </div>
@@ -417,6 +427,25 @@ export default function LicenseManagement() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete license code confirmation */}
+      <AlertDialog open={deletingCode !== null} onOpenChange={(o) => !o && setDeletingCode(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("licDeleteConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{t("licDeleteConfirmDesc").replace("{code}", deletingCode?.code ?? "")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (deletingCode) void deleteCode(deletingCode.id); }}
+            >
+              {t("delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

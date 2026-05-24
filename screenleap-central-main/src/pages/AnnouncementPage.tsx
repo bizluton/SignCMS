@@ -16,6 +16,10 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Megaphone, Upload, Send, Monitor, Smartphone,
   Trash2, ImageIcon, Pin, Pencil, Save, Settings, Loader2,
 } from "lucide-react";
@@ -67,7 +71,7 @@ function loadDepts(orgId: string | null): LabelItem[] {
 }
 
 // ── Image upload helper ───────────────────────────────────────────────────────
-async function uploadImage(dataUrl: string, orgId: string): Promise<string | null> {
+async function uploadImage(dataUrl: string, orgId: string, t: (key: import("@/contexts/translations").TranslationKey) => string): Promise<string | null> {
   if (!dataUrl.startsWith("data:")) return dataUrl; // already a remote URL
   const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
   if (!match) return null;
@@ -77,7 +81,7 @@ async function uploadImage(dataUrl: string, orgId: string): Promise<string | nul
   const blob  = new Blob([bytes], { type: mime });
   const path  = `announcement-images/${orgId}/${Date.now()}.${ext}`;
   const { error } = await supabase.storage.from("media").upload(path, blob, { contentType: mime });
-  if (error) { toast.error("圖片上傳失敗"); return null; }
+  if (error) { toast.error(t("annImageUploadFailed")); return null; }
   const { data } = supabase.storage.from("media").getPublicUrl(path);
   return data.publicUrl;
 }
@@ -191,6 +195,7 @@ const AnnouncementPage = () => {
   // ── State: announcements (Supabase) ───────────────────────────────────────
   const [announcements, setAnnouncements] = useState<DbAnnouncement[]>([]);
   const [loading, setLoading] = useState(false);
+  const [deletingAnnId, setDeletingAnnId] = useState<string | null>(null);
 
   const loadAnnouncements = useCallback(async (oid: string) => {
     setLoading(true);
@@ -305,7 +310,7 @@ const AnnouncementPage = () => {
     try {
       let finalImageUrl: string | null = null;
       if (imageUrl) {
-        finalImageUrl = await uploadImage(imageUrl, activeOrgId);
+        finalImageUrl = await uploadImage(imageUrl, activeOrgId, globalT);
       }
       const { error } = await supabase.from("announcements").insert({
         org_id:        activeOrgId,
@@ -335,10 +340,12 @@ const AnnouncementPage = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("announcements").delete().eq("id", id);
-    if (error) { toast.error(formatUserError(error, globalT)); return; }
+  const confirmDelete = async () => {
+    if (!deletingAnnId) return;
+    const { error } = await supabase.from("announcements").delete().eq("id", deletingAnnId);
+    if (error) { toast.error(formatUserError(error, globalT)); setDeletingAnnId(null); return; }
     toast.success(t("deleted"));
+    setDeletingAnnId(null);
     if (activeOrgId) await loadAnnouncements(activeOrgId);
   };
 
@@ -383,7 +390,7 @@ const AnnouncementPage = () => {
     try {
       let finalImageUrl = editImageUrl;
       if (editImageUrl && editImageUrl.startsWith("data:")) {
-        finalImageUrl = await uploadImage(editImageUrl, activeOrgId);
+        finalImageUrl = await uploadImage(editImageUrl, activeOrgId, globalT);
       }
       const { error } = await supabase.from("announcements").update({
         team_id:       editTeamId || null,
@@ -600,7 +607,7 @@ const AnnouncementPage = () => {
                 />
               </div>
               <div className="space-y-2">
-                <Label className="text-base font-semibold">{t("dwellLabel")} (3–60 秒)</Label>
+                <Label className="text-base font-semibold">{t("dwellLabel")} (3–60 {globalT("annDwellUnit")})</Label>
                 <Input type="number" min={3} max={60} value={dwell}
                   onChange={(e) => setDwell(Math.max(3, Math.min(60, parseInt(e.target.value) || 10)))}
                   className="h-12 text-base w-32" />
@@ -738,10 +745,10 @@ const AnnouncementPage = () => {
                         </TableCell>
                         <TableCell>{statusBadge(status)}</TableCell>
                         <TableCell className="text-right space-x-1">
-                          <Button size="sm" variant="ghost" onClick={() => startEditing(a)} className="text-muted-foreground hover:text-foreground">
+                          <Button size="sm" variant="ghost" onClick={() => startEditing(a)} className="text-muted-foreground hover:text-foreground" aria-label={globalT("edit")}>
                             <Pencil className="h-4 w-4" />
                           </Button>
-                          <Button size="sm" variant="ghost" onClick={() => handleDelete(a.id)} className="text-destructive hover:text-destructive">
+                          <Button size="sm" variant="ghost" onClick={() => setDeletingAnnId(a.id)} className="text-destructive hover:text-destructive" aria-label={globalT("delete")}>
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         </TableCell>
@@ -849,7 +856,7 @@ const AnnouncementPage = () => {
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-base font-semibold">{t("dwellLabel")} (3–60 秒)</Label>
+              <Label className="text-base font-semibold">{t("dwellLabel")} (3–60 {globalT("annDwellUnit")})</Label>
               <Input type="number" min={3} max={60} value={editDwell}
                 onChange={(e) => setEditDwell(Math.max(3, Math.min(60, parseInt(e.target.value) || 10)))}
                 className="h-12 text-base w-32" />
@@ -875,6 +882,25 @@ const AnnouncementPage = () => {
         onAddCategory={handleAddCategory}
         onDeleteCategory={handleDeleteCategory}
       />
+
+      {/* ── Delete announcement confirmation ── */}
+      <AlertDialog open={deletingAnnId !== null} onOpenChange={(o) => !o && setDeletingAnnId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{globalT("annDeleteConfirmTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>{globalT("annDeleteConfirmDesc")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{globalT("cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void confirmDelete()}
+            >
+              {globalT("delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };
