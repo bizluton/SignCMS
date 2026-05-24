@@ -9,7 +9,6 @@ export const ZH = {
   appName: "SignCMS Enterprise",
   appSubtitle: "SignCMS Enterprise",
   navDashboard: "總覽儀表板",
-  navQuickPublish: "快速發佈",
   navScreens: "螢幕管理",
   navMedia: "媒體素材庫",
   navSchedules: "排程",
@@ -2162,16 +2161,4 @@ export const ZH = {
   invDeleteConfirmDesc: "確定要刪除此邀請？",
   // NotificationBell
   notifBell: "通知",
-  // QuickPublishPage
-  qpShowAll: "全部顯示",
-  qpHideAll: "全部隱藏",
-  qpBgmEmpty: "尚未加入音樂，從右側媒體櫃拖曳音訊素材到此處",
-  qpZoneLabel: "區塊 {label}",
-  qpZoneEmpty: "此區塊尚未加入任何素材，從右側媒體櫃點擊縮圖以加入。",
-  qpSelectFiles: "點選選檔",
-  qpFileDetails: "檔案詳細資訊",
-  qpFileName: "檔名",
-  qpFileType: "類型",
-  qpFileDuration: "播放秒數",
-  qpFileId: "檔案 ID",
 } as const;
