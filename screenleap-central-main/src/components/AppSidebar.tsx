@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Monitor, Image, CalendarClock, ShieldCheck, Brush, Send, FileText, Store, Megaphone, Users, CloudSun, Instagram, DoorOpen, Languages, Clock, HeadphonesIcon, BookOpen, Radio, BarChart3, AlertTriangle, UserCog, Key, Wrench, Building2, TrendingUp, Code2, LayoutGrid, MonitorPlay, History, Type, Puzzle, ClipboardCheck, Pin, PinOff, ChevronDown, ChevronRight, Zap } from "lucide-react";
+import { Monitor, Image, CalendarClock, ShieldCheck, Brush, Send, FileText, Store, Megaphone, Users, CloudSun, Instagram, DoorOpen, Languages, Clock, HeadphonesIcon, BookOpen, Radio, BarChart3, AlertTriangle, UserCog, Key, Wrench, Building2, TrendingUp, Code2, LayoutGrid, History, Type, Puzzle, ClipboardCheck, Pin, PinOff, ChevronDown, ChevronRight, Zap } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import logoLightImg from "@/assets/logo-light.png";
 import { useTheme } from "next-themes";
@@ -113,7 +113,6 @@ export function AppSidebar() {
   const devicesLabel: Record<Language, string> = { zh: "裝置", en: "Devices", ja: "デバイス" };
   const orgAdminLabel: Record<Language, string> = { zh: "組織管理", en: "Organization", ja: "組織管理" };
   const sectionLabel: Record<Language, string> = { zh: "擴充應用", en: "Extensions", ja: "拡張アプリ" };
-  const localPlayerLabel: Record<Language, string> = { zh: "本機播放器", en: "Local Player", ja: "ローカルプレーヤー" };
   const sysSettingsLabel: Record<Language, string> = { zh: "設定", en: "Settings", ja: "設定" };
   const sysAnalyticsLabel: Record<Language, string> = { zh: "分析", en: "Analytics", ja: "分析" };
   const sysMaintenanceLabel: Record<Language, string> = { zh: "平台維護", en: "Maintenance", ja: "メンテナンス" };
@@ -219,15 +218,6 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {/* Local Player (moved from CS section) */}
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild>
-                  <NavLink to="/local-player" className={navCls} activeClassName={navActiveCls}>
-                    <MonitorPlay className="mr-3 h-[18px] w-[18px]" />
-                    {!collapsed && <span>{localPlayerLabel[language]}</span>}
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
               {/* App Store */}
               <SidebarMenuItem>
                 <SidebarMenuButton asChild>
