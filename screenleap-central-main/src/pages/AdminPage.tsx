@@ -169,6 +169,16 @@ export default function AdminPage() {
       filteredProfiles = filteredProfiles.filter((p) => p.user_id === user?.id);
     }
 
+    // Hide system admins from the user list when the viewer is not a system
+    // admin. Org admins and regular users should never see the service /
+    // 原生管理員 rows. The viewer can still see their own row (isSelf logic
+    // in the render handles the "You" badge).
+    if (!isCurrentSystemAdmin) {
+      filteredProfiles = filteredProfiles.filter(
+        (p) => p.user_id === user?.id || !sysIds.has(p.user_id)
+      );
+    }
+
     setUsers(filteredProfiles.map((p) => ({
       user_id: p.user_id,
       display_name: p.display_name,
