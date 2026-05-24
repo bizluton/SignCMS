@@ -13,7 +13,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { toast } from "@/hooks/use-toast";
-import { Loader2, Plus, Trash2, Building2, Search, X, UserCog } from "lucide-react";
+import { Loader2, Plus, Trash2, Building2, Search, X, UserCog, Mail } from "lucide-react";
 
 interface UserSearchResult {
   user_id: string;
@@ -59,6 +59,15 @@ export default function AgentManagement() {
       assigned: "已授權",
       error: "錯誤",
       noPermission: "僅系統管理員可使用此功能",
+      inviteAgentByEmail: "Email 邀請代理商",
+      inviteDialogTitle: "Email 邀請新代理商",
+      inviteDialogDesc: "對方收到信後完成註冊即會自動成為代理商，並取得所選組織之檢視權限",
+      emailLabel: "Email",
+      orgsLabel: "授權組織（可多選）",
+      send: "送出邀請",
+      invalidEmail: "Email 格式不正確",
+      pickAtLeastOneOrg: "請至少選擇一個組織",
+      inviteSent: "邀請信已寄出",
     },
     en: {
       title: "Agent Management",
@@ -80,6 +89,15 @@ export default function AgentManagement() {
       assigned: "Assigned",
       error: "Error",
       noPermission: "Only system administrators can use this feature",
+      inviteAgentByEmail: "Invite Agent by Email",
+      inviteDialogTitle: "Invite New Agent by Email",
+      inviteDialogDesc: "When the recipient signs up via the invitation, they automatically become an agent with view-only access to the selected orgs",
+      emailLabel: "Email",
+      orgsLabel: "Assigned Orgs (multi-select)",
+      send: "Send Invitation",
+      invalidEmail: "Invalid email format",
+      pickAtLeastOneOrg: "Please select at least one org",
+      inviteSent: "Invitation sent",
     },
     ja: {
       title: "代理店管理",
@@ -101,6 +119,15 @@ export default function AgentManagement() {
       assigned: "割当済",
       error: "エラー",
       noPermission: "システム管理者のみ利用可能",
+      inviteAgentByEmail: "メールで代理店を招待",
+      inviteDialogTitle: "メールで新規代理店を招待",
+      inviteDialogDesc: "招待を受けた相手が登録すると自動的に代理店として有効化され、選択した組織の閲覧権限が付与されます",
+      emailLabel: "メール",
+      orgsLabel: "割当組織（複数選択可）",
+      send: "招待を送信",
+      invalidEmail: "メール形式が正しくありません",
+      pickAtLeastOneOrg: "少なくとも 1 つの組織を選択してください",
+      inviteSent: "招待を送信しました",
     },
   } as const;
   const t = labels[language] || labels.en;
@@ -122,6 +149,11 @@ export default function AgentManagement() {
   // org-picker state (per-agent dialog)
   const [orgPickerFor, setOrgPickerFor] = useState<string | null>(null);
   const [orgPickerSelectedIds, setOrgPickerSelectedIds] = useState<Set<string>>(new Set());
+
+  // invite-by-email dialog state
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteOrgIds, setInviteOrgIds] = useState<Set<string>>(new Set());
 
   const existingAgentIds = useMemo(() => new Set(agents.map((a) => a.user_id)), [agents]);
 
@@ -252,6 +284,45 @@ export default function AgentManagement() {
     setOrgPickerSelectedIds(new Set(currentOrgIds));
   };
 
+  const sendAgentInvite = async () => {
+    const email = inviteEmail.trim().toLowerCase();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast({ title: t.error, description: t.invalidEmail, variant: "destructive" });
+      return;
+    }
+    if (inviteOrgIds.size === 0) {
+      toast({ title: t.error, description: t.pickAtLeastOneOrg, variant: "destructive" });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const orgIdArr = [...inviteOrgIds];
+      const { data, error } = await supabase.functions.invoke("send-invitation", {
+        body: {
+          email,
+          org_id: orgIdArr[0],            // primary org (shown in email)
+          invite_type: "agent",
+          agent_org_ids: orgIdArr,         // all assigned orgs applied on signup
+        },
+      });
+      if (error) {
+        let msg = error.message;
+        try { const errBody = await (error.context as Response).json(); msg = errBody?.error ?? msg; } catch { /* ignore */ }
+        throw new Error(msg);
+      }
+      if (data?.error) throw new Error(data.error);
+      toast({ title: t.inviteSent });
+      setInviteOpen(false);
+      setInviteEmail("");
+      setInviteOrgIds(new Set());
+      await load();
+    } catch (e) {
+      toast({ title: t.error, description: e instanceof Error ? e.message : String(e), variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const saveOrgAssignments = async () => {
     if (!orgPickerFor || !user) return;
     setSubmitting(true);
@@ -292,10 +363,15 @@ export default function AgentManagement() {
         <CardDescription>{t.subtitle}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Add agent picker */}
+        {/* Action buttons row */}
+        <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="default" className="gap-1.5" onClick={() => { setInviteEmail(""); setInviteOrgIds(new Set()); setInviteOpen(true); }}>
+          <Mail className="w-4 h-4" />{t.inviteAgentByEmail}
+        </Button>
+        {/* Add agent picker (promote existing user) */}
         <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
           <PopoverTrigger asChild>
-            <Button size="sm" className="gap-1.5"><Plus className="w-4 h-4" />{t.addAgent}</Button>
+            <Button size="sm" variant="outline" className="gap-1.5"><Plus className="w-4 h-4" />{t.addAgent}</Button>
           </PopoverTrigger>
           <PopoverContent className="w-80 p-0" align="start">
             <div className="p-2 border-b border-border">
@@ -348,6 +424,57 @@ export default function AgentManagement() {
             )}
           </PopoverContent>
         </Popover>
+        </div>
+
+        {/* Invite-by-email dialog */}
+        <AlertDialog open={inviteOpen} onOpenChange={(o) => !o && setInviteOpen(false)}>
+          <AlertDialogContent className="max-w-md">
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t.inviteDialogTitle}</AlertDialogTitle>
+              <AlertDialogDescription className="text-xs">{t.inviteDialogDesc}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">{t.emailLabel}</label>
+                <Input
+                  type="email"
+                  placeholder="you@example.com"
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium">{t.orgsLabel}</label>
+                <ScrollArea className="max-h-48 border border-border rounded-md">
+                  <div className="p-2 space-y-0.5">
+                    {orgs.length === 0 ? (
+                      <p className="text-xs text-muted-foreground p-2">—</p>
+                    ) : orgs.map((o) => (
+                      <label key={o.id} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent cursor-pointer">
+                        <Checkbox
+                          checked={inviteOrgIds.has(o.id)}
+                          onCheckedChange={(c) => {
+                            const next = new Set(inviteOrgIds);
+                            if (c) next.add(o.id); else next.delete(o.id);
+                            setInviteOrgIds(next);
+                          }}
+                        />
+                        <span className="text-sm">{o.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+            </div>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={submitting}>{t.cancel}</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void sendAgentInvite()} disabled={submitting}>
+                {submitting && <Loader2 className="w-3 h-3 mr-1 animate-spin" />}
+                {t.send}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {/* Agents list */}
         {loading ? (

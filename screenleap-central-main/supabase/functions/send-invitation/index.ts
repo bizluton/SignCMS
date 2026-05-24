@@ -110,12 +110,31 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { email, org_id, resend_invitation_id } = await req.json()
+    const { email, org_id, resend_invitation_id, invite_type, agent_org_ids } = await req.json()
 
     if (!email || !org_id) {
       return new Response(JSON.stringify({ error: 'email and org_id are required' }), {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
+    }
+
+    const resolvedInviteType: 'member' | 'agent' = invite_type === 'agent' ? 'agent' : 'member'
+    const resolvedAgentOrgIds: string[] | null = resolvedInviteType === 'agent'
+      ? (Array.isArray(agent_org_ids) ? agent_org_ids.filter((x): x is string => typeof x === 'string') : [])
+      : null
+
+    if (resolvedInviteType === 'agent') {
+      // Only system admins can create agent invitations.
+      if (!isSystemAdmin) {
+        return new Response(JSON.stringify({ error: 'Only system admins can invite agents' }), {
+          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+      if (!resolvedAgentOrgIds || resolvedAgentOrgIds.length === 0) {
+        return new Response(JSON.stringify({ error: 'agent_org_ids required for agent invite' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
     }
 
     // Verify caller belongs to this org (system admins skip this check)
@@ -167,6 +186,8 @@ Deno.serve(async (req) => {
           invited_by: user.id,
           expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
           status: 'pending',
+          invite_type: resolvedInviteType,
+          agent_org_ids: resolvedAgentOrgIds,
         })
         .eq('id', resend_invitation_id)
         .select('id, token, short_code')
@@ -201,6 +222,8 @@ Deno.serve(async (req) => {
           email: email.toLowerCase().trim(),
           org_id,
           invited_by: user.id,
+          invite_type: resolvedInviteType,
+          agent_org_ids: resolvedAgentOrgIds,
         })
         .select('id, token, short_code')
         .single()
