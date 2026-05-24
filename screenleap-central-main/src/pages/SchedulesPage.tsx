@@ -476,7 +476,7 @@ export default function SchedulesPage() {
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              專案排程
+              {t("schedModeProject")}
             </button>
             <button
               onClick={() => setScheduleMode("channel")}
@@ -487,7 +487,7 @@ export default function SchedulesPage() {
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              頻道排程
+              {t("schedModeChannel")}
             </button>
           </div>
           {scheduleMode === "channel" && (
@@ -657,18 +657,18 @@ export default function SchedulesPage() {
       {scheduleMode === "project" && (
         <Card className="overflow-hidden">
           <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between gap-3">
-            <h3 className="font-semibold text-sm">專案排程清單</h3>
+            <h3 className="font-semibold text-sm">{t("schedProjectListTitle")}</h3>
             <Button size="sm" onClick={() => {
               setEditingProjectSchedule(null);
               setProjectScheduleDialogOpen(true);
             }}>
-              <Plus className="h-4 w-4 mr-1" /> 新增專案排程
+              <Plus className="h-4 w-4 mr-1" /> {t("schedAddProject")}
             </Button>
           </div>
           {projectSchedulesLoading ? (
             <div className="p-8 text-center text-muted-foreground text-sm">…</div>
           ) : projectSchedules.length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground text-sm">尚無專案排程</div>
+            <div className="p-8 text-center text-muted-foreground text-sm">{t("schedNoProjectSchedules")}</div>
           ) : (
             <div className="divide-y">
               {projectSchedules.map((s) => (
@@ -686,7 +686,7 @@ export default function SchedulesPage() {
                       )}
                       {s.design_project_id && projectAspectById.get(s.design_project_id) && (
                         <Badge variant="secondary" className="text-[10px]">
-                          {projectAspectById.get(s.design_project_id) === "9:16" ? "直式 9:16" : "橫式 16:9"}
+                          {projectAspectById.get(s.design_project_id) === "9:16" ? `${t("aspectPortrait")} 9:16` : `${t("aspectLandscape")} 16:9`}
                         </Badge>
                       )}
                       <Badge variant="secondary" className="text-[10px]">
@@ -703,13 +703,13 @@ export default function SchedulesPage() {
                         : `${weekdaysLabel(s.weekdays, language)}  ${s.start_time?.slice(0, 5)} – ${s.end_time?.slice(0, 5)}`}
                     </div>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={() => {
+                  <Button variant="ghost" size="icon" aria-label={t("edit")} onClick={() => {
                     setEditingProjectSchedule(s);
                     setProjectScheduleDialogOpen(true);
                   }}>
                     <Pencil className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" onClick={() => setDeletingProjectSchedule(s)}>
+                  <Button variant="ghost" size="icon" aria-label={t("delete")} onClick={() => setDeletingProjectSchedule(s)}>
                     <Trash2 className="h-4 w-4 text-destructive" />
                   </Button>
                 </div>

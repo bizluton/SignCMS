@@ -2076,6 +2076,14 @@ export const EN = {
   queueNotFound: "Queue not found",
   queueEnableTts: "Click to enable TTS",
   queueNoQueuesDisplay: "No queues configured",
+  // App-level badge
+  trialBadge: "Trial",
+  // Schedules page
+  schedModeProject: "Project Schedule",
+  schedModeChannel: "Channel Schedule",
+  schedProjectListTitle: "Project Schedules",
+  schedAddProject: "Add Project Schedule",
+  schedNoProjectSchedules: "No project schedules yet — add one above",
   // Shared fetch error / retry
   loadError: "Failed to load data, please try again",
   retry: "Retry",

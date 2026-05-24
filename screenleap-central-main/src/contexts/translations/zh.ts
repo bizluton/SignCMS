@@ -2079,6 +2079,14 @@ export const ZH = {
   queueNotFound: "找不到此隊列",
   queueEnableTts: "點擊啟用語音",
   queueNoQueuesDisplay: "尚無排隊隊列",
+  // App-level badge
+  trialBadge: "試用版",
+  // Schedules page
+  schedModeProject: "專案排程",
+  schedModeChannel: "頻道排程",
+  schedProjectListTitle: "專案排程清單",
+  schedAddProject: "新增專案排程",
+  schedNoProjectSchedules: "尚無專案排程，請新增第一筆",
   // Shared fetch error / retry
   loadError: "資料載入失敗，請重試",
   retry: "重試",

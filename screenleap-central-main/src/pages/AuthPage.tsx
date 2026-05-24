@@ -191,7 +191,7 @@ export default function AuthPage() {
       <div className="w-full max-w-md animate-fade-in">
         <div className="flex items-center justify-center gap-2 mb-6 sm:mb-8">
           <img src={currentLogo} alt="SignCMS" className="h-10 sm:h-14 object-contain" />
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded">Trial</span>
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded">{t("trialBadge")}</span>
         </div>
 
         <Card className="shadow-lg">

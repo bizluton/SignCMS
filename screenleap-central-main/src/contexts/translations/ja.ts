@@ -2076,6 +2076,14 @@ export const JA = {
   queueNotFound: "キューが見つかりません",
   queueEnableTts: "クリックで音声を有効化",
   queueNoQueuesDisplay: "キューが設定されていません",
+  // App-level badge
+  trialBadge: "試用版",
+  // Schedules page
+  schedModeProject: "プロジェクトスケジュール",
+  schedModeChannel: "チャンネルスケジュール",
+  schedProjectListTitle: "プロジェクトスケジュール一覧",
+  schedAddProject: "プロジェクトスケジュールを追加",
+  schedNoProjectSchedules: "プロジェクトスケジュールはありません",
   // Shared fetch error / retry
   loadError: "データの読み込みに失敗しました。再試行してください",
   retry: "再試行",

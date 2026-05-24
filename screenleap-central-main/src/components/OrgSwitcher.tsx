@@ -184,7 +184,7 @@ export function OrgSwitcher({
           <ChevronDown className="w-3 h-3 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-0" sideOffset={8}>
+      <PopoverContent align="start" className="w-[min(288px,90vw)] p-0" sideOffset={8}>
         <div className="p-2 border-b border-border">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
