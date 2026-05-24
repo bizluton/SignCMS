@@ -1189,7 +1189,8 @@ export default function PublishingCenterPage() {
             </span>
           </div>
           <Separator />
-          <div className="space-y-3 max-h-[340px] overflow-y-auto">
+          {/* Screens list — grow to fill the card, capped to viewport so it stays scrollable on short windows. */}
+          <div className="space-y-3 overflow-y-auto min-h-[340px] max-h-[calc(100vh-280px)]">
             {Array.from(groupedScreens.entries()).map(([group, groupScreens]) => {
               // Group checkbox reflects only the eligible screens in the group.
               const eligibleInGroup = groupScreens.filter((s) => !isScreenIncompatible(s.id));
