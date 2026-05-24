@@ -7,7 +7,8 @@ export function useUserRole() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isOrgAdmin, setIsOrgAdmin] = useState(false);
   const [isCsAgent, setIsCsAgent] = useState(false);
-  const [role, setRole] = useState<"admin" | "org_admin" | "user" | null>(null);
+  const [isAgent, setIsAgent] = useState(false);
+  const [role, setRole] = useState<"admin" | "org_admin" | "agent" | "user" | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -17,6 +18,7 @@ export function useUserRole() {
       setIsAdmin(false);
       setIsOrgAdmin(false);
       setIsCsAgent(false);
+      setIsAgent(false);
       setRole(null);
       setLoading(false);
       return;
@@ -52,17 +54,20 @@ export function useUserRole() {
         const csAgent = !!csData || !!sysAdminData;
         const admin = roles.includes("admin");
         const orgAdmin = roles.includes("org_admin");
+        const agent = roles.includes("agent");
 
         setIsAdmin(admin);
         setIsOrgAdmin(orgAdmin);
         setIsCsAgent(csAgent);
-        setRole(admin ? "admin" : orgAdmin ? "org_admin" : "user");
+        setIsAgent(agent);
+        setRole(admin ? "admin" : orgAdmin ? "org_admin" : agent ? "agent" : "user");
       } catch (error) {
         if (cancelled) return;
         console.warn("useUserRole fetch failed:", error);
         setIsAdmin(false);
         setIsOrgAdmin(false);
         setIsCsAgent(false);
+        setIsAgent(false);
         setRole("user");
       } finally {
         if (!cancelled) setLoading(false);
@@ -76,5 +81,5 @@ export function useUserRole() {
     };
   }, [user]);
 
-  return { isAdmin, isOrgAdmin, isCsAgent, role, loading };
+  return { isAdmin, isOrgAdmin, isCsAgent, isAgent, role, loading };
 }

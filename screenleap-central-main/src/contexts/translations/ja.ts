@@ -1498,6 +1498,7 @@ export const JA = {
   tabTeams: "チーム",
   tabActivityLog: "アクティビティログ",
   tabDelegationLog: "代理権限ログ",
+  tabAgents: "代理店",
   delegationLogTitle: "代理権限監査ログ",
   delegationLogSubtitle: "授与・取消・終了イベントを一覧で確認",
   delegationLogEmpty: "代理権限の記録はありません",

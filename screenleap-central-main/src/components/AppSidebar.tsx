@@ -86,7 +86,7 @@ export function AppSidebar() {
   const [csOpen, setCsOpen] = useState(false);
   const [sysOpen, setSysOpen] = useState(false);
 
-  const { isAdmin, isOrgAdmin, isCsAgent } = useUserRole();
+  const { isAdmin, isOrgAdmin, isCsAgent, isAgent } = useUserRole();
   const { tier } = useOrgPlan();
   const { t, language } = useLanguage();
   const { user } = useAuth();
@@ -106,6 +106,11 @@ export function AppSidebar() {
   const { isSystemAdmin } = useIsSystemAdmin();
   const canAccessCS = isSystemAdmin || isCsAgent;
   const canAccessAdmin = isAdmin || isOrgAdmin;
+  // Per SIGNCMS組織權限規則: regular users cannot access 擴充應用商店 or 開發者入口.
+  // Org admins, CS agents, system admins, and agents (view-only) can see app store.
+  // Only system admin / CS agent / admin can see the developer portal.
+  const canAccessAppStore = isAdmin || isOrgAdmin || isCsAgent || isSystemAdmin || isAgent;
+  const canAccessDevPortal = isAdmin || isCsAgent || isSystemAdmin;
 
   // ── Section labels ───────────────────────────────────────────────────────
   const workspaceLabel: Record<Language, string> = { zh: "工作區", en: "Workspace", ja: "ワークスペース" };
@@ -217,15 +222,17 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {/* App Store */}
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild>
-                  <NavLink to="/app-store" className={navCls} activeClassName={navActiveCls}>
-                    <Store className="mr-3 h-[18px] w-[18px]" />
-                    {!collapsed && <span>{t("navAppStore")}</span>}
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {/* App Store — hidden from regular users per SIGNCMS組織權限規則 */}
+              {canAccessAppStore && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild>
+                    <NavLink to="/app-store" className={navCls} activeClassName={navActiveCls}>
+                      <Store className="mr-3 h-[18px] w-[18px]" />
+                      {!collapsed && <span>{t("navAppStore")}</span>}
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               {/* Installed apps */}
               {installedAppDefs.map((app) => {
                 const Icon = INSTALLED_ICONS[app.id] || Store;
@@ -246,15 +253,17 @@ export function AppSidebar() {
                   </SidebarMenuItem>
                 );
               })}
-              {/* Developer Portal */}
-              <SidebarMenuItem>
-                <SidebarMenuButton asChild>
-                  <NavLink to="/developer-portal" className={navCls} activeClassName={navActiveCls}>
-                    <Puzzle className="mr-3 h-[18px] w-[18px]" />
-                    {!collapsed && <span>{t("navDeveloperPortal")}</span>}
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {/* Developer Portal — hidden from regular users and org_admins per SIGNCMS組織權限規則 */}
+              {canAccessDevPortal && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild>
+                    <NavLink to="/developer-portal" className={navCls} activeClassName={navActiveCls}>
+                      <Puzzle className="mr-3 h-[18px] w-[18px]" />
+                      {!collapsed && <span>{t("navDeveloperPortal")}</span>}
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

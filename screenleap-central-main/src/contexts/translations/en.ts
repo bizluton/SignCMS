@@ -1498,6 +1498,7 @@ export const EN = {
   tabTeams: "Teams",
   tabActivityLog: "Activity Log",
   tabDelegationLog: "Delegation Log",
+  tabAgents: "Agents",
   delegationLogTitle: "Delegation Audit Log",
   delegationLogSubtitle: "Audit all delegation grant, revoke, and end events",
   delegationLogEmpty: "No delegation records yet",

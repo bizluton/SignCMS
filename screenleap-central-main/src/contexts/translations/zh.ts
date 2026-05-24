@@ -1501,6 +1501,7 @@ export const ZH = {
   tabTeams: "團隊",
   tabActivityLog: "活動日誌",
   tabDelegationLog: "代理授權紀錄",
+  tabAgents: "代理商管理",
   delegationLogTitle: "代理授權紀錄",
   delegationLogSubtitle: "集中檢視所有歷史授權、撤銷與結束紀錄",
   delegationLogEmpty: "尚無代理授權紀錄",

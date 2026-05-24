@@ -20,6 +20,7 @@ import TeamManagement from "@/components/admin/TeamManagement";
 import ActivityLogPanel from "@/components/admin/ActivityLogPanel";
 import InvitationManagement from "@/components/admin/InvitationManagement";
 import DelegationLogPanel from "@/components/admin/DelegationLogPanel";
+import AgentManagement from "@/components/admin/AgentManagement";
 import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
 
 interface UserWithRole {
@@ -311,6 +312,7 @@ export default function AdminPage() {
           <TabsTrigger value="teams" className="gap-1.5"><Users className="w-4 h-4" />{t("tabTeams")}</TabsTrigger>
           {isSystemAdmin && <TabsTrigger value="activity" className="gap-1.5"><FileText className="w-4 h-4" />{t("tabActivityLog")}</TabsTrigger>}
           {isSystemAdmin && <TabsTrigger value="delegation" className="gap-1.5"><ShieldCheck className="w-4 h-4" />{t("tabDelegationLog")}</TabsTrigger>}
+          {isSystemAdmin && <TabsTrigger value="agents" className="gap-1.5"><Shield className="w-4 h-4" />{t("tabAgents")}</TabsTrigger>}
           {(isSystemAdmin || isOrgAdmin) && <TabsTrigger value="invitations" className="gap-1.5"><Mail className="w-4 h-4" />{t("tabInvitations")}</TabsTrigger>}
         </TabsList>
 
@@ -423,6 +425,13 @@ export default function AdminPage() {
         {isSystemAdmin && (
           <TabsContent value="delegation">
             <DelegationLogPanel highlightId={highlightDelegationId} />
+          </TabsContent>
+        )}
+
+        {/* Agent Management Tab - system admin only */}
+        {isSystemAdmin && (
+          <TabsContent value="agents">
+            <AgentManagement />
           </TabsContent>
         )}
 
