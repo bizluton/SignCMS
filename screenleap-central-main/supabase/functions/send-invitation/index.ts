@@ -79,18 +79,24 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Check if user is admin
-    const { data: roleRows } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('user_id', user.id)
-      .in('role', ['admin', 'org_admin'])
-      .limit(1)
+    // Check if user is system admin or org admin
+    const { data: sysAdminRow } = await supabase
+      .from('system_admins').select('id').eq('user_id', user.id).maybeSingle()
+    const isSystemAdmin = !!sysAdminRow
 
-    if (!roleRows || roleRows.length === 0) {
-      return new Response(JSON.stringify({ error: 'Forbidden: admin or org_admin only' }), {
-        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+    if (!isSystemAdmin) {
+      const { data: roleRows } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('user_id', user.id)
+        .in('role', ['admin', 'org_admin'])
+        .limit(1)
+
+      if (!roleRows || roleRows.length === 0) {
+        return new Response(JSON.stringify({ error: 'Forbidden: admin or org_admin only' }), {
+          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
     }
 
     const { email, org_id, resend_invitation_id } = await req.json()
@@ -101,10 +107,7 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Verify caller belongs to this org (or is system admin)
-    const { data: sysAdminRow } = await supabase
-      .from('system_admins').select('id').eq('user_id', user.id).maybeSingle()
-    const isSystemAdmin = !!sysAdminRow
+    // Verify caller belongs to this org (system admins skip this check)
     if (!isSystemAdmin) {
       const { data: inOrg } = await supabase.rpc('user_in_org', {
         _user_id: user.id, _org_id: org_id,
