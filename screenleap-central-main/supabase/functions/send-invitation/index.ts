@@ -145,10 +145,41 @@ Deno.serve(async (req) => {
       })
     }
 
-    // If resending, delete the old invitation first
+    // Get org name and inviter name
+    const [{ data: org }, { data: profile }] = await Promise.all([
+      supabase.from('organizations').select('name').eq('id', org_id).single(),
+      supabase.from('profiles').select('display_name').eq('user_id', user.id).single(),
+    ])
+
+    const orgName = org?.name || 'Organization'
+    const inviterName = profile?.display_name || user.email || 'Admin'
+
+    // Resend strategy: UPDATE the existing row in place (extend expires_at,
+    // refresh short_code, bump invited_by). Keeping the same `token` means
+    // previously-emailed links remain valid — users who clicked an older
+    // resend's link no longer get "邀請連結無效".
+    let invitation: { id: string; token: string; short_code: string } | null = null;
+
     if (resend_invitation_id) {
-      await supabase.from('invitations').delete().eq('id', resend_invitation_id)
+      const { data: updated, error: updateErr } = await supabase
+        .from('invitations')
+        .update({
+          invited_by: user.id,
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          status: 'pending',
+        })
+        .eq('id', resend_invitation_id)
+        .select('id, token, short_code')
+        .single()
+      if (updateErr) {
+        console.error('Failed to refresh invitation', updateErr)
+        return new Response(JSON.stringify({ error: updateErr.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+      invitation = updated as { id: string; token: string; short_code: string };
     } else {
+      // Not a resend: check for existing pending invite for this email+org
       const { data: existingInv } = await supabase
         .from('invitations')
         .select('id, status')
@@ -162,32 +193,29 @@ Deno.serve(async (req) => {
           status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }
+
+      // Fresh invitation. token and short_code are populated by DB defaults / triggers.
+      const { data: created, error: invError } = await supabase
+        .from('invitations')
+        .insert({
+          email: email.toLowerCase().trim(),
+          org_id,
+          invited_by: user.id,
+        })
+        .select('id, token, short_code')
+        .single()
+
+      if (invError) {
+        console.error('Failed to create invitation', invError)
+        return new Response(JSON.stringify({ error: invError.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        })
+      }
+      invitation = created as { id: string; token: string; short_code: string };
     }
 
-    // Get org name and inviter name
-    const [{ data: org }, { data: profile }] = await Promise.all([
-      supabase.from('organizations').select('name').eq('id', org_id).single(),
-      supabase.from('profiles').select('display_name').eq('user_id', user.id).single(),
-    ])
-
-    const orgName = org?.name || 'Organization'
-    const inviterName = profile?.display_name || user.email || 'Admin'
-
-    // Create invitation record. short_code is auto-populated by the
-    // trg_set_invitation_short_code trigger if not provided.
-    const { data: invitation, error: invError } = await supabase
-      .from('invitations')
-      .insert({
-        email: email.toLowerCase().trim(),
-        org_id,
-        invited_by: user.id,
-      })
-      .select('id, token, short_code')
-      .single()
-
-    if (invError) {
-      console.error('Failed to create invitation', invError)
-      return new Response(JSON.stringify({ error: invError.message }), {
+    if (!invitation) {
+      return new Response(JSON.stringify({ error: 'invitation row missing after upsert' }), {
         status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
