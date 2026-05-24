@@ -90,3 +90,6 @@ verify_jwt = false
 
 [functions.reset-cs-test-user]
 verify_jwt = false
+
+[functions.send-invitation]
+verify_jwt = false
