@@ -676,6 +676,8 @@ export const EN = {
   adminUserList: "User List",
   adminUserListDesc: "View and manage all user roles",
   adminRole: "Admin",
+  adminSystemRole: "System Admin",
+  adminOrgRole: "Org Admin",
   adminRegularUser: "Regular User",
   adminUnnamed: "Unnamed User",
   adminConfirmChange: "Confirm Role Change",

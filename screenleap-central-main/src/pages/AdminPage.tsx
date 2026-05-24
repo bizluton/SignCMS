@@ -22,8 +22,9 @@ import InvitationManagement from "@/components/admin/InvitationManagement";
 import DelegationLogPanel from "@/components/admin/DelegationLogPanel";
 import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
 
+type UserRoleDisplay = "system_admin" | "org_admin" | "user";
 interface UserWithRole {
-  user_id: string; display_name: string | null; avatar_url: string | null; role: "admin" | "user"; org_names: string[];
+  user_id: string; display_name: string | null; avatar_url: string | null; role: UserRoleDisplay; org_names: string[];
 }
 
 export default function AdminPage() {
@@ -35,7 +36,7 @@ export default function AdminPage() {
   const [systemAdminIds, setSystemAdminIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState(false);
-  const [changeDialog, setChangeDialog] = useState<{ user: UserWithRole; newRole: "admin" | "user" } | null>(null);
+  const [changeDialog, setChangeDialog] = useState<{ user: UserWithRole; newRole: UserRoleDisplay } | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<UserWithRole | null>(null);
   const [resetDialog, setResetDialog] = useState<UserWithRole | null>(null);
   const [resetMode, setResetMode] = useState<"email" | "password">("email");
@@ -92,9 +93,15 @@ export default function AdminPage() {
       if (!userRolesMap.has(r.user_id)) userRolesMap.set(r.user_id, new Set());
       userRolesMap.get(r.user_id)!.add(r.role);
     });
-    const roleMap = new Map<string, "admin" | "user">();
+    // Distinguish 系統管理員 (system_admin) from 組織管理員 (org_admin).
+    // A user is treated as system_admin when they have a row in system_admins
+    // OR a legacy user_roles.role='admin' entry (which has_role() treats as
+    // system_admin per the rebuild).
+    const roleMap = new Map<string, UserRoleDisplay>();
     userRolesMap.forEach((set, uid) => {
-      roleMap.set(uid, (set.has("admin") || set.has("org_admin")) ? "admin" : "user");
+      const isSys = set.has("admin");
+      const isOrg = set.has("org_admin");
+      roleMap.set(uid, isSys ? "system_admin" : isOrg ? "org_admin" : "user");
     });
     const orgMap = new Map((orgs || []).map((o) => [o.id, o.name]));
     const teamOrgMap = new Map((teams || []).map((t) => [t.id, t.org_id]));
@@ -166,7 +173,7 @@ export default function AdminPage() {
       user_id: p.user_id,
       display_name: p.display_name,
       avatar_url: p.avatar_url,
-      role: (roleMap.get(p.user_id) as "admin" | "user") ?? "user",
+      role: roleMap.get(p.user_id) ?? "user",
       org_names: [...(userOrgNameMap.get(p.user_id) || [])],
     })));
     } catch (err) {
@@ -181,10 +188,16 @@ export default function AdminPage() {
     if (!changeDialog) return;
     setSaving(true);
     const { user: targetUser, newRole } = changeDialog;
-    await supabase.from("user_roles").delete().eq("user_id", targetUser.user_id);
-    const { error } = await supabase.from("user_roles").insert({ user_id: targetUser.user_id, role: newRole });
+    // Map the UI role to the user_roles.role enum value.
+    // 'user' is stored as a single 'user' row; 'org_admin' as 'org_admin'.
+    // The UI never offers system_admin (managed via the system_admins table).
+    const dbRole = newRole === "org_admin" ? "org_admin" : "user";
+    // Clean only the non-system-admin role rows so DELETEs don't trip the
+    // protect_system_admin_role trigger when the user has a legacy 'admin' row.
+    await supabase.from("user_roles").delete().eq("user_id", targetUser.user_id).neq("role", "admin");
+    const { error } = await supabase.from("user_roles").insert({ user_id: targetUser.user_id, role: dbRole });
     if (error) { toast.error(`${t("adminRoleUpdateFailed")}：${error.message}`); }
-    else { toast.success(t("adminRoleUpdated")); logActivity({ action: "change_role", category: "admin", targetName: targetUser.display_name || "", actionParams: { role: newRole } }); fetchUsers(); }
+    else { toast.success(t("adminRoleUpdated")); logActivity({ action: "change_role", category: "admin", targetName: targetUser.display_name || "", actionParams: { role: dbRole } }); fetchUsers(); }
     setSaving(false); setChangeDialog(null);
   };
 
@@ -375,15 +388,15 @@ export default function AdminPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Badge variant={u.role === "admin" ? "default" : "secondary"} className="gap-1">
-                            {u.role === "admin" ? <ShieldCheck className="w-3 h-3" /> : <Shield className="w-3 h-3" />}
-                            {u.role === "admin" ? t("adminRole") : t("adminRegularUser")}
+                          <Badge variant={u.role === "system_admin" ? "default" : u.role === "org_admin" ? "secondary" : "outline"} className="gap-1">
+                            {u.role === "system_admin" ? <ShieldCheck className="w-3 h-3" /> : u.role === "org_admin" ? <Shield className="w-3 h-3" /> : <Shield className="w-3 h-3" />}
+                            {u.role === "system_admin" ? t("adminSystemRole") : u.role === "org_admin" ? t("adminOrgRole") : t("adminRegularUser")}
                           </Badge>
-                          {canChangeRole ? (
-                            <Select value={u.role} onValueChange={(value: "admin" | "user") => { if (value !== u.role) setChangeDialog({ user: u, newRole: value }); }}>
-                              <SelectTrigger className="w-[120px] h-8 text-xs"><SelectValue /></SelectTrigger>
+                          {canChangeRole && u.role !== "system_admin" ? (
+                            <Select value={u.role} onValueChange={(value: UserRoleDisplay) => { if (value !== u.role) setChangeDialog({ user: u, newRole: value }); }}>
+                              <SelectTrigger className="w-[140px] h-8 text-xs"><SelectValue /></SelectTrigger>
                               <SelectContent>
-                                <SelectItem value="admin">{t("adminRole")}</SelectItem>
+                                <SelectItem value="org_admin">{t("adminOrgRole")}</SelectItem>
                                 <SelectItem value="user">{t("adminRegularUser")}</SelectItem>
                               </SelectContent>
                             </Select>

@@ -679,6 +679,8 @@ export const ZH = {
   adminUserList: "使用者列表",
   adminUserListDesc: "查看和管理所有使用者的角色",
   adminRole: "管理員",
+  adminSystemRole: "系統管理員",
+  adminOrgRole: "組織管理員",
   adminRegularUser: "一般使用者",
   adminUnnamed: "未命名使用者",
   adminConfirmChange: "確認更改角色",

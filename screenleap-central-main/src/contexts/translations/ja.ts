@@ -676,6 +676,8 @@ export const JA = {
   adminUserList: "ユーザー一覧",
   adminUserListDesc: "すべてのユーザーの役割を表示・管理",
   adminRole: "管理者",
+  adminSystemRole: "システム管理者",
+  adminOrgRole: "組織管理者",
   adminRegularUser: "一般ユーザー",
   adminUnnamed: "未設定ユーザー",
   adminConfirmChange: "役割変更の確認",
