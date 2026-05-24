@@ -53,6 +53,11 @@ export default function AuthPage() {
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [domainBlocked, setDomainBlocked] = useState<string | null>(null);
+  // Alternative signup path per SIGNCMS組織權限規則: user manually enters
+  // their email + the 6-digit short_code from the invitation email instead
+  // of clicking the token link.
+  const [shortCode, setShortCode] = useState("");
+  const [shortCodeError, setShortCodeError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const checkEmailDomain = async (emailValue: string) => {
@@ -103,7 +108,34 @@ export default function AuthPage() {
       toast.error(t("authPasswordMismatch"));
       return;
     }
-    if (isSignUp && !inviteToken && domainBlocked !== null) {
+    // If user entered a short_code (instead of using the token link), validate it
+    // and resolve to a token before continuing. This bypasses the domain check
+    // because the invitation itself authorizes the join.
+    let resolvedToken = inviteToken;
+    if (isSignUp && !resolvedToken && shortCode.trim().length > 0) {
+      const code = shortCode.trim();
+      if (!/^\d{6}$/.test(code)) {
+        toast.error(t("authShortCodeInvalid") || "邀請碼必須是 6 位數字");
+        return;
+      }
+      try {
+        const { data: validation, error: vErr } = await supabase.rpc("validate_invitation_short_code", {
+          p_email: email, p_short_code: code,
+        });
+        if (vErr) throw vErr;
+        const v = validation as { valid: boolean; token?: string; error?: string } | null;
+        if (!v?.valid) {
+          toast.error(t("authShortCodeNotFound") || "邀請碼或 Email 不正確");
+          setShortCodeError(v?.error || "not_found");
+          return;
+        }
+        resolvedToken = v.token || "";
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : (t("authShortCodeNotFound") || "邀請碼驗證失敗"));
+        return;
+      }
+    }
+    if (isSignUp && !resolvedToken && domainBlocked !== null) {
       toast.error(t("authDomainRegistered").replace("{org}", domainBlocked || ""));
       return;
     }
@@ -117,7 +149,7 @@ export default function AuthPage() {
             emailRedirectTo: window.location.origin,
             data: {
               full_name: displayName,
-              invite_token: inviteToken || undefined,
+              invite_token: resolvedToken || undefined,
               cs_agent: csAgentId || undefined,
             },
           },
@@ -288,6 +320,27 @@ export default function AuthPage() {
                   </Alert>
                 )}
               </div>
+              {isSignUp && !inviteToken && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="shortCode" className="text-xs text-muted-foreground">
+                    {t("authShortCodeLabel") || "邀請碼（選填）"}
+                  </Label>
+                  <Input
+                    id="shortCode"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="\d{6}"
+                    maxLength={6}
+                    placeholder="000000"
+                    value={shortCode}
+                    onChange={(e) => { setShortCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setShortCodeError(null); }}
+                    className="font-mono tracking-widest text-center"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    {t("authShortCodeHint") || "若您收到邀請信，可輸入 6 位邀請碼直接加入組織"}
+                  </p>
+                </div>
+              )}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">{t("authPassword")}</Label>

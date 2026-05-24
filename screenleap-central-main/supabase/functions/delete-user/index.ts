@@ -35,9 +35,14 @@ Deno.serve(async (req) => {
       return json(req, { error: "Cannot delete yourself" }, 403);
     }
 
-    // Cannot delete a system admin.
+    // Cannot delete a root system admin. Per SIGNCMS組織權限規則, root admins
+    // (service@bizlution.com, service@signcms.net) are 原生管理員 — immune to
+    // deletion by anyone, including other system admins.
     const { data: targetSysAdmin } = await adminClient
-      .from("system_admins").select("id").eq("user_id", target_user_id).maybeSingle();
+      .from("system_admins").select("id, is_root").eq("user_id", target_user_id).maybeSingle();
+    if (targetSysAdmin?.is_root) {
+      return json(req, { error: "Cannot delete root system administrator" }, 403);
+    }
     if (targetSysAdmin) {
       return json(req, { error: "Cannot delete system administrator" }, 403);
     }

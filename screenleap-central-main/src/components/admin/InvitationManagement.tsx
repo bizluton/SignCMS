@@ -27,6 +27,7 @@ interface Invitation {
   expires_at: string;
   created_at: string;
   token?: string;
+  short_code?: string;
 }
 
 interface Org {
@@ -268,14 +269,33 @@ export default function InvitationManagement() {
                     </div>
                     <div>
                       <p className="text-sm font-medium text-foreground">{inv.email}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
                         <Badge variant="outline" className="text-[10px] gap-1"><Building2 className="w-3 h-3" />{inv.org_name}</Badge>
                         {statusBadge(inv.status, inv.expires_at)}
+                        {getInvStatus(inv) === "pending" && inv.short_code && (
+                          <Badge variant="secondary" className="text-[10px] font-mono tracking-wider">
+                            {inv.short_code}
+                          </Badge>
+                        )}
                         <span className="text-xs text-muted-foreground">{new Date(inv.created_at).toLocaleDateString()}</span>
                       </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
+                    {getInvStatus(inv) === "pending" && inv.short_code && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground"
+                        title={t("invCopyCode") || "複製邀請碼"}
+                        onClick={() => {
+                          void navigator.clipboard.writeText(inv.short_code!);
+                          toast.success(t("invCodeCopied") || "邀請碼已複製");
+                        }}
+                      >
+                        <span className="text-[10px] font-mono font-bold">#</span>
+                      </Button>
+                    )}
                     {getInvStatus(inv) === "pending" && inv.token && (
                       <Button
                         variant="ghost"

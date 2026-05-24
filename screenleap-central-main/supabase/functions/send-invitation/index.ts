@@ -10,7 +10,7 @@ const SITE_NAME = 'SignCMS'
 const SENDER_DOMAIN = 'signcms.net'
 const FROM_DOMAIN = 'signcms.net'
 
-function buildInvitationEmail(orgName: string, inviterName: string, signupUrl: string): { html: string; text: string } {
+function buildInvitationEmail(orgName: string, inviterName: string, signupUrl: string, shortCode: string): { html: string; text: string } {
   const html = `<!DOCTYPE html>
 <html lang="zh-TW">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -20,12 +20,19 @@ function buildInvitationEmail(orgName: string, inviterName: string, signupUrl: s
     <p style="font-size:14px;color:#55575d;line-height:1.5;margin:0 0 25px">
       ${inviterName} 邀請您加入 <strong>${orgName}</strong> 組織，使用 ${SITE_NAME} 數位看板管理系統。
     </p>
-    <p style="font-size:14px;color:#55575d;line-height:1.5;margin:0 0 25px">
-      請點擊下方按鈕註冊帳號並加入組織：
+    <p style="font-size:14px;color:#55575d;line-height:1.5;margin:0 0 12px">
+      <strong>方法一：</strong>點擊下方按鈕直接註冊（不需輸入邀請碼）：
     </p>
-    <a href="${signupUrl}" style="display:inline-block;background:#000;color:#fff;font-size:14px;border-radius:8px;padding:12px 20px;text-decoration:none">
+    <a href="${signupUrl}" style="display:inline-block;background:#000;color:#fff;font-size:14px;border-radius:8px;padding:12px 20px;text-decoration:none;margin-bottom:25px">
       接受邀請並註冊
     </a>
+    <p style="font-size:14px;color:#55575d;line-height:1.5;margin:25px 0 12px">
+      <strong>方法二：</strong>於註冊頁面手動輸入您的 Email 與下方邀請碼：
+    </p>
+    <div style="background:#f5f5f7;border:1px solid #e5e5e7;border-radius:8px;padding:16px 20px;margin:0 0 25px;text-align:center">
+      <div style="font-size:11px;color:#888;letter-spacing:1px;margin-bottom:6px">邀請碼</div>
+      <div style="font-size:32px;font-weight:bold;color:#000;letter-spacing:6px;font-family:'Courier New',monospace">${shortCode}</div>
+    </div>
     <p style="font-size:12px;color:#999;margin:30px 0 0">
       如果您不認識發送此邀請的人，可以安全地忽略此郵件。
     </p>
@@ -33,7 +40,11 @@ function buildInvitationEmail(orgName: string, inviterName: string, signupUrl: s
 </body>
 </html>`
 
-  const text = `${inviterName} 邀請您加入 ${orgName} 組織。請前往 ${signupUrl} 註冊並加入。`
+  const text = `${inviterName} 邀請您加入 ${orgName} 組織。
+
+方法一：點擊以下連結直接註冊：${signupUrl}
+
+方法二：於註冊頁面輸入 Email 與邀請碼 ${shortCode}`
 
   return { html, text }
 }
@@ -162,7 +173,8 @@ Deno.serve(async (req) => {
     const orgName = org?.name || 'Organization'
     const inviterName = profile?.display_name || user.email || 'Admin'
 
-    // Create invitation record
+    // Create invitation record. short_code is auto-populated by the
+    // trg_set_invitation_short_code trigger if not provided.
     const { data: invitation, error: invError } = await supabase
       .from('invitations')
       .insert({
@@ -170,7 +182,7 @@ Deno.serve(async (req) => {
         org_id,
         invited_by: user.id,
       })
-      .select('id, token')
+      .select('id, token, short_code')
       .single()
 
     if (invError) {
@@ -184,7 +196,7 @@ Deno.serve(async (req) => {
     const projectUrl = Deno.env.get('SITE_URL') || 'https://staging.signcms.net'
     const signupUrl = `${projectUrl}/#/auth?invite=${invitation.token}`
 
-    const { html, text } = buildInvitationEmail(orgName, inviterName, signupUrl)
+    const { html, text } = buildInvitationEmail(orgName, inviterName, signupUrl, invitation.short_code as string)
 
     // Enqueue email
     const messageId = crypto.randomUUID()
