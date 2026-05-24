@@ -10,6 +10,8 @@ import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage, Language } from "@/contexts/LanguageContext";
 import { useInstalledApps, APP_DEFINITIONS } from "@/contexts/InstalledAppsContext";
+import { useOrgPlan } from "@/hooks/useOrgPlan";
+import type { TranslationKey } from "@/contexts/translations";
 import { Separator } from "@/components/ui/separator";
 import { useUnreadCustomerMessages } from "@/hooks/useUnreadCustomerMessages";
 import { findActiveNavUrl } from "@/lib/navMatch";
@@ -73,6 +75,7 @@ export function AppSidebar() {
     if (!isMobile) setOpen(!next);
   };
   const { isAdmin, isOrgAdmin, isCsAgent } = useUserRole();
+  const { tier } = useOrgPlan();
   const { t, language } = useLanguage();
   const { user } = useAuth();
   const { installedApps } = useInstalledApps();
@@ -122,8 +125,10 @@ export function AppSidebar() {
       <div className="p-3 sm:p-4 flex items-center gap-2">
         <Link to="/" aria-label="SignCMS" className="flex items-center gap-2 rounded-md hover:opacity-80 transition-opacity">
           <img src={currentLogo} alt="SignCMS" className="h-10 sm:h-12 shrink-0 object-contain" style={collapsed ? { width: 30 } : {}} />
-          {!collapsed && (
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded">Trial</span>
+          {!collapsed && tier && (
+            <span className={`text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded ${tier === "evaluation" ? "text-orange-500 bg-orange-500/10" : "text-muted-foreground bg-muted"}`}>
+              {t(`planTier${tier.charAt(0).toUpperCase() + tier.slice(1)}` as TranslationKey)}
+            </span>
           )}
         </Link>
       </div>
