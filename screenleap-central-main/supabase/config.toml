@@ -34,8 +34,13 @@ verify_jwt = false
 [functions.transcode-callback]
 verify_jwt = false
 
+# auth-email-hook: previously called by Supabase Auth as a Send Email Hook.
+# We disabled the hook in Dashboard (Auth → Hooks) since SignCMS uses its own
+# transactional email queue. verify_jwt = true blocks external callers — only
+# authenticated requests via the gateway can reach it. Re-enable as false if
+# this is ever rewired back to a Supabase Auth Hook.
 [functions.auth-email-hook]
-verify_jwt = false
+verify_jwt = true
 
 [functions.handle-email-suppression]
 verify_jwt = false
