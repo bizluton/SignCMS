@@ -28,7 +28,7 @@ interface UserWithRole {
 }
 
 export default function AdminPage() {
-  const { isAdmin, isOrgAdmin, loading: roleLoading } = useUserRole();
+  const { isAdmin, isOrgAdmin, isAgent, loading: roleLoading } = useUserRole();
   const { user } = useAuth();
   const { t, language } = useLanguage();
   const { activeOrgId } = useActiveOrg();
@@ -43,7 +43,7 @@ export default function AdminPage() {
   const [tempPassword, setTempPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const { isSystemAdmin, loading: sysAdminLoading } = useIsSystemAdmin();
-  const defaultTab = isSystemAdmin ? "users" : isOrgAdmin ? "users" : "teams";
+  const defaultTab = (isSystemAdmin || isOrgAdmin || isAgent) ? "users" : "teams";
   const [activeTab, setActiveTab] = useState<string>("teams");
   // Sync activeTab once roles resolve to avoid stale initial state
   useEffect(() => {
@@ -74,7 +74,7 @@ export default function AdminPage() {
     return () => window.removeEventListener("hashchange", parseHash);
   }, []);
 
-  useEffect(() => { if (!isAdmin && !isOrgAdmin) return; fetchUsers(); }, [isAdmin, isOrgAdmin, activeOrgId]);
+  useEffect(() => { if (!isAdmin && !isOrgAdmin && !isAgent) return; fetchUsers(); }, [isAdmin, isOrgAdmin, isAgent, activeOrgId]);
 
   const fetchUsers = async () => {
     setFetchError(false);
@@ -140,6 +140,13 @@ export default function AdminPage() {
     let filterOrgIds: Set<string>;
     if (activeOrgVisible) {
       filterOrgIds = new Set([activeOrgId!]);
+    } else if (isAgent && user) {
+      // SI agents have no team_members; pull their assigned orgs from agent_org_assignments.
+      const { data: aRows } = await supabase
+        .from("agent_org_assignments")
+        .select("org_id")
+        .eq("agent_user_id", user.id);
+      filterOrgIds = new Set(((aRows || []) as { org_id: string }[]).map((r) => r.org_id));
     } else if (!isCurrentSystemAdmin && user) {
       // Fallback: current user's orgs
       const myOrgIds = new Set<string>();
@@ -280,7 +287,11 @@ export default function AdminPage() {
   if (roleLoading || sysAdminLoading || loading) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   if (fetchError) return <FetchError onRetry={() => { setFetchError(false); setLoading(true); fetchUsers(); }} />;
 
-  if (!isAdmin && !isOrgAdmin) return (
+  // SI agents (代理商) are read-only across their assigned orgs — they can
+  // view the user list (including org_admins) but cannot delete, reset, or
+  // change roles. The action-button guards below already gate on isSystemAdmin
+  // / isAdmin / isOrgAdmin and never include isAgent.
+  if (!isAdmin && !isOrgAdmin && !isAgent) return (
     <div className="flex items-center justify-center min-h-[400px]">
       <Card className="max-w-md w-full">
         <CardContent className="pt-6 text-center space-y-3">
@@ -330,8 +341,8 @@ export default function AdminPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList>
-          {(isSystemAdmin || isOrgAdmin) && <TabsTrigger value="users" className="gap-1.5"><Users className="w-4 h-4" />{t("tabUsers")}</TabsTrigger>}
-          <TabsTrigger value="teams" className="gap-1.5"><Users className="w-4 h-4" />{t("tabTeams")}</TabsTrigger>
+          {(isSystemAdmin || isOrgAdmin || isAgent) && <TabsTrigger value="users" className="gap-1.5"><Users className="w-4 h-4" />{t("tabUsers")}</TabsTrigger>}
+          {!isAgent && <TabsTrigger value="teams" className="gap-1.5"><Users className="w-4 h-4" />{t("tabTeams")}</TabsTrigger>}
           {isSystemAdmin && <TabsTrigger value="activity" className="gap-1.5"><FileText className="w-4 h-4" />{t("tabActivityLog")}</TabsTrigger>}
           {isSystemAdmin && <TabsTrigger value="delegation" className="gap-1.5"><ShieldCheck className="w-4 h-4" />{t("tabDelegationLog")}</TabsTrigger>}
           {/* Agent management has moved to the System Admin section (/system-agents) — system admin only. */}
@@ -339,7 +350,7 @@ export default function AdminPage() {
         </TabsList>
 
         {/* Users Tab */}
-        {(isSystemAdmin || isOrgAdmin) && <TabsContent value="users" className="space-y-4">
+        {(isSystemAdmin || isOrgAdmin || isAgent) && <TabsContent value="users" className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Card>
               <CardContent className="pt-5 flex items-center gap-4">

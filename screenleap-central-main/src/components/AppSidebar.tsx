@@ -105,7 +105,9 @@ export function AppSidebar() {
 
   const { isSystemAdmin } = useIsSystemAdmin();
   const canAccessCS = isSystemAdmin || isCsAgent;
-  const canAccessAdmin = isAdmin || isOrgAdmin;
+  // SI agent (代理商) also accesses /admin, but read-only: they see the
+  // 使用者 tab for their assigned orgs (incl. org_admins), no actions.
+  const canAccessAdmin = isAdmin || isOrgAdmin || isAgent;
   // Per SIGNCMS組織權限規則: regular users cannot access 擴充應用商店 or 開發者入口.
   // Org admins, CS agents, system admins, and agents (view-only) can see app store.
   // Only system admin / CS agent / admin can see the developer portal.
