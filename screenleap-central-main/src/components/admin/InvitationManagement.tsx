@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Mail, Plus, Trash2, Loader2, Clock, CheckCircle, Building2, RefreshCw, Filter } from "lucide-react";
+import { Mail, Plus, Trash2, Loader2, Clock, CheckCircle, Building2, RefreshCw, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
 import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
@@ -26,6 +26,7 @@ interface Invitation {
   status: string;
   expires_at: string;
   created_at: string;
+  token?: string;
 }
 
 interface Org {
@@ -134,7 +135,11 @@ export default function InvitationManagement() {
         const { data, error } = await supabase.functions.invoke("send-invitation", {
           body,
         });
-        if (error) throw new Error((error as any).context?.error ?? error.message);
+        if (error) {
+          let msg = error.message;
+          try { const errBody = await (error.context as Response).json(); msg = errBody?.error ?? msg; } catch { /* ignore */ }
+          throw new Error(msg);
+        }
         if (data?.error) throw new Error(data.error);
         successCount++;
         logActivity({ action: "send_invitation", category: "admin", targetName: addr, actionParams: { org: orgName } });
@@ -174,7 +179,11 @@ export default function InvitationManagement() {
       const { data, error } = await supabase.functions.invoke("send-invitation", {
         body: { email: inv.email, org_id: inv.org_id, resend_invitation_id: inv.id },
       });
-      if (error) throw new Error((error as any).context?.error ?? error.message);
+      if (error) {
+        let msg = error.message;
+        try { const errBody = await (error.context as Response).json(); msg = errBody?.error ?? msg; } catch { /* ignore */ }
+        throw new Error(msg);
+      }
       if (data?.error) throw new Error(data.error);
       toast.success(t("invResent"));
       logActivity({ action: "resend_invitation", category: "admin", targetName: inv.email, actionParams: { org: inv.org_name } });
@@ -264,6 +273,21 @@ export default function InvitationManagement() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
+                    {getInvStatus(inv) === "pending" && inv.token && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground"
+                        title={t("invCopyLink")}
+                        onClick={() => {
+                          const url = `${window.location.origin}/#/auth?invite=${inv.token}`;
+                          void navigator.clipboard.writeText(url);
+                          toast.success(t("invLinkCopied"));
+                        }}
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
                     {inv.status !== "accepted" && (
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-primary" onClick={() => handleResend(inv)} disabled={sending} title={t("invResend")}>
                         <RefreshCw className="w-3.5 h-3.5" />

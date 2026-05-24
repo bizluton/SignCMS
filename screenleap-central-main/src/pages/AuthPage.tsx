@@ -52,7 +52,18 @@ export default function AuthPage() {
   const [displayName, setDisplayName] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [domainBlocked, setDomainBlocked] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  const checkEmailDomain = async (emailValue: string) => {
+    if (inviteToken || !emailValue.includes("@")) { setDomainBlocked(null); return; }
+    try {
+      const { data } = await supabase.rpc("check_email_domain_registered", { p_email: emailValue });
+      setDomainBlocked(data && !data.eligible ? (data.org_name as string || "") : null);
+    } catch {
+      setDomainBlocked(null);
+    }
+  };
 
   const [lockRemainingMs, setLockRemainingMs] = useState(getLoginLockRemainingMs());
   const isLocked = lockRemainingMs > 0;
@@ -90,6 +101,10 @@ export default function AuthPage() {
     }
     if (isSignUp && password !== confirmPassword) {
       toast.error(t("authPasswordMismatch"));
+      return;
+    }
+    if (isSignUp && !inviteToken && domainBlocked !== null) {
+      toast.error(t("authDomainRegistered").replace("{org}", domainBlocked || ""));
       return;
     }
     setLoading(true);
@@ -253,8 +268,25 @@ export default function AuthPage() {
                 <Label htmlFor="email">Email</Label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input id="email" type="email" className="pl-9" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                  <Input
+                    id="email"
+                    type="email"
+                    className="pl-9"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => { setEmail(e.target.value); setDomainBlocked(null); }}
+                    onBlur={isSignUp && !inviteToken ? (e) => void checkEmailDomain(e.target.value) : undefined}
+                    required
+                  />
                 </div>
+                {isSignUp && !inviteToken && domainBlocked !== null && (
+                  <Alert variant="destructive" className="py-2">
+                    <Info className="h-4 w-4" />
+                    <AlertDescription className="text-xs">
+                      {t("authDomainRegistered").replace("{org}", domainBlocked || "")}
+                    </AlertDescription>
+                  </Alert>
+                )}
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
