@@ -105,13 +105,6 @@ export default function AuthPage() {
     return () => { cancelled = true; };
   }, [inviteToken]);
 
-  // Redirect already-authenticated users away from the login page.
-  // Don't redirect when an invite/cs_agent token is present — those are valid
-  // reasons a logged-in user might land here (e.g. accept a team invitation).
-  if (!authLoading && user && !inviteToken && !csAgentId) {
-    return <Navigate to="/" replace />;
-  }
-
   // Tick countdown every second while locked.
   useEffect(() => {
     if (!isLocked) return;
@@ -122,6 +115,18 @@ export default function AuthPage() {
     }, 1000);
     return () => clearInterval(id);
   }, [isLocked]);
+
+  // Redirect already-authenticated users away from the login page.
+  // Don't redirect when an invite/cs_agent token is present — those are valid
+  // reasons a logged-in user might land here (e.g. accept a team invitation).
+  // IMPORTANT: this early return MUST come after all hook calls. Placing it
+  // between hooks violates the Rules of Hooks — when `user` flips after auth
+  // resolves, React saw a different hook count between renders and threw
+  // Minified React error #300.
+  const shouldRedirect = !authLoading && user && !inviteToken && !csAgentId;
+  if (shouldRedirect) {
+    return <Navigate to="/" replace />;
+  }
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
