@@ -55,7 +55,7 @@ export function OrgSwitcher({
   value: string | null;
   onChange: (orgId: string | null) => void;
 }) {
-  const { isAdmin, isOrgAdmin, isCsAgent, loading: roleLoading } = useUserRole();
+  const { isAdmin, isOrgAdmin, isCsAgent, isAgent, loading: roleLoading } = useUserRole();
   const { language } = useLanguage();
   const t = labels[language] || labels.en;
 
@@ -67,35 +67,51 @@ export function OrgSwitcher({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
-  // Admin/CS can see all orgs; org_admin sees only their own
-  const canSwitch = isAdmin || isCsAgent || isOrgAdmin;
+  // Admin/CS can see all orgs; org_admin sees their team's orgs;
+  // agent (代理商) sees the orgs in their agent_org_assignments
+  const canSwitch = isAdmin || isCsAgent || isOrgAdmin || isAgent;
 
   useEffect(() => {
     if (!canSwitch || roleLoading) return;
     let cancelled = false;
     const load = async () => {
-      // Step 1: load only the org list + (if needed) the user's allowed org ids.
-      // Avoid pulling full screens / team_members tables — those are O(n) and quickly become slow.
+      // Step 1: load org list + per-user-role allowed org id list.
       const orgListPromise = supabase.from("organizations").select("id, name, description").order("name");
       type MemberWithTeam = { teams: { org_id: string } | null };
-      const allowedPromise: Promise<{ data: MemberWithTeam[] | null }> = isOrgAdmin && !isAdmin && !isCsAgent
-        ? supabase.auth.getUser().then(({ data }) =>
-            supabase.from("team_members")
-              .select("teams!inner(org_id)")
-              .eq("user_id", data.user?.id ?? "")
-          ) as Promise<{ data: MemberWithTeam[] | null }>
+      type AgentAssignment = { org_id: string };
+
+      const { data: authData } = await supabase.auth.getUser();
+      const currentUserId = authData.user?.id ?? "";
+
+      const allowedPromise: Promise<{ data: MemberWithTeam[] | null }> = isOrgAdmin && !isAdmin && !isCsAgent && !isAgent
+        ? supabase.from("team_members")
+            .select("teams!inner(org_id)")
+            .eq("user_id", currentUserId) as Promise<{ data: MemberWithTeam[] | null }>
         : Promise.resolve({ data: null });
 
-      const [{ data: orgData }, { data: currentUserMembers }] = await Promise.all([orgListPromise, allowedPromise]);
+      // Agent: pull assigned orgs from agent_org_assignments (no team membership).
+      const agentPromise: Promise<{ data: AgentAssignment[] | null }> = isAgent && !isAdmin && !isCsAgent
+        ? supabase.from("agent_org_assignments")
+            .select("org_id")
+            .eq("agent_user_id", currentUserId) as Promise<{ data: AgentAssignment[] | null }>
+        : Promise.resolve({ data: null });
+
+      const [{ data: orgData }, { data: currentUserMembers }, { data: agentAssignments }] = await Promise.all([
+        orgListPromise, allowedPromise, agentPromise,
+      ]);
       if (cancelled) return;
 
-      const allowedOrgIds = new Set<string>(
+      const teamOrgIds = new Set<string>(
         (currentUserMembers || []).map((m) => m.teams?.org_id).filter((id): id is string => Boolean(id))
+      );
+      const agentOrgIds = new Set<string>(
+        (agentAssignments || []).map((a) => a.org_id).filter((id): id is string => Boolean(id))
       );
 
       const visibleOrgs = (orgData || []).filter((o) => {
         if (isAdmin || isCsAgent) return true;
-        if (isOrgAdmin) return allowedOrgIds.has(o.id);
+        if (isOrgAdmin) return teamOrgIds.has(o.id);
+        if (isAgent) return agentOrgIds.has(o.id);
         return false;
       });
 
@@ -127,7 +143,7 @@ export function OrgSwitcher({
     };
     load();
     return () => { cancelled = true; };
-  }, [canSwitch, roleLoading, isAdmin, isCsAgent, isOrgAdmin]);
+  }, [canSwitch, roleLoading, isAdmin, isCsAgent, isOrgAdmin, isAgent]);
 
   // Auto-select first org if none selected, or recover from a stale/unauthorized
   // org id. CRITICAL: only run AFTER the org list has finished loading — otherwise
@@ -160,7 +176,9 @@ export function OrgSwitcher({
   if (!canSwitch || roleLoading) return null;
 
   // org_admin with only 1 org: show static label, no dropdown
-  const singleOrgOnly = isOrgAdmin && !isAdmin && !isCsAgent && orgs.length <= 1;
+  // Single-org users (org_admin with only 1 org, or agent assigned to only 1 org)
+  // see a static label instead of a dropdown.
+  const singleOrgOnly = (isOrgAdmin || isAgent) && !isAdmin && !isCsAgent && orgs.length <= 1;
 
   if (singleOrgOnly) {
     return (

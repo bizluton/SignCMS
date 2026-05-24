@@ -273,7 +273,10 @@ export default function PublishingCenterPage() {
     setLoading(true);
     setFetchError(false);
     try {
-    let schedQ = supabase.from("schedules").select("id, name, org_id, screen_id, screens:screen_id(name)").order("name");
+    // NOTE: `schedules` and `schedule_items` were dropped in migration
+    // 20260420182449 and replaced by the channels + project_schedules model.
+    // The legacy schedQ / itemCounts queries below are kept as empty stubs so
+    // downstream code that maps over `schedules` still works without 404s.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let screenQ = (supabase.from("screens").select as any)("id, name, branch, online, org_id, device_model").order("branch").order("name");
     let channelQ = supabase.from("channels").select("id, name, org_id, color, enabled, sort_order, aspect, team_id, collab_scope").order("sort_order", { ascending: true }).order("created_at", { ascending: true });
@@ -281,14 +284,13 @@ export default function PublishingCenterPage() {
     let projectQ = (supabase.from("design_projects").select as any)("id, name, org_id, aspect, created_by, team_id, collab_scope, output_mode, output_count").order("name");
     let psQ = supabase.from("project_schedules").select("id, name, design_project_id, block_type, color, start_at, end_at, weekdays, start_time, end_time, org_id").eq("enabled", true).order("created_at", { ascending: true });
     if (activeOrgId) {
-      schedQ = schedQ.eq("org_id", activeOrgId);
       screenQ = screenQ.eq("org_id", activeOrgId);
       channelQ = channelQ.eq("org_id", activeOrgId);
       projectQ = projectQ.eq("org_id", activeOrgId);
       psQ = psQ.eq("org_id", activeOrgId);
     }
-    const [schedRes, screenRes, recordRes, channelRes, projectRes, psRes, mdlRes] = await Promise.all([
-      schedQ,
+    const schedRes: { data: unknown[] } = { data: [] };  // legacy table dropped
+    const [screenRes, recordRes, channelRes, projectRes, psRes, mdlRes] = await Promise.all([
       screenQ,
       supabase.from("publish_records").select("*").order("created_at", { ascending: false }).limit(50),
       channelQ,
@@ -298,11 +300,7 @@ export default function PublishingCenterPage() {
       (supabase as any).from("device_models").select("name, output_ports, supported_output_modes"),
     ]);
 
-    const { data: itemCounts } = await supabase.from("schedule_items").select("schedule_id");
-    const countMap = new Map<string, number>();
-    (itemCounts || []).forEach((i) => {
-      countMap.set(i.schedule_id, (countMap.get(i.schedule_id) || 0) + 1);
-    });
+    const countMap = new Map<string, number>();  // legacy schedule_items table dropped
 
     setSchedules(((schedRes.data || []) as RawSched[]).map((s) => ({
       id: s.id,
