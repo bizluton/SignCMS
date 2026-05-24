@@ -189,6 +189,16 @@ export default function AuthPage() {
           return;
         }
         toast.success(t("authSignUpSuccess"));
+        // Per SIGNCMS組織權限規則 step 3: 「完成註冊並自動帶入登入頁面」.
+        // With Confirm email disabled, signUp returns a session immediately —
+        // navigate to home so ProtectedRoute can route the new user correctly
+        // (member → org dashboard; agent → agent-scoped views).
+        // Sleep briefly to let auth state propagate before route check runs.
+        if (data?.session) {
+          await new Promise((r) => setTimeout(r, 100));
+          navigate("/");
+          return;
+        }
       } else {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;

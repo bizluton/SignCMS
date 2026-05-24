@@ -37,22 +37,32 @@ export default function OnboardingPage() {
     return key ? t(key) : null;
   };
 
-  // Safety re-check: if user already has an org, leave the page.
+  // Safety re-check: if user already has an org, leave the page. Per
+  // SIGNCMS組織權限規則, agents (代理商) don't sit in team_members — they
+  // join via agent_org_assignments + the 'agent' role — so we have to look
+  // for either signal before deciding the user still needs onboarding.
   useEffect(() => {
     let cancelled = false;
     if (!user) return;
     (async () => {
-      const { data } = await supabase
-        .from("team_members")
-        .select("team_id")
-        .eq("user_id", user.id)
-        .limit(1);
-      if (!cancelled) {
-        if (data && data.length > 0) {
-          navigate("/", { replace: true });
-        } else {
-          setChecking(false);
-        }
+      const [{ data: teamRows }, { data: roleRows }, { data: agentRows }, { data: csRows }, { data: sysRows }] = await Promise.all([
+        supabase.from("team_members").select("team_id").eq("user_id", user.id).limit(1),
+        supabase.from("user_roles").select("role").eq("user_id", user.id),
+        supabase.from("agent_org_assignments").select("id").eq("agent_user_id", user.id).limit(1),
+        supabase.from("cs_agents").select("id").eq("user_id", user.id).eq("status", "active").limit(1),
+        supabase.from("system_admins").select("user_id").eq("user_id", user.id).limit(1),
+      ]);
+      if (cancelled) return;
+      const onboarded =
+        (teamRows && teamRows.length > 0) ||
+        (agentRows && agentRows.length > 0) ||
+        (csRows && csRows.length > 0) ||
+        (sysRows && sysRows.length > 0) ||
+        ((roleRows || []).some((r) => ["agent", "admin", "org_admin"].includes(r.role as string)));
+      if (onboarded) {
+        navigate("/", { replace: true });
+      } else {
+        setChecking(false);
       }
     })();
     return () => { cancelled = true; };

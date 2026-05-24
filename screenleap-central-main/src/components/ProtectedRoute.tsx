@@ -13,7 +13,7 @@ import { useIsSystemAdmin } from "@/hooks/useIsSystemAdmin";
  */
 export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  const { isAdmin, loading: roleLoading } = useUserRole();
+  const { isAdmin, isAgent, loading: roleLoading } = useUserRole();
   const { isSystemAdmin, loading: systemAdminLoading } = useIsSystemAdmin();
   const location = useLocation();
   const [orgChecked, setOrgChecked] = useState(false);
@@ -28,7 +28,9 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     if (roleLoading || systemAdminLoading) return;
     (async () => {
       // System admins and org admins bypass org membership gating here.
-      if (isAdmin || isSystemAdmin) {
+      // Agent (代理商) also bypasses — they have agent_org_assignments instead
+      // of team_members per SIGNCMS組織權限規則.
+      if (isAdmin || isSystemAdmin || isAgent) {
         if (!cancelled) { setHasOrg(true); setOrgChecked(true); }
         return;
       }
@@ -43,6 +45,17 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
         if (!cancelled) { setHasOrg(true); setOrgChecked(true); }
         return;
       }
+      // Defensive: even if isAgent flag hasn't propagated, treat the user as
+      // onboarded if they have any agent_org_assignments row.
+      const { data: agentRows } = await supabase
+        .from("agent_org_assignments")
+        .select("id")
+        .eq("agent_user_id", user.id)
+        .limit(1);
+      if (agentRows && agentRows.length > 0) {
+        if (!cancelled) { setHasOrg(true); setOrgChecked(true); }
+        return;
+      }
       const { data } = await supabase
         .from("team_members")
         .select("team_id")
@@ -54,7 +67,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [user, isAdmin, isSystemAdmin, roleLoading, systemAdminLoading]);
+  }, [user, isAdmin, isAgent, isSystemAdmin, roleLoading, systemAdminLoading]);
 
   if (loading || roleLoading || systemAdminLoading || (user && !orgChecked)) {
     return (
