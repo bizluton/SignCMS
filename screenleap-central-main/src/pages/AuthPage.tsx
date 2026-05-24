@@ -58,6 +58,11 @@ export default function AuthPage() {
   // of clicking the token link.
   const [shortCode, setShortCode] = useState("");
   const [shortCodeError, setShortCodeError] = useState<string | null>(null);
+  // Invitation context resolved from ?invite=<token> — pre-fills email and
+  // locks the field per SIGNCMS組織權限規則.
+  const [inviteEmail, setInviteEmail] = useState<string | null>(null);
+  const [inviteOrgName, setInviteOrgName] = useState<string>("");
+  const [inviteResolveError, setInviteResolveError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const checkEmailDomain = async (emailValue: string) => {
@@ -77,6 +82,27 @@ export default function AuthPage() {
   useEffect(() => {
     if (!inviteToken) return;
     setIsSignUp(true);
+    // Resolve the invitation to get the email; lock the field.
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { data, error } = await supabase.rpc("get_invitation_by_token", { p_token: inviteToken });
+        if (cancelled) return;
+        if (error) throw error;
+        const v = data as { valid: boolean; email?: string; org_name?: string; error?: string } | null;
+        if (v?.valid && v.email) {
+          setEmail(v.email);
+          setInviteEmail(v.email);
+          setInviteOrgName(v.org_name || "");
+          setInviteResolveError(null);
+        } else {
+          setInviteResolveError(v?.error || "invalid");
+        }
+      } catch (e) {
+        if (!cancelled) setInviteResolveError(e instanceof Error ? e.message : "lookup_failed");
+      }
+    })();
+    return () => { cancelled = true; };
   }, [inviteToken]);
 
   // Redirect already-authenticated users away from the login page.
@@ -306,11 +332,30 @@ export default function AuthPage() {
                     className="pl-9"
                     placeholder="you@example.com"
                     value={email}
-                    onChange={(e) => { setEmail(e.target.value); setDomainBlocked(null); }}
+                    onChange={(e) => { if (inviteEmail) return; setEmail(e.target.value); setDomainBlocked(null); }}
                     onBlur={isSignUp && !inviteToken ? (e) => void checkEmailDomain(e.target.value) : undefined}
+                    readOnly={!!inviteEmail}
                     required
                   />
                 </div>
+                {inviteToken && inviteEmail && (
+                  <p className="text-[11px] text-muted-foreground">
+                    {inviteOrgName
+                      ? `${t("authInviteEmailLocked") || "已綁定組織"}：${inviteOrgName}`
+                      : (t("authInviteEmailLocked") || "Email 由邀請信決定，不可修改")}
+                  </p>
+                )}
+                {inviteToken && inviteResolveError && (
+                  <Alert variant="destructive" className="py-2">
+                    <Info className="h-4 w-4" />
+                    <AlertDescription className="text-xs">
+                      {inviteResolveError === "expired" ? (t("authInviteExpired") || "邀請已過期，請聯繫管理員")
+                        : inviteResolveError === "already_accepted" ? (t("authInviteAccepted") || "此邀請已被使用")
+                        : inviteResolveError === "not_found" ? (t("authInviteInvalid") || "邀請連結無效")
+                        : (t("authInviteResolveFailed") || "無法讀取邀請資訊")}
+                    </AlertDescription>
+                  </Alert>
+                )}
                 {isSignUp && !inviteToken && domainBlocked !== null && (
                   <Alert variant="destructive" className="py-2">
                     <Info className="h-4 w-4" />
