@@ -208,9 +208,15 @@ const CustomerServicePage = () => {
   const [adminProfiles, setAdminProfiles] = useState<{ user_id: string; display_name: string | null }[]>([]);
 
   const loadAdminProfiles = useCallback(async () => {
-    const { data: roles } = await supabase.from("user_roles").select("user_id").eq("role", "admin");
-    if (!roles || roles.length === 0) return;
-    const ids = roles.map(r => r.user_id);
+    // Load active CS agents (not legacy user_roles.role='admin') as the
+    // assignable pool for chat sessions.
+    const { data: agents } = await supabase
+      .from("cs_agents")
+      .select("user_id")
+      .eq("status", "active")
+      .not("user_id", "is", null);
+    if (!agents || agents.length === 0) return;
+    const ids = agents.map(a => a.user_id as string);
     const { data: profiles } = await supabase.from("profiles").select("user_id, display_name").in("user_id", ids);
     if (profiles) setAdminProfiles(profiles);
   }, []);

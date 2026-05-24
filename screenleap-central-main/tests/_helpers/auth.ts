@@ -12,11 +12,23 @@ export interface FakeUserOptions {
   metadata?: Record<string, string>;
 }
 
+/** Build a structurally valid fake JWT (3 base64url parts) so Supabase JS client
+ *  doesn't throw "Expected 3 parts in JWT; got 1" when it decodes the token. */
+function fakeJwt(userId: string, email: string, expiresAt: number): string {
+  const header  = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({
+    sub: userId, email, aud: "authenticated", role: "authenticated",
+    exp: expiresAt, iat: Math.floor(Date.now() / 1000),
+  })).toString("base64url");
+  // 43 chars = 32 zero-bytes in base64url (4*10+3 → passes BASE64URL_REGEX)
+  return `${header}.${payload}.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA`;
+}
+
 export function buildFakeSession(opts: FakeUserOptions) {
   const expiresAt = Math.floor(Date.now() / 1000) + 3600;
   return {
-    access_token: `fake-access-token-${opts.userId.slice(0, 8)}`,
-    refresh_token: `fake-refresh-token-${opts.userId.slice(0, 8)}`,
+    access_token:  fakeJwt(opts.userId, opts.email, expiresAt),
+    refresh_token: fakeJwt(opts.userId, opts.email, expiresAt + 86_400),
     expires_in: 3600,
     expires_at: expiresAt,
     token_type: "bearer",

@@ -81,25 +81,17 @@ Deno.serve(async (req) => {
       })
     }
 
-    // Only system admin or active CS agents can send CS invitations
+    // Only system admins may invite new CS agents.
+    // Allowing active CS agents to invite would let a compromised CS account
+    // escalate by creating additional CS agent accounts.
     const supabaseService = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
     const { data: sysAdminRow } = await supabaseService
       .from('system_admins').select('id').eq('user_id', user.id).maybeSingle()
-    let allowed = !!sysAdminRow
-    if (!allowed) {
-      const { data: csAgents } = await supabase
-        .from('cs_agents')
-        .select('id')
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .limit(1)
-      allowed = !!(csAgents && csAgents.length > 0)
-    }
-    if (!allowed) {
-      return new Response(JSON.stringify({ error: 'Forbidden: admin or active CS agent only' }), {
+    if (!sysAdminRow) {
+      return new Response(JSON.stringify({ error: 'Forbidden: system_admin only' }), {
         status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }

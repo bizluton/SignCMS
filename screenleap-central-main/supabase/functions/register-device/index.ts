@@ -45,6 +45,13 @@ Deno.serve(async (req) => {
 
   if (!joinToken) return json({ ok: false, error: "join_token_required" }, 400);
 
+  // Extract client IP for rate limiting (populated later at insert time).
+  const clientIp =
+    req.headers.get("cf-connecting-ip") ||
+    req.headers.get("x-real-ip") ||
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
+    "unknown";
+
   // Look up org by short join_code first, then fall back to legacy join_token
   const upper = joinToken.toUpperCase();
   let { data: org } = await admin
@@ -74,6 +81,9 @@ Deno.serve(async (req) => {
   // channel. The device just needs to be subscribed to receive it.
   // device_token is never sent in this HTTP response — Realtime is the
   // only delivery path. (See migration 20260520000002.)
+  //
+  // NOTE: This dedup check runs BEFORE the rate limit so that returning
+  // devices (page reload, retry) are never blocked by the IP cap.
   if (fingerprint) {
     const { data: existing } = await admin
       .from("device_registrations")
@@ -123,6 +133,20 @@ Deno.serve(async (req) => {
     }
   }
 
+  // Rate limit: max 20 NEW registrations per IP per hour.
+  // Placed after the fingerprint dedup so returning devices (reload/retry)
+  // never hit the cap — only genuinely new registrations are counted.
+  // This prevents join_code brute-force (~10^6 possibilities for 6-char codes).
+  const oneHourAgo = new Date(Date.now() - 3_600_000).toISOString();
+  const { count: recentCount } = await admin
+    .from("device_registrations")
+    .select("*", { count: "exact", head: true })
+    .eq("ip_address", clientIp)
+    .gte("created_at", oneHourAgo);
+  if ((recentCount ?? 0) >= 20) {
+    return json({ ok: false, error: "rate_limit_exceeded" }, 429);
+  }
+
   // Create new pending registration
   const { data: reg, error } = await admin
     .from("device_registrations")
@@ -132,6 +156,7 @@ Deno.serve(async (req) => {
       device_model:  deviceModel   || null,
       fingerprint:   fingerprint   || "",
       user_agent:    userAgent     || req.headers.get("user-agent") || "",
+      ip_address:    clientIp !== "unknown" ? clientIp : null,
       status:        "pending",
     })
     .select("id")

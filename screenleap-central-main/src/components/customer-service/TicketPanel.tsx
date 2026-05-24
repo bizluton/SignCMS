@@ -153,9 +153,15 @@ const TicketPanel = ({ sessionId, sessionSubject, customerName, onCreated }: Tic
   }, [ensureProfiles]);
 
   const loadAdmins = useCallback(async () => {
-    const { data: roles } = await supabase.from("user_roles").select("user_id").eq("role", "admin");
-    if (!roles) return;
-    const ids = roles.map(r => r.user_id);
+    // Use cs_agents (active, user_id set) as the assignable pool.
+    // user_roles.role='admin' referred to legacy org-founders, not CS agents.
+    const { data: agents } = await supabase
+      .from("cs_agents")
+      .select("user_id")
+      .eq("status", "active")
+      .not("user_id", "is", null);
+    if (!agents) return;
+    const ids = agents.map(a => a.user_id as string);
     await ensureProfiles(ids);
     setAdmins(ids.map(user_id => ({ user_id })));
   }, [ensureProfiles]);

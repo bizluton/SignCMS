@@ -25,11 +25,13 @@ import logoImg from "@/assets/logo.png";
 import logoLightImg from "@/assets/logo-light.png";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
-import { useNavigate, Link, useSearchParams } from "react-router-dom";
+import { useNavigate, Link, useSearchParams, Navigate } from "react-router-dom";
 import { extractToken } from "@/lib/inviteToken";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function AuthPage() {
   const { t } = useLanguage();
+  const { user, loading: authLoading } = useAuth();
   const { resolvedTheme } = useTheme();
   const currentLogo = resolvedTheme === "dark" ? logoLightImg : logoImg;
   const [searchParams] = useSearchParams();
@@ -60,6 +62,13 @@ export default function AuthPage() {
     if (!inviteToken) return;
     setIsSignUp(true);
   }, [inviteToken]);
+
+  // Redirect already-authenticated users away from the login page.
+  // Don't redirect when an invite/cs_agent token is present — those are valid
+  // reasons a logged-in user might land here (e.g. accept a team invitation).
+  if (!authLoading && user && !inviteToken && !csAgentId) {
+    return <Navigate to="/" replace />;
+  }
 
   // Tick countdown every second while locked.
   useEffect(() => {

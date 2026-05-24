@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -52,6 +53,7 @@ export default function OrgManagement() {
   const pendingUpgradeOrgId = useRef<string | null>(null);
 
   const { isSystemAdmin, loading: sysAdminLoading } = useIsSystemAdmin();
+  const location = useLocation();
 
   useEffect(() => {
     if (sysAdminLoading) return;
@@ -59,18 +61,13 @@ export default function OrgManagement() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sysAdminLoading, isSystemAdmin]);
 
-  // Listen for #upgrade=<orgId> hash from PlanUsageLeaderboard
+  // Receive upgradeOrgId passed via React Router location.state from UsageLeaderboardPage.
+  // Using state instead of window.location.hash avoids the full-page reload that the old
+  // window.location.href = "/org-management#upgrade=..." approach caused with HashRouter.
   useEffect(() => {
-    const handleHash = () => {
-      const h = window.location.hash.replace(/^#/, "");
-      const params = new URLSearchParams(h);
-      const upgradeId = params.get("upgrade");
-      if (upgradeId) pendingUpgradeOrgId.current = upgradeId;
-    };
-    handleHash();
-    window.addEventListener("hashchange", handleHash);
-    return () => window.removeEventListener("hashchange", handleHash);
-  }, []);
+    const upgradeId = (location.state as { upgradeOrgId?: string } | null)?.upgradeOrgId;
+    if (upgradeId) pendingUpgradeOrgId.current = upgradeId;
+  }, [location.state]);
 
   // When orgs are loaded and a pending upgrade is queued, open the edit dialog
   useEffect(() => {
@@ -78,10 +75,6 @@ export default function OrgManagement() {
     const target = orgs.find(o => o.id === pendingUpgradeOrgId.current);
     if (target) {
       pendingUpgradeOrgId.current = null;
-      // Clear hash so re-opening tab doesn't retrigger
-      if (window.location.hash.includes("upgrade=")) {
-        history.replaceState(null, "", window.location.pathname + window.location.search);
-      }
       openEdit(target);
       setHighlightPlanTier(true);
       // Focus the plan tier select shortly after dialog mounts

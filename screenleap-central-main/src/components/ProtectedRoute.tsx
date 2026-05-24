@@ -22,6 +22,10 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     if (!user) { setOrgChecked(true); return; }
+    // Wait until both role hooks have resolved before evaluating org membership.
+    // Without this guard a system admin (or CS agent) without team membership could
+    // briefly see a redirect to /onboarding while their role is still loading.
+    if (roleLoading || systemAdminLoading) return;
     (async () => {
       // System admins and org admins bypass org membership gating here.
       if (isAdmin || isSystemAdmin) {
@@ -50,7 +54,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [user, isAdmin, isSystemAdmin]);
+  }, [user, isAdmin, isSystemAdmin, roleLoading, systemAdminLoading]);
 
   if (loading || roleLoading || systemAdminLoading || (user && !orgChecked)) {
     return (

@@ -34,6 +34,17 @@ async function navTo(page: Page, route: string, timeout = 10_000) {
 async function setupOrgMocks(page: Page) {
   const SB = SUPABASE_HOST;
 
+  // Catch-all: any REST endpoint not matched by a specific route below returns []
+  // Registered FIRST so specific routes (registered after) take LIFO priority.
+  await page.route(`**/${SB}/rest/v1/**`, (r) => {
+    if (r.request().method() === "GET" || r.request().method() === "HEAD") {
+      r.fulfill({ status: 200, contentType: "application/json",
+        headers: { "content-range": "0-0/0" }, body: JSON.stringify([]) });
+    } else {
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({}) });
+    }
+  });
+
   // channels
   await page.route(`**/${SB}/rest/v1/channels**`, (r) =>
     r.fulfill({
