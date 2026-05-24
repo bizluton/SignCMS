@@ -1,61 +1,60 @@
-import * as React from 'npm:react@18.3.1'
-import { renderAsync } from 'npm:@react-email/components@0.0.22'
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import {
-  Body, Button, Container, Head, Heading, Html, Preview, Text, Link,
-} from 'npm:@react-email/components@0.0.22'
-import { getOrCreateUnsubscribeToken } from '../_shared/unsubscribeToken.ts'
-import { corsHeaders, corsPreflight } from '../_shared/cors.ts'
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+}
 
 const SITE_NAME = 'SignCMS'
 const SENDER_DOMAIN = 'signcms.net'
 const FROM_DOMAIN = 'signcms.net'
 
-// Invitation email template
-interface InvitationEmailProps {
-  siteName: string
-  orgName: string
-  inviterName: string
-  signupUrl: string
+function buildInvitationEmail(orgName: string, inviterName: string, signupUrl: string): { html: string; text: string } {
+  const html = `<!DOCTYPE html>
+<html lang="zh-TW">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#ffffff;font-family:Arial,sans-serif">
+  <div style="max-width:600px;margin:0 auto;padding:20px 25px">
+    <h1 style="font-size:22px;font-weight:bold;color:#000;margin:0 0 20px">組織邀請</h1>
+    <p style="font-size:14px;color:#55575d;line-height:1.5;margin:0 0 25px">
+      ${inviterName} 邀請您加入 <strong>${orgName}</strong> 組織，使用 ${SITE_NAME} 數位看板管理系統。
+    </p>
+    <p style="font-size:14px;color:#55575d;line-height:1.5;margin:0 0 25px">
+      請點擊下方按鈕註冊帳號並加入組織：
+    </p>
+    <a href="${signupUrl}" style="display:inline-block;background:#000;color:#fff;font-size:14px;border-radius:8px;padding:12px 20px;text-decoration:none">
+      接受邀請並註冊
+    </a>
+    <p style="font-size:12px;color:#999;margin:30px 0 0">
+      如果您不認識發送此邀請的人，可以安全地忽略此郵件。
+    </p>
+  </div>
+</body>
+</html>`
+
+  const text = `${inviterName} 邀請您加入 ${orgName} 組織。請前往 ${signupUrl} 註冊並加入。`
+
+  return { html, text }
 }
 
-const InvitationEmail = ({ siteName, orgName, inviterName, signupUrl }: InvitationEmailProps) => (
-  React.createElement(Html, { lang: 'zh-TW', dir: 'ltr' },
-    React.createElement(Head, null),
-    React.createElement(Preview, null, `您已被邀請加入 ${orgName} - ${siteName}`),
-    React.createElement(Body, { style: main },
-      React.createElement(Container, { style: container },
-        React.createElement(Heading, { style: h1 }, '組織邀請'),
-        React.createElement(Text, { style: text },
-          `${inviterName} 邀請您加入`,
-          React.createElement('strong', null, ` ${orgName} `),
-          `組織，使用 ${siteName} 數位看板管理系統。`
-        ),
-        React.createElement(Text, { style: text },
-          '請點擊下方按鈕註冊帳號並加入組織：'
-        ),
-        React.createElement(Button, { style: button, href: signupUrl }, '接受邀請並註冊'),
-        React.createElement(Text, { style: footer },
-          '如果您不認識發送此邀請的人，可以安全地忽略此郵件。'
-        )
-      )
-    )
-  )
-)
+async function getOrCreateUnsubscribeToken(supabase: ReturnType<typeof createClient>, email: string): Promise<string> {
+  const { data: existing } = await supabase
+    .from('email_unsubscribe_tokens')
+    .select('token')
+    .eq('email', email)
+    .maybeSingle()
 
-const main = { backgroundColor: '#ffffff', fontFamily: 'Arial, sans-serif' }
-const container = { padding: '20px 25px' }
-const h1 = { fontSize: '22px', fontWeight: 'bold' as const, color: '#000000', margin: '0 0 20px' }
-const text = { fontSize: '14px', color: '#55575d', lineHeight: '1.5', margin: '0 0 25px' }
-const button = {
-  backgroundColor: '#000000', color: '#ffffff', fontSize: '14px',
-  borderRadius: '8px', padding: '12px 20px', textDecoration: 'none',
+  if (existing?.token) return existing.token as string
+
+  const token = crypto.randomUUID()
+  await supabase.from('email_unsubscribe_tokens').insert({ email, token })
+  return token
 }
-const footer = { fontSize: '12px', color: '#999999', margin: '30px 0 0' }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
-    return corsPreflight(req)
+    return new Response(null, { status: 204, headers: corsHeaders })
   }
 
   try {
@@ -67,7 +66,7 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
@@ -76,11 +75,11 @@ Deno.serve(async (req) => {
     )
     if (authError || !user) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-        status: 401, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // Check if user is admin (user may have multiple role rows; use limit instead of maybeSingle)
+    // Check if user is admin
     const { data: roleRows } = await supabase
       .from('user_roles')
       .select('role')
@@ -90,7 +89,7 @@ Deno.serve(async (req) => {
 
     if (!roleRows || roleRows.length === 0) {
       return new Response(JSON.stringify({ error: 'Forbidden: admin or org_admin only' }), {
-        status: 403, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
+        status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
@@ -98,16 +97,12 @@ Deno.serve(async (req) => {
 
     if (!email || !org_id) {
       return new Response(JSON.stringify({ error: 'email and org_id are required' }), {
-        status: 400, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
     // Verify caller belongs to this org (or is system admin)
-    const supabaseService = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    )
-    const { data: sysAdminRow } = await supabaseService
+    const { data: sysAdminRow } = await supabase
       .from('system_admins').select('id').eq('user_id', user.id).maybeSingle()
     const isSystemAdmin = !!sysAdminRow
     if (!isSystemAdmin) {
@@ -116,7 +111,7 @@ Deno.serve(async (req) => {
       })
       if (!inOrg) {
         return new Response(JSON.stringify({ error: 'Not in this organization' }), {
-          status: 403, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
+          status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }
     }
@@ -125,7 +120,6 @@ Deno.serve(async (req) => {
     if (resend_invitation_id) {
       await supabase.from('invitations').delete().eq('id', resend_invitation_id)
     } else {
-      // Check if invitation already exists and is pending (only for new invitations)
       const { data: existingInv } = await supabase
         .from('invitations')
         .select('id, status')
@@ -136,7 +130,7 @@ Deno.serve(async (req) => {
 
       if (existingInv) {
         return new Response(JSON.stringify({ error: 'Invitation already sent to this email' }), {
-          status: 409, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
+          status: 409, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
       }
     }
@@ -164,7 +158,7 @@ Deno.serve(async (req) => {
     if (invError) {
       console.error('Failed to create invitation', invError)
       return new Response(JSON.stringify({ error: invError.message }), {
-        status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
@@ -172,11 +166,7 @@ Deno.serve(async (req) => {
     const projectUrl = Deno.env.get('SITE_URL') || 'https://staging.signcms.net'
     const signupUrl = `${projectUrl}/#/auth?invite=${invitation.token}`
 
-    // Render email
-    const html = await renderAsync(
-      React.createElement(InvitationEmail, { siteName: SITE_NAME, orgName, inviterName, signupUrl })
-    )
-    const textContent = `${inviterName} 邀請您加入 ${orgName} 組織。請前往 ${signupUrl} 註冊並加入。`
+    const { html, text } = buildInvitationEmail(orgName, inviterName, signupUrl)
 
     // Enqueue email
     const messageId = crypto.randomUUID()
@@ -200,7 +190,7 @@ Deno.serve(async (req) => {
         sender_domain: SENDER_DOMAIN,
         subject: `${inviterName} 邀請您加入 ${orgName} - ${SITE_NAME}`,
         html,
-        text: textContent,
+        text,
         purpose: 'transactional',
         idempotency_key: `invitation-${invitation.id}`,
         label: 'invitation',
@@ -212,17 +202,17 @@ Deno.serve(async (req) => {
     if (enqueueError) {
       console.error('Failed to enqueue invitation email', enqueueError)
       return new Response(JSON.stringify({ error: 'Failed to send email' }), {
-        status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
     return new Response(JSON.stringify({ success: true, invitation_id: invitation.id }), {
-      status: 200, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
+      status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (error) {
     console.error('send-invitation error:', error)
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error' }), {
-      status: 500, headers: { ...corsHeaders(req), 'Content-Type': 'application/json' },
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }
 })
