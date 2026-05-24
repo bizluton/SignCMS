@@ -2079,6 +2079,9 @@ export const ZH = {
   queueNotFound: "找不到此隊列",
   queueEnableTts: "點擊啟用語音",
   queueNoQueuesDisplay: "尚無排隊隊列",
+  // Shared fetch error / retry
+  loadError: "資料載入失敗，請重試",
+  retry: "重試",
   // Notification bell
   notifTitle: "通知",
   notifMarkAllRead: "全部已讀",

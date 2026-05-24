@@ -2076,6 +2076,9 @@ export const EN = {
   queueNotFound: "Queue not found",
   queueEnableTts: "Click to enable TTS",
   queueNoQueuesDisplay: "No queues configured",
+  // Shared fetch error / retry
+  loadError: "Failed to load data, please try again",
+  retry: "Retry",
   // Notification bell
   notifTitle: "Notifications",
   notifMarkAllRead: "Mark all read",

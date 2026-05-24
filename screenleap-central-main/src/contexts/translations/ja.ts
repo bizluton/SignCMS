@@ -2076,6 +2076,9 @@ export const JA = {
   queueNotFound: "キューが見つかりません",
   queueEnableTts: "クリックで音声を有効化",
   queueNoQueuesDisplay: "キューが設定されていません",
+  // Shared fetch error / retry
+  loadError: "データの読み込みに失敗しました。再試行してください",
+  retry: "再試行",
   // Notification bell
   notifTitle: "通知",
   notifMarkAllRead: "すべて既読",

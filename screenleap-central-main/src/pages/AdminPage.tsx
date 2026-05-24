@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Shield, ShieldCheck, Users, AlertTriangle, Loader2, Building2, Trash2, FileText, Mail, Info, KeyRound } from "lucide-react";
+import { FetchError } from "@/components/FetchError";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { logActivity } from "@/lib/activityLogger";
@@ -33,6 +34,7 @@ export default function AdminPage() {
   const [users, setUsers] = useState<UserWithRole[]>([]);
   const [systemAdminIds, setSystemAdminIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [changeDialog, setChangeDialog] = useState<{ user: UserWithRole; newRole: "admin" | "user" } | null>(null);
   const [deleteDialog, setDeleteDialog] = useState<UserWithRole | null>(null);
   const [resetDialog, setResetDialog] = useState<UserWithRole | null>(null);
@@ -74,7 +76,9 @@ export default function AdminPage() {
   useEffect(() => { if (!isAdmin && !isOrgAdmin) return; fetchUsers(); }, [isAdmin, isOrgAdmin, activeOrgId]);
 
   const fetchUsers = async () => {
+    setFetchError(false);
     setLoading(true);
+    try {
     const [{ data: profiles }, { data: roles }, { data: teamMembers }, { data: teams }, { data: orgs }] = await Promise.all([
       supabase.from("profiles").select("user_id, display_name, avatar_url"),
       supabase.from("user_roles").select("user_id, role"),
@@ -159,7 +163,12 @@ export default function AdminPage() {
       role: (roleMap.get(p.user_id) as "admin" | "user") ?? "user",
       org_names: [...(userOrgNameMap.get(p.user_id) || [])],
     })));
-    setLoading(false);
+    } catch (err) {
+      console.error("AdminPage fetch error:", err);
+      setFetchError(true);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleRoleChange = async () => {
@@ -231,7 +240,8 @@ export default function AdminPage() {
     setSaving(false);
   };
 
-  if (roleLoading || sysAdminLoading) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  if (roleLoading || sysAdminLoading || loading) return <div className="flex items-center justify-center min-h-[400px]"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  if (fetchError) return <FetchError onRetry={() => { setFetchError(false); setLoading(true); fetchUsers(); }} />;
 
   if (!isAdmin && !isOrgAdmin) return (
     <div className="flex items-center justify-center min-h-[400px]">

@@ -297,19 +297,25 @@ export default function ScreensPage() {
 
   const fetchScreens = async () => {
     setLoading(true);
-    let query = supabase.from("screens").select("id, name, branch, location, resolution, online, org_id, team_id, serial_number, ip_address, connection_type, avg_upload_speed, avg_download_speed, firmware_version, updated_at").order("created_at", { ascending: true });
-    if (activeOrgId) query = query.eq("org_id", activeOrgId);
-    const { data, error } = await query;
-    if (error) { toast.error(formatUserError(error, t)); }
-    else {
-      setScreens(data || []);
-      const uniqueGroups = Array.from(new Set((data || []).map((s: Screen) => s.branch).filter(Boolean))) as string[];
-      setGroups((prev) => {
-        const merged = new Set([...prev, ...uniqueGroups]);
-        return Array.from(merged).sort();
-      });
+    try {
+      let query = supabase.from("screens").select("id, name, branch, location, resolution, online, org_id, team_id, serial_number, ip_address, connection_type, avg_upload_speed, avg_download_speed, firmware_version, updated_at").order("created_at", { ascending: true });
+      if (activeOrgId) query = query.eq("org_id", activeOrgId);
+      const { data, error } = await query;
+      if (error) { toast.error(formatUserError(error, t)); }
+      else {
+        setScreens(data || []);
+        const uniqueGroups = Array.from(new Set((data || []).map((s: Screen) => s.branch).filter(Boolean))) as string[];
+        setGroups((prev) => {
+          const merged = new Set([...prev, ...uniqueGroups]);
+          return Array.from(merged).sort();
+        });
+      }
+    } catch (err) {
+      console.error("ScreensPage fetch error:", err);
+      toast.error(t("loadError"));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => { fetchScreens(); }, [activeOrgId]);

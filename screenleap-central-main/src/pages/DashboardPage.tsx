@@ -22,6 +22,7 @@ import { PlanQuotaWidget } from "@/components/dashboard/PlanQuotaWidget";
 import { OfflineScreenAlertsPanel } from "@/components/dashboard/OfflineScreenAlertsPanel";
 import { EstimatedPlaysWidget } from "@/components/dashboard/EstimatedPlaysWidget";
 import { PageSkeleton } from "@/components/PageSkeleton";
+import { FetchError } from "@/components/FetchError";
 
 const PIE_COLORS = [
   "hsl(var(--primary))",
@@ -92,9 +93,11 @@ export default function DashboardPage() {
   const [pendingInvitations, setPendingInvitations] = useState(0);
   const [memberCount, setMemberCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
   const fetchData = useCallback(async () => {
+    setFetchError(false);
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
 
@@ -119,40 +122,46 @@ export default function DashboardPage() {
 
     const scheduleItemsQ = fromTable("schedule_items").select("id, schedule_id, media_id, duration").order("sort_order");
 
-    const [screensRes, schedulesRes, mediaRes, itemsRes, emergencyRes, todayPubRes, scheduledRes, invRes, membersRes] =
-      await Promise.all([
-        screensQ, schedulesQ, mediaQ,
-        scheduleItemsQ,
-        emergencyQ, todayPubQ, scheduledQ, invQ, membersQ,
+    try {
+      const [screensRes, schedulesRes, mediaRes, itemsRes, emergencyRes, todayPubRes, scheduledRes, invRes, membersRes] =
+        await Promise.all([
+          screensQ, schedulesQ, mediaQ,
+          scheduleItemsQ,
+          emergencyQ, todayPubQ, scheduledQ, invQ, membersQ,
+        ]);
+
+      const filteredScreens = (screensRes.data || []) as ScreenRow[];
+      setScreens(filteredScreens);
+
+      const filteredSchedules = (schedulesRes.data || []) as unknown as ScheduleRow[];
+      setSchedules(filteredSchedules);
+      setMediaItems((mediaRes.data || []) as MediaRow[]);
+
+      const scheduleIds = new Set(filteredSchedules.map((s) => s.id));
+      const allItems = (itemsRes.data || []) as unknown as ScheduleItemRow[];
+      const filteredItems = activeOrgId ? allItems.filter((si) => scheduleIds.has(si.schedule_id)) : allItems;
+      setScheduleItems(filteredItems);
+
+      setEmergencyCount((emergencyRes.data || []).length);
+      const invData = (invRes.data || []) as { id: string; expires_at: string }[];
+      const pendingInvs = invData.filter((inv) => new Date(inv.expires_at) > new Date());
+      setPendingInvitations(pendingInvs.length);
+
+      const membersData = (membersRes.data || []) as { id: string; user_id: string }[];
+      const uniqueMembers = new Set(membersData.map((m) => m.user_id));
+      setMemberCount(uniqueMembers.size);
+
+      setPublishRecords([
+        { key: "today", count: (todayPubRes.data || []).length },
+        { key: "scheduled", count: (scheduledRes.data || []).length },
       ]);
-
-    const filteredScreens = (screensRes.data || []) as ScreenRow[];
-    setScreens(filteredScreens);
-
-    const filteredSchedules = (schedulesRes.data || []) as unknown as ScheduleRow[];
-    setSchedules(filteredSchedules);
-    setMediaItems((mediaRes.data || []) as MediaRow[]);
-
-    const scheduleIds = new Set(filteredSchedules.map((s) => s.id));
-    const allItems = (itemsRes.data || []) as unknown as ScheduleItemRow[];
-    const filteredItems = activeOrgId ? allItems.filter((si) => scheduleIds.has(si.schedule_id)) : allItems;
-    setScheduleItems(filteredItems);
-
-    setEmergencyCount((emergencyRes.data || []).length);
-    const invData = (invRes.data || []) as { id: string; expires_at: string }[];
-    const pendingInvs = invData.filter((inv) => new Date(inv.expires_at) > new Date());
-    setPendingInvitations(pendingInvs.length);
-
-    const membersData = (membersRes.data || []) as { id: string; user_id: string }[];
-    const uniqueMembers = new Set(membersData.map((m) => m.user_id));
-    setMemberCount(uniqueMembers.size);
-
-    setPublishRecords([
-      { key: "today", count: (todayPubRes.data || []).length },
-      { key: "scheduled", count: (scheduledRes.data || []).length },
-    ]);
-    setLastRefresh(new Date());
-    setLoading(false);
+      setLastRefresh(new Date());
+    } catch (err) {
+      console.error("DashboardPage fetch error:", err);
+      setFetchError(true);
+    } finally {
+      setLoading(false);
+    }
   }, [activeOrgId]);
 
   useEffect(() => {
@@ -219,9 +228,8 @@ export default function DashboardPage() {
     });
   }, [schedules, scheduleItems, screens, t]);
 
-  if (loading) {
-    return <PageSkeleton />;
-  }
+  if (loading) return <PageSkeleton />;
+  if (fetchError) return <FetchError onRetry={() => { setLoading(true); fetchData(); }} />;
 
   return (
     <div className="space-y-8 max-w-7xl">
