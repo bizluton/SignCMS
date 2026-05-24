@@ -1770,6 +1770,7 @@ export const EN = {
   navSysAdmin: "System Admin",
   navSysAdminOverview: "System Admin Overview",
   navSysSettings: "System Settings",
+  navSysAgents: "Agent Management",
   navOrgMgmt: "Organizations",
   sysAdminOverviewDesc: "Quick access to all system administrator tools and settings",
   sysAdminCardSettingsDesc: "Manage email queue, TTL and global system parameters",

@@ -1773,6 +1773,7 @@ export const ZH = {
   navSysAdmin: "系統管理",
   navSysAdminOverview: "系統管理總覽",
   navSysSettings: "系統設定",
+  navSysAgents: "代理商管理",
   navOrgMgmt: "組織管理",
   sysAdminOverviewDesc: "快速存取所有系統管理員工具與設定",
   sysAdminCardSettingsDesc: "管理郵件佇列、TTL 與全域系統參數",

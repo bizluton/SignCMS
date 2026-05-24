@@ -398,6 +398,14 @@ export function AppSidebar() {
                     </SidebarMenuItem>
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
+                        <NavLink to="/system-agents" className={navCls} activeClassName={navActiveCls}>
+                          <UserCog className="mr-3 h-[18px] w-[18px]" />
+                          {!collapsed && <span>{t("navSysAgents")}</span>}
+                        </NavLink>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton asChild>
                         <NavLink to="/org-management" className={navCls} activeClassName={navActiveCls}>
                           <Building2 className="mr-3 h-[18px] w-[18px]" />
                           {!collapsed && <span>{t("navOrgMgmt")}</span>}

@@ -58,6 +58,7 @@ const AuthPage = lazy(() => import("./pages/AuthPage.tsx"));
 const ForgotPasswordPage = lazy(() => import("./pages/ForgotPasswordPage.tsx"));
 const ResetPasswordPage = lazy(() => import("./pages/ResetPasswordPage.tsx"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage.tsx"));
+const SystemAgentsPage = lazy(() => import("./pages/SystemAgentsPage.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 const QueueLiffPage = lazy(() => import("./pages/QueueLiffPage.tsx"));
 const ChatWidget = lazy(() => import("./components/ChatWidget.tsx"));
@@ -97,6 +98,7 @@ const AppRoutes = () => {
           <Route path="/cs-licenses" element={<SystemAdminRoute><CSLicensesPage /></SystemAdminRoute>} />
           <Route path="/system-admin" element={<SystemAdminRoute><SystemAdminPage /></SystemAdminRoute>} />
           <Route path="/system-settings" element={<SystemAdminRoute><SystemSettingsPage /></SystemAdminRoute>} />
+          <Route path="/system-agents" element={<SystemAdminRoute><SystemAgentsPage /></SystemAdminRoute>} />
           <Route path="/org-management" element={<SystemAdminRoute><OrgManagementPage /></SystemAdminRoute>} />
           <Route path="/usage-leaderboard" element={<SystemAdminRoute><UsageLeaderboardPage /></SystemAdminRoute>} />
           <Route path="/widget-mgmt" element={<SystemAdminRoute><WidgetMgmtPage /></SystemAdminRoute>} />

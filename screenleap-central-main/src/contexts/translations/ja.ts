@@ -1770,6 +1770,7 @@ export const JA = {
   navSysAdmin: "システム管理",
   navSysAdminOverview: "システム管理概要",
   navSysSettings: "システム設定",
+  navSysAgents: "代理店管理",
   navOrgMgmt: "組織管理",
   sysAdminOverviewDesc: "すべてのシステム管理ツールと設定への素早いアクセス",
   sysAdminCardSettingsDesc: "メールキュー、TTL、グローバル設定を管理",
