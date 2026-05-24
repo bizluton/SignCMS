@@ -88,8 +88,13 @@ export function OfflineScreenAlertsPanel({ screens, activeOrgId, onChanged }: Pr
         last_seen_at: s.updated_at,
         detected_at: new Date().toISOString(),
       }));
-      // Best-effort insert; unique index prevents duplicates per screen
-      await supabase.from("screen_alerts").insert(rows);
+      // Best-effort: a unique index on (screen_id) prevents duplicates per
+      // screen. Use upsert with ignoreDuplicates so a parallel insert from
+      // another tab / quick re-fire of this effect doesn't surface as
+      // 409 Conflict in the console — the duplicate row is silently skipped.
+      await supabase
+        .from("screen_alerts")
+        .upsert(rows, { onConflict: "screen_id", ignoreDuplicates: true });
       if (!cancelled) await refreshAlerts();
     })();
     return () => {
