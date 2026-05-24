@@ -62,8 +62,11 @@ export default function InvitationManagement() {
 
       let filteredOrgs = orgData || [];
 
-      // Filter by activeOrgId if set
-      if (activeOrgId) {
+      // Filter by activeOrgId if set — but only if it's actually in the visible org list.
+      // If activeOrgId is stale (e.g. ghost org from a previous session), the filter would
+      // return an empty list and hide all invitations. Fall through to the team-based
+      // fallback instead.
+      if (activeOrgId && filteredOrgs.some(o => o.id === activeOrgId)) {
         filteredOrgs = filteredOrgs.filter(o => o.id === activeOrgId);
       } else if (!isSystemAdmin && user) {
         // Non-system admins: filter to own orgs

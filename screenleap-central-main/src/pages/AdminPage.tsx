@@ -118,15 +118,21 @@ export default function AdminPage() {
     // Determine filtering org IDs
     const isCurrentSystemAdmin = isSystemAdmin;
 
-    // Load system admin user_ids set for row-level "protected" badge
-    const { data: sysAdminRows } = await supabase.rpc("list_system_admins");
+    // Load system admin user_ids set for row-level "protected" badge.
+    // Use get_system_admin_ids() (accessible to all authenticated users) instead of
+    // list_system_admins() which raises permission_denied for non-system-admins,
+    // causing systemAdminIds to be empty and exposing delete buttons on system admin rows.
+    const { data: sysAdminRows } = await supabase.rpc("get_system_admin_ids");
     const sysIds = new Set<string>(((sysAdminRows as { user_id: string }[]) || []).map((r) => r.user_id));
     setSystemAdminIds(sysIds);
 
-    // If activeOrgId is set, filter to that org only
+    // If activeOrgId is set AND it's a visible org, filter to that org only.
+    // Guard against stale localStorage values pointing to a ghost org — if the stored
+    // org is not in the visible list the user would see an empty user table.
+    const activeOrgVisible = activeOrgId && (orgs || []).some(o => o.id === activeOrgId);
     let filterOrgIds: Set<string>;
-    if (activeOrgId) {
-      filterOrgIds = new Set([activeOrgId]);
+    if (activeOrgVisible) {
+      filterOrgIds = new Set([activeOrgId!]);
     } else if (!isCurrentSystemAdmin && user) {
       // Fallback: current user's orgs
       const myOrgIds = new Set<string>();
@@ -194,7 +200,11 @@ export default function AdminPage() {
       const { data, error } = await supabase.functions.invoke("delete-user", {
         body: { target_user_id: deleteDialog.user_id, org_id: activeOrgId ?? undefined },
       });
-      if (error) throw error;
+      if (error) {
+        let msg = error.message;
+        try { const errBody = await (error.context as Response).json(); msg = errBody?.error ?? msg; } catch { /* ignore */ }
+        throw new Error(msg);
+      }
       if (data?.error) throw new Error(data.error);
       toast.success(t("adminDeleteUserSuccess"));
       logActivity({ action: "delete_user", category: "admin", targetName: deleteDialog.display_name || "", targetId: deleteDialog.user_id });
@@ -222,7 +232,11 @@ export default function AdminPage() {
           org_id: activeOrgId ?? undefined,
         },
       });
-      if (error) throw error;
+      if (error) {
+        let msg = error.message;
+        try { const errBody = await (error.context as Response).json(); msg = errBody?.error ?? msg; } catch { /* ignore */ }
+        throw new Error(msg);
+      }
       if (data?.error) throw new Error(data.error);
       toast.success(resetMode === "email" ? `${t("adminResetPasswordEmailSent")} ${data?.email || ""}` : t("adminResetPasswordPasswordSet"));
       logActivity({
