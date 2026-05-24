@@ -969,7 +969,7 @@ export default function PublishingCenterPage() {
             </button>
           </div>
           <Separator />
-          <Tabs value={playlistTab} onValueChange={(v) => setPlaylistTab(v as PlaylistTab)} className="w-full flex-1 min-h-0">
+          <Tabs value={playlistTab} onValueChange={(v) => setPlaylistTab(v as PlaylistTab)} className="w-full flex-1 min-h-0 flex flex-col">
             <TabsList className="grid grid-cols-2 w-full">
               <TabsTrigger value="project" className="gap-1.5">
                 <LayoutTemplate className="w-3.5 h-3.5" />
@@ -992,7 +992,7 @@ export default function PublishingCenterPage() {
             </TabsList>
 
             {/* Channels tab */}
-            <TabsContent value="channel" className="space-y-1.5 max-h-[400px] overflow-y-auto mt-3">
+            <TabsContent value="channel" className="space-y-1.5 flex-1 min-h-0 overflow-y-auto mt-3">
               {filteredChannels.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">{t("publishNoChannels")}</p>
               ) : filteredChannels.map((c) => {
@@ -1044,7 +1044,7 @@ export default function PublishingCenterPage() {
             </TabsContent>
 
             {/* Design Projects tab — wraps existing schedule list */}
-            <TabsContent value="project" className="mt-3">
+            <TabsContent value="project" className="mt-3 flex-1 min-h-0 flex flex-col">
               <div className="relative mb-2">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -1054,7 +1054,7 @@ export default function PublishingCenterPage() {
                   className="pl-9 h-9"
                 />
               </div>
-              <div className="space-y-1.5 max-h-[360px] overflow-y-auto">
+              <div className="space-y-1.5 flex-1 min-h-0 overflow-y-auto">
               {filteredDesignProjects.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-4 text-center">{t("publishNoPlaylists")}</p>
               ) : filteredDesignProjects.map((s) => {
@@ -1192,7 +1192,7 @@ export default function PublishingCenterPage() {
           </div>
           <Separator />
           {/* Screens list — fixed height; scrollbar appears when content overflows. */}
-          <div className="space-y-3 overflow-y-auto h-[680px]">
+          <div className="space-y-3 overflow-y-auto h-[630px]">
             {Array.from(groupedScreens.entries()).map(([group, groupScreens]) => {
               // Group checkbox reflects only the eligible screens in the group.
               const eligibleInGroup = groupScreens.filter((s) => !isScreenIncompatible(s.id));
