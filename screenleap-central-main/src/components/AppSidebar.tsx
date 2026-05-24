@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Monitor, Image, CalendarClock, ShieldCheck, Brush, Send, FileText, Store, Megaphone, Users, CloudSun, Instagram, DoorOpen, Languages, Clock, HeadphonesIcon, BookOpen, Radio, BarChart3, AlertTriangle, UserCog, Wrench, Building2, TrendingUp, Code2, LayoutGrid, MonitorPlay, History, Type, Puzzle, ClipboardCheck, Pin, PinOff, ChevronDown, ChevronRight, Zap } from "lucide-react";
+import { Monitor, Image, CalendarClock, ShieldCheck, Brush, Send, FileText, Store, Megaphone, Users, CloudSun, Instagram, DoorOpen, Languages, Clock, HeadphonesIcon, BookOpen, Radio, BarChart3, AlertTriangle, UserCog, Key, Wrench, Building2, TrendingUp, Code2, LayoutGrid, MonitorPlay, History, Type, Puzzle, ClipboardCheck, Pin, PinOff, ChevronDown, ChevronRight, Zap } from "lucide-react";
 import logoImg from "@/assets/logo.png";
 import logoLightImg from "@/assets/logo-light.png";
 import { useTheme } from "next-themes";
