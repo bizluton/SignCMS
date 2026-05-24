@@ -93,3 +93,30 @@ verify_jwt = false
 
 [functions.send-invitation]
 verify_jwt = false
+
+[functions.delete-user]
+verify_jwt = false
+
+[functions.reset-user-password]
+verify_jwt = false
+
+[functions.accept-delegation-request]
+verify_jwt = false
+
+[functions.revoke-delegation-grant]
+verify_jwt = false
+
+[functions.screen-reconnect]
+verify_jwt = false
+
+[functions.send-cs-invitation]
+verify_jwt = false
+
+[functions.telegram-send]
+verify_jwt = false
+
+[functions.trigger-share-sign]
+verify_jwt = false
+
+[functions.queue-system]
+verify_jwt = false

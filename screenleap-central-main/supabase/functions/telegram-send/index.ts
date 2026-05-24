@@ -35,16 +35,16 @@ Deno.serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const token = authHeader.replace('Bearer ', '');
 
-    const { data: claimsData, error: claimsErr } = await supabase.auth.getClaims(token);
-    if (claimsErr || !claimsData?.claims?.sub) {
-      console.error('Auth error:', claimsErr?.message || 'No claims');
+    const { data: userData, error: claimsErr } = await supabase.auth.getUser(token);
+    if (claimsErr || !userData?.user?.id) {
+      console.error('Auth error:', claimsErr?.message || 'No user');
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
-    const userId = claimsData.claims.sub as string;
-    const userEmail = (claimsData.claims.email as string) || '';
+    const userId = userData.user.id;
+    const userEmail = userData.user.email || '';
 
     const body = await req.json();
     const { session_id, content, telegram_chat_id, as_agent, attachment_url, attachment_type } = body;
