@@ -951,8 +951,8 @@ export default function PublishingCenterPage() {
 
         <TabsContent value="publish" className="mt-4">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        {/* Left: Playlist selection */}
-        <Card className="lg:col-span-3 p-4 space-y-3">
+        {/* Left: Playlist selection — flex column so the USB button hugs the card bottom */}
+        <Card className="lg:col-span-3 p-4 flex flex-col gap-3 h-full">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold text-foreground flex items-center gap-2">
               <ListMusic className="w-4 h-4 text-primary" />
@@ -969,7 +969,7 @@ export default function PublishingCenterPage() {
             </button>
           </div>
           <Separator />
-          <Tabs value={playlistTab} onValueChange={(v) => setPlaylistTab(v as PlaylistTab)} className="w-full">
+          <Tabs value={playlistTab} onValueChange={(v) => setPlaylistTab(v as PlaylistTab)} className="w-full flex-1 min-h-0">
             <TabsList className="grid grid-cols-2 w-full">
               <TabsTrigger value="project" className="gap-1.5">
                 <LayoutTemplate className="w-3.5 h-3.5" />
@@ -1121,35 +1121,37 @@ export default function PublishingCenterPage() {
             </TabsContent>
           </Tabs>
 
-          {/* Download button — styled like right-panel publish cards */}
-          <Separator />
+          {/* Download button — compact (~50% of original) and pinned to the card bottom via mt-auto */}
+          <Separator className="mt-auto" />
           <button
             onClick={handleDownloadSelected}
             disabled={!hasSelectedSource || !!downloadingId}
             className={cn(
-              "relative w-full p-5 rounded-xl border-2 transition-all duration-300 text-center group",
+              "relative w-full p-2.5 rounded-lg border-2 transition-all duration-300 flex items-center gap-3 group",
               hasSelectedSource && !downloadingId
-                ? "border-sky-500 bg-sky-500/5 ring-2 ring-sky-500/20 shadow-lg shadow-sky-500/10 cursor-pointer"
+                ? "border-sky-500 bg-sky-500/5 ring-1 ring-sky-500/20 shadow-md shadow-sky-500/10 cursor-pointer"
                 : "border-border opacity-50 cursor-not-allowed",
             )}
           >
             <div className={cn(
-              "w-12 h-12 rounded-full mx-auto mb-3 flex items-center justify-center transition-all",
+              "w-7 h-7 rounded-full shrink-0 flex items-center justify-center transition-all",
               hasSelectedSource && !downloadingId
-                ? "bg-sky-500 text-white scale-110"
+                ? "bg-sky-500 text-white"
                 : "bg-muted text-muted-foreground",
             )}>
               {downloadingId === "selected"
-                ? <Loader2 className="w-6 h-6 animate-spin" />
-                : <Download className="w-6 h-6" />
+                ? <Loader2 className="w-4 h-4 animate-spin" />
+                : <Download className="w-4 h-4" />
               }
             </div>
-            <p className={cn("font-bold text-base", hasSelectedSource && !downloadingId ? "text-sky-600" : "text-foreground")}>
-              {t("publishDownloadUsb")}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t("publishDownloadUsbDesc")}
-            </p>
+            <div className="flex-1 text-left min-w-0">
+              <p className={cn("font-semibold text-xs leading-tight", hasSelectedSource && !downloadingId ? "text-sky-600" : "text-foreground")}>
+                {t("publishDownloadUsb")}
+              </p>
+              <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                {t("publishDownloadUsbDesc")}
+              </p>
+            </div>
           </button>
         </Card>
 
@@ -1190,7 +1192,7 @@ export default function PublishingCenterPage() {
           </div>
           <Separator />
           {/* Screens list — fixed height; scrollbar appears when content overflows. */}
-          <div className="space-y-3 overflow-y-auto h-[720px]">
+          <div className="space-y-3 overflow-y-auto h-[680px]">
             {Array.from(groupedScreens.entries()).map(([group, groupScreens]) => {
               // Group checkbox reflects only the eligible screens in the group.
               const eligibleInGroup = groupScreens.filter((s) => !isScreenIncompatible(s.id));
