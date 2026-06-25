@@ -336,7 +336,9 @@ async function fetchOpenMeteo(
     ),
     fetchUVandAQ(lat, lon),
   ]);
+  if (!fRes.ok) throw new Error(`Open-Meteo HTTP ${fRes.status}: ${await fRes.text()}`);
   const payload = await fRes.json();
+  if (payload?.error) throw new Error(`Open-Meteo: ${payload.reason ?? "unknown error"}`);
   const c = payload?.current;
   if (!c) throw new Error("Open-Meteo: no current data");
 
@@ -364,6 +366,7 @@ async function geocode(
     `https://geocoding-api.open-meteo.com/v1/search` +
     `?name=${encodeURIComponent(city)}&count=10&language=${lang}&format=json`,
   );
+  if (!res.ok) throw new Error(`Open-Meteo geocode HTTP ${res.status}`);
   const payload = await res.json();
   const results: Array<{ latitude: number; longitude: number; name: string; country_code: string }> =
     payload?.results ?? [];
